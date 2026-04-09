@@ -1,324 +1,335 @@
-/**
- * AppContext.jsx — FreePathshala Central State Manager
- * All pages read from and write to this single source of truth.
- * Swap mock helpers for real API calls without touching any page.
- */
+// Frontend/src/context/AppContext.jsx
+// ─── Global State — connects Donors, Pickups, Raddi, Payments, Kabadiwala ───
 
-import { createContext, useContext, useReducer, useCallback, useMemo } from 'react'
-import { raddiMasterData } from '../data/raddimockData'
-import { donors as _donors, pickups as _pickups, kabadiwalas as _kabs } from '../data/mockData'
+import { createContext, useContext, useState, useCallback, useMemo } from 'react'
+import {
+  donors as _initDonors,
+  pickups as _initPickups,
+  kabadiwalas as _initKabs,
+} from '../data/mockData'
+import { raddiMasterData as _initRaddi } from '../data/raddimockData'
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/** Compute health status label + tailwind-ish class from lastPickup date */
-export function getDonorHealth(lastPickup) {
-  if (!lastPickup) return { label: 'New', color: 'badge-info', days: null }
-  const days = Math.floor((Date.now() - new Date(lastPickup)) / 86_400_000)
-  if (days <= 30)  return { label: 'Active',      color: 'badge-success', days }
-  if (days <= 45)  return { label: 'Pickup Due',  color: 'badge-info',    days }
-  if (days <= 60)  return { label: 'At Risk',     color: 'badge-warning', days }
-  return              { label: 'Churned',      color: 'badge-danger',  days }
-}
-
-function today() { return new Date().toISOString().slice(0, 10) }
-let _seq = 9000  // mock ID counter
-
-// ─── Initial State ────────────────────────────────────────────────────────────
-
-/**
- * Enrich donors with computed fields so every page sees the same live status.
- * In production replace with server-derived fields.
- */
-function enrichDonors(donors, pickups) {
-  return donors.map(d => {
-    const donorPickups = pickups
-      .filter(p => p.donorId === d.id && p.status === 'Completed')
-      .sort((a, b) => b.date.localeCompare(a.date))
-
-    const lastPickup   = donorPickups[0]?.date || d.lastPickup || null
-    const health       = getDonorHealth(lastPickup)
-    const totalRST     = donorPickups.reduce((s, p) => s + (p.totalValue || 0), 0) || d.totalRST || 0
-    const totalSKS     = donorPickups.filter(p => p.type === 'SKS').length || d.totalSKS || 0
-    const status       = d.status === 'Lost' ? 'Lost' : health.label
-
-    return { ...d, lastPickup, status, totalRST, totalSKS, _health: health }
-  })
-}
-
-function buildInitialState() {
-  const pickups = _pickups.map(p => ({ ...p }))
-  const donors  = enrichDonors(_donors.map(d => ({ ...d })), pickups)
-
-  // Build KabadiwalaPayments from pickups
-  const kabPayments = _kabs.map(k => {
-    const kPickups  = pickups.filter(p => p.kabadiwala === k.name && p.status === 'Completed')
-    const total     = kPickups.reduce((s, p) => s + (p.totalValue  || 0), 0)
-    const paid      = kPickups.reduce((s, p) => s + (p.amountPaid  || 0), 0)
-    return {
-      id:          k.id,
-      name:        k.name,
-      mobile:      k.mobile,
-      area:        k.area,
-      totalAmount: total,
-      paidAmount:  paid,
-      pendingAmount: total - paid,
-      status:      paid >= total ? 'Cleared' : paid > 0 ? 'Partial' : 'Pending',
-      pickupCount: kPickups.length,
-    }
-  })
-
-  // Sync raddiMasterData as raddiRecords (append-only, driven by pickups)
-  const raddiRecords = raddiMasterData.map(r => ({ ...r, _source: 'seed' }))
-
-  return { donors, pickups, raddiRecords, kabPayments, kabadiwalas: _kabs }
-}
-
-// ─── Reducer ─────────────────────────────────────────────────────────────────
-
-function reducer(state, action) {
-  switch (action.type) {
-
-    // ── Donors ────────────────────────────────────────────────────────────────
-    case 'ADD_DONOR': {
-      const donor = {
-        ...action.payload,
-        id:        `D${++_seq}`,
-        status:    'Active',
-        totalRST:  0,
-        totalSKS:  0,
-        _health:   getDonorHealth(null),
-        createdAt: today(),
-      }
-      return { ...state, donors: [donor, ...state.donors] }
-    }
-
-    case 'UPDATE_DONOR': {
-      const donors = state.donors.map(d =>
-        d.id === action.payload.id ? { ...d, ...action.payload } : d
-      )
-      return { ...state, donors }
-    }
-
-    case 'DELETE_DONOR': {
-      return {
-        ...state,
-        donors:  state.donors.filter(d => d.id !== action.payload),
-        pickups: state.pickups.filter(p => p.donorId !== action.payload),
-      }
-    }
-
-    // ── Pickups ───────────────────────────────────────────────────────────────
-    case 'SCHEDULE_PICKUP': {
-      const pickup = {
-        ...action.payload,
-        id:            `P${++_seq}`,
-        status:        'Pending',
-        paymentStatus: 'Not Paid',
-        amountPaid:    0,
-        totalValue:    0,
-        rstItems:      [],
-        sksItems:      [],
-        createdAt:     today(),
-      }
-      // Update donor nextPickup
-      const donors = state.donors.map(d =>
-        d.id === pickup.donorId ? { ...d, nextPickup: pickup.date } : d
-      )
-      return { ...state, pickups: [pickup, ...state.pickups], donors }
-    }
-
-    case 'RECORD_PICKUP': {
-      // payload: { pickupId, items, totalKg, totalAmount, kabadiwalaName, kabadiwalaPhone, notes }
-      const { pickupId, items, totalKg, totalAmount, kabadiwalaName, kabadiwalaPhone, notes } = action.payload
-      const existing = state.pickups.find(p => p.id === pickupId)
-      if (!existing) return state
-
-      const updatedPickup = {
-        ...existing,
-        status:        'Completed',
-        totalValue:    totalAmount,
-        kabadiwala:    kabadiwalaName,
-        rstItems:      items.filter(Boolean),
-        notes:         notes || existing.notes,
-        completedDate: today(),
-      }
-
-      const pickups = state.pickups.map(p => p.id === pickupId ? updatedPickup : p)
-
-      // Add raddiRecord
-      const raddiRecord = {
-        orderId:        `ORD${String(++_seq).padStart(4, '0')}`,
-        mobile:         existing.mobile || '',
-        name:           existing.donorName,
-        houseNo:        existing.house  || '—',
-        society:        existing.society,
-        sector:         existing.sector || '—',
-        city:           existing.city   || 'Gurgaon',
-        pickupDate:     existing.date,
-        orderDate:      today(),
-        kabadiwalaName,
-        kabadiwalaPhone: kabadiwalaPhone || '—',
-        donorStatus:    'Active',
-        items:          Array.isArray(items) ? items : [],
-        totalKg,
-        totalAmount,
-        paymentStatus:  'Yet to Receive',
-        orderStatus:    'Completed',
-        _pickupId:      pickupId,
-        _source:        'live',
-      }
-
-      // Re-enrich donors so totalRST updates everywhere
-      const enriched = enrichDonors(state.donors, pickups)
-
-      // Refresh kabPayments
-      const kabPayments = state.kabPayments.map(k => {
-        if (k.name !== kabadiwalaName) return k
-        return {
-          ...k,
-          totalAmount:   k.totalAmount + totalAmount,
-          pendingAmount: k.pendingAmount + totalAmount,
-          pickupCount:   k.pickupCount + 1,
-          status:        'Pending',
-        }
-      })
-
-      return {
-        ...state,
-        pickups,
-        donors:       enriched,
-        raddiRecords: [raddiRecord, ...state.raddiRecords],
-        kabPayments,
-      }
-    }
-
-    case 'UPDATE_PICKUP_STATUS': {
-      const pickups = state.pickups.map(p =>
-        p.id === action.payload.id ? { ...p, status: action.payload.status } : p
-      )
-      return { ...state, pickups }
-    }
-
-    // ── Payments (RST — Kabadiwala → FreePathshala) ───────────────────────────
-    case 'UPDATE_PAYMENT': {
-      // payload: { pickupId, additionalAmount, date, notes, refMode, refValue }
-      const { pickupId, additionalAmount } = action.payload
-      const pickups = state.pickups.map(p => {
-        if (p.id !== pickupId) return p
-        const newPaid = (p.amountPaid || 0) + Number(additionalAmount)
-        const status  =
-          newPaid >= p.totalValue ? 'Paid'
-          : newPaid > 0           ? 'Partially Paid'
-          : 'Not Paid'
-        const history = [
-          ...(p.paymentHistory || []),
-          { amount: Number(additionalAmount), date: action.payload.date, notes: action.payload.notes, refMode: action.payload.refMode, ref: action.payload.refValue },
-        ]
-        return { ...p, amountPaid: newPaid, paymentStatus: status, paymentHistory: history }
-      })
-
-      // Mirror to raddiRecords
-      const raddiRecords = state.raddiRecords.map(r => {
-        if (r._pickupId !== pickupId) return r
-        const newPaid = (r.amountPaid || 0) + Number(additionalAmount)
-        return { ...r, amountPaid: newPaid, paymentStatus: newPaid >= r.totalAmount ? 'Received' : 'Yet to Receive' }
-      })
-
-      // Re-tally kabadiwala payment row
-      const updatedPickup = pickups.find(p => p.id === pickupId)
-      const kabPayments = state.kabPayments.map(k => {
-        if (k.name !== updatedPickup?.kabadiwala) return k
-        const kPickups = pickups.filter(p => p.kabadiwala === k.name && p.status === 'Completed')
-        const paid     = kPickups.reduce((s, p) => s + (p.amountPaid || 0), 0)
-        const total    = kPickups.reduce((s, p) => s + (p.totalValue  || 0), 0)
-        return { ...k, paidAmount: paid, pendingAmount: total - paid, status: paid >= total ? 'Cleared' : paid > 0 ? 'Partial' : 'Pending' }
-      })
-
-      return { ...state, pickups, raddiRecords, kabPayments }
-    }
-
-    case 'UPDATE_KAB_PAYMENT': {
-      const kabPayments = state.kabPayments.map(k =>
-        k.id === action.payload.id ? { ...k, ...action.payload } : k
-      )
-      return { ...state, kabPayments }
-    }
-
-    case 'UPDATE_DONOR_STATUS': {
-      const donors = state.donors.map(d =>
-        d.id === action.payload.id
-          ? { ...d, status: action.payload.status, lostReason: action.payload.lostReason }
-          : d
-      )
-      return { ...state, donors }
-    }
-
-    default:
-      return state
-  }
-}
-
-// ─── Context ──────────────────────────────────────────────────────────────────
-
+// ─────────────────────────────────────────────────────────────────────────────
 const AppContext = createContext(null)
 
-export function AppProvider({ children }) {
-  const [state, dispatch] = useReducer(reducer, null, buildInitialState)
-
-  // ── Action creators ────────────────────────────────────────────────────────
-  const addDonor       = useCallback(d  => dispatch({ type: 'ADD_DONOR',          payload: d }),  [])
-  const updateDonor    = useCallback(d  => dispatch({ type: 'UPDATE_DONOR',        payload: d }),  [])
-  const deleteDonor    = useCallback(id => dispatch({ type: 'DELETE_DONOR',        payload: id }), [])
-  const schedulePickup = useCallback(p  => dispatch({ type: 'SCHEDULE_PICKUP',     payload: p }),  [])
-  const recordPickup   = useCallback(p  => dispatch({ type: 'RECORD_PICKUP',       payload: p }),  [])
-  const updatePickupStatus = useCallback((id, status) => dispatch({ type: 'UPDATE_PICKUP_STATUS', payload: { id, status } }), [])
-  const updatePayment  = useCallback(p  => dispatch({ type: 'UPDATE_PAYMENT',      payload: p }),  [])
-  const updateKabPayment = useCallback(p => dispatch({ type: 'UPDATE_KAB_PAYMENT', payload: p }),  [])
-  const updateDonorStatus = useCallback((id, status, lostReason) =>
-    dispatch({ type: 'UPDATE_DONOR_STATUS', payload: { id, status, lostReason } }), [])
-
-  // ── Derived / computed values (memoised) ───────────────────────────────────
-  const stats = useMemo(() => {
-    const { donors, pickups, raddiRecords } = state
-    const completedPickups = pickups.filter(p => p.status === 'Completed')
-    const pendingPickups   = pickups.filter(p => p.status === 'Pending')
-    const today_           = today()
-
-    return {
-      totalDonors:         donors.length,
-      activeDonors:        donors.filter(d => d.status === 'Active').length,
-      totalPickupsThisMonth: completedPickups.filter(p => p.date?.slice(0, 7) === today_.slice(0, 7)).length,
-      totalRSTValue:       completedPickups.reduce((s, p) => s + (p.totalValue || 0), 0),
-      totalKgCollected:    raddiRecords.reduce((s, r) => s + (r.totalKg || 0), 0),
-      overduePickups:      donors.filter(d => d.nextPickup && d.nextPickup < today_ && d.status === 'Active').length,
-      upcomingPickups:     pendingPickups.filter(p => p.date >= today_).length,
-      pendingPayments:     completedPickups.filter(p => p.paymentStatus !== 'Paid').length,
-      drivePickups:        completedPickups.filter(p => p.pickupMode === 'Drive').length,
-      individualPickups:   completedPickups.filter(p => p.pickupMode !== 'Drive').length,
-    }
-  }, [state])
-
-  const value = useMemo(() => ({
-    ...state,
-    stats,
-    // actions
-    addDonor,
-    updateDonor,
-    deleteDonor,
-    schedulePickup,
-    recordPickup,
-    updatePickupStatus,
-    updatePayment,
-    updateKabPayment,
-    updateDonorStatus,
-  }), [state, stats, addDonor, updateDonor, deleteDonor, schedulePickup, recordPickup, updatePickupStatus, updatePayment, updateKabPayment, updateDonorStatus])
-
-  return <AppContext.Provider value={value}>{children}</AppContext.Provider>
-}
-
-/** Hook — use inside any page/component */
 export function useApp() {
   const ctx = useContext(AppContext)
   if (!ctx) throw new Error('useApp must be used inside <AppProvider>')
   return ctx
+}
+
+// ─── helpers ─────────────────────────────────────────────────────────────────
+const uid = (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+const today = () => new Date().toISOString().slice(0, 10)
+
+function derivePaymentStatus(total, paid) {
+  const t = Number(total) || 0
+  const p = Number(paid)  || 0
+  if (t === 0)    return 'Not Paid'
+  if (p >= t)     return 'Paid'
+  if (p > 0)      return 'Partially Paid'
+  return 'Not Paid'
+}
+
+function deriveDonorStatus(lastPickup) {
+  if (!lastPickup) return 'Active'
+  const days = Math.floor((Date.now() - new Date(lastPickup)) / 86_400_000)
+  if (days <= 30) return 'Active'
+  if (days <= 45) return 'Pickup Due'
+  if (days <= 60) return 'At Risk'
+  return 'Churned'
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+export function AppProvider({ children }) {
+  const [donors,    setDonors]    = useState(() => _initDonors)
+  const [pickups,   setPickups]   = useState(() => _initPickups)
+  const [kabadiwalas, setKabs]    = useState(() => _initKabs)
+  const [raddiRecords, setRaddi]  = useState(() => _initRaddi)
+
+  // ── DONORS ──────────────────────────────────────────────────────────────
+
+  const addDonor = useCallback((data) => {
+    const donor = {
+      ...data,
+      id: uid('D'),
+      status: 'Active',
+      totalRST: 0,
+      totalSKS: 0,
+      createdAt: today(),
+      lastPickup: null,
+      nextPickup: null,
+    }
+    setDonors(prev => [donor, ...prev])
+    return donor
+  }, [])
+
+  const updateDonor = useCallback((id, data) => {
+    setDonors(prev => prev.map(d => d.id === id ? { ...d, ...data } : d))
+  }, [])
+
+  const deleteDonor = useCallback((id) => {
+    setDonors(prev => prev.filter(d => d.id !== id))
+  }, [])
+
+  // ── PICKUPS ─────────────────────────────────────────────────────────────
+
+  const schedulePickup = useCallback((data) => {
+    const pickup = {
+      ...data,
+      id: uid('SC'),
+      status: 'Pending',
+      totalValue: 0,
+      amountPaid: 0,
+      paymentStatus: 'Not Paid',
+      rstItems: [],
+      sksItems: [],
+      createdAt: today(),
+    }
+    setPickups(prev => [pickup, ...prev])
+
+    // Mirror nextPickup onto donor
+    if (data.donorId && data.date) {
+      setDonors(prev => prev.map(d =>
+        d.id === data.donorId
+          ? { ...d, nextPickup: data.date, status: deriveDonorStatus(d.lastPickup) }
+          : d
+      ))
+    }
+    return pickup
+  }, [])
+
+  const recordPickup = useCallback((id, data) => {
+    // data contains rstItems, sksItems, totalValue, amountPaid, kabadiwala, etc.
+    const paymentStatus = derivePaymentStatus(data.totalValue, data.amountPaid)
+    const patch = { ...data, status: 'Completed', paymentStatus }
+
+    setPickups(prev => prev.map(p => p.id === id ? { ...p, ...patch } : p))
+
+    // Derive type
+    const type = data.rstItems?.length && data.sksItems?.length ? 'RST+SKS'
+               : data.rstItems?.length ? 'RST'
+               : data.sksItems?.length ? 'SKS' : 'RST'
+
+    // Add raddi master record
+    const pickup  = pickups.find(p => p.id === id) || {}
+    const donor   = donors.find(d => d.id === pickup.donorId) || {}
+    const kabObj  = kabadiwalas.find(k => k.name === data.kabadiwala) || {}
+
+    const raddiRow = {
+      orderId:         id,
+      mobile:          donor.mobile || '',
+      name:            donor.name   || pickup.donorName || '',
+      houseNo:         donor.house  || '',
+      society:         donor.society || pickup.society || '',
+      sector:          donor.sector  || pickup.sector  || '',
+      city:            donor.city    || pickup.city    || '',
+      pickupDate:      data.date || pickup.date || today(),
+      orderDate:       pickup.createdAt || today(),
+      kabadiwalaName:  data.kabadiwala     || '',
+      kabadiwalaPhone: kabObj.mobile       || data.kabadiMobile || '',
+      donorStatus:     deriveDonorStatus(donor.lastPickup || data.date),
+      items:           data.items || Array(9).fill(0),
+      totalKg:         Number(data.totalKg)    || 0,
+      totalAmount:     Number(data.totalValue) || 0,
+      paymentStatus:   paymentStatus === 'Paid'             ? 'Received'
+                     : paymentStatus === 'Partially Paid'   ? 'Yet to Receive'
+                     : 'Yet to Receive',
+      orderStatus:     'Completed',
+      type,
+    }
+
+    setRaddi(prev => {
+      const exists = prev.findIndex(r => r.orderId === id)
+      return exists >= 0
+        ? prev.map((r, i) => i === exists ? raddiRow : r)
+        : [raddiRow, ...prev]
+    })
+
+    // Update donor lastPickup / totalRST / totalSKS
+    setDonors(prev => prev.map(d => {
+      if (d.id !== pickup.donorId) return d
+      return {
+        ...d,
+        lastPickup: data.date || today(),
+        nextPickup: data.nextDate || d.nextPickup,
+        totalRST:   (d.totalRST || 0) + (Number(data.totalValue) || 0),
+        totalSKS:   (d.totalSKS || 0) + (data.sksItems?.length ? 1 : 0),
+        status:     deriveDonorStatus(data.date || today()),
+      }
+    }))
+
+    // Update kabadiwala financials
+    if (data.kabadiwala) {
+      setKabs(prev => prev.map(k => {
+        if (k.name !== data.kabadiwala) return k
+        const val  = Number(data.totalValue) || 0
+        const paid = Number(data.amountPaid) || 0
+        return {
+          ...k,
+          totalPickups:   (k.totalPickups   || 0) + 1,
+          totalValue:     (k.totalValue     || 0) + val,
+          amountReceived: (k.amountReceived || 0) + paid,
+          pendingAmount:  (k.pendingAmount  || 0) + (val - paid),
+          transactions: [
+            ...(k.transactions || []),
+            {
+              date:     data.date || today(),
+              pickupId: id,
+              donor:    donor.name || pickup.donorName || '',
+              value:    val,
+              paid:     paid,
+              status:   paymentStatus,
+            },
+          ],
+        }
+      }))
+    }
+  }, [pickups, donors, kabadiwalas])
+
+  const updatePickup = useCallback((id, data) => {
+    const paymentStatus = data.totalValue !== undefined || data.amountPaid !== undefined
+      ? derivePaymentStatus(data.totalValue, data.amountPaid)
+      : undefined
+
+    setPickups(prev => prev.map(p =>
+      p.id === id ? { ...p, ...data, ...(paymentStatus ? { paymentStatus } : {}) } : p
+    ))
+
+    // Sync raddi record payment status
+    if (paymentStatus) {
+      const raddiPS = paymentStatus === 'Paid'           ? 'Received'
+                    : paymentStatus === 'Partially Paid' ? 'Yet to Receive'
+                    : 'Yet to Receive'
+      setRaddi(prev => prev.map(r =>
+        r.orderId === id
+          ? { ...r, paymentStatus: raddiPS, totalAmount: Number(data.totalValue) ?? r.totalAmount }
+          : r
+      ))
+    }
+  }, [])
+
+  const deletePickup = useCallback((id) => {
+    setPickups(prev => prev.filter(p => p.id !== id))
+    setRaddi(prev => prev.filter(r => r.orderId !== id))
+  }, [])
+
+  // ── KABADIWALA PAYMENT ───────────────────────────────────────────────────
+
+  const recordKabadiwalaPayment = useCallback((kabId, { pickupId, amount, refMode, refValue, notes, date }) => {
+    setKabs(prev => prev.map(k => {
+      if (k.id !== kabId) return k
+      const additional = Number(amount) || 0
+      const newReceived = (k.amountReceived || 0) + additional
+      const newPending  = Math.max(0, (k.pendingAmount || 0) - additional)
+      return {
+        ...k,
+        amountReceived: newReceived,
+        pendingAmount:  newPending,
+        transactions: (k.transactions || []).map(tx => {
+          if (tx.pickupId !== pickupId) return tx
+          const newPaid   = (tx.paid || 0) + additional
+          return {
+            ...tx,
+            paid:   newPaid,
+            status: newPaid >= (tx.value || 0) ? 'Paid' : 'Partially Paid',
+          }
+        }),
+      }
+    }))
+
+    // Sync pickup payment
+    if (pickupId) {
+      setPickups(prev => prev.map(p => {
+        if (p.id !== pickupId) return p
+        const newPaid = (p.amountPaid || 0) + (Number(amount) || 0)
+        const status  = derivePaymentStatus(p.totalValue, newPaid)
+        return {
+          ...p,
+          amountPaid:    newPaid,
+          paymentStatus: status,
+          payHistory: [...(p.payHistory || []), { date, amount: Number(amount), refMode, refValue, notes }],
+        }
+      }))
+    }
+  }, [])
+
+  // ── KABADIWALA CRUD ──────────────────────────────────────────────────────
+
+  const addKabadiwala = useCallback((data) => {
+    const k = {
+      ...data,
+      id: uid('K'),
+      rating: 4.0,
+      totalPickups:   0,
+      totalValue:     0,
+      amountReceived: 0,
+      pendingAmount:  0,
+      transactions:   [],
+    }
+    setKabs(prev => [...prev, k])
+    return k
+  }, [])
+
+  const updateKabadiwala = useCallback((id, data) => {
+    setKabs(prev => prev.map(k => k.id === id ? { ...k, ...data } : k))
+  }, [])
+
+  const deleteKabadiwala = useCallback((id) => {
+    setKabs(prev => prev.filter(k => k.id !== id))
+  }, [])
+
+  // ── DERIVED DASHBOARD STATS ──────────────────────────────────────────────
+
+  const dashboardStats = useMemo(() => {
+    const now = new Date()
+    return {
+      totalDonors:       donors.length,
+      activeDonors:      donors.filter(d => d.status === 'Active').length,
+      postponedDonors:   donors.filter(d => d.status === 'Postponed').length,
+      lostDonors:        donors.filter(d => d.status === 'Lost').length,
+      totalPickupsThisMonth: pickups.filter(p => p.status === 'Completed').length,
+      totalRSTValue:     pickups.reduce((s, p) => s + (p.totalValue || 0), 0),
+      pendingPayments:   pickups.filter(p =>
+        p.paymentStatus === 'Not Paid' || p.paymentStatus === 'Partially Paid'
+      ).length,
+      upcomingPickups:   pickups.filter(p => p.status === 'Pending').length,
+      overduePickups:    donors.filter(d =>
+        d.nextPickup && new Date(d.nextPickup) < now && d.status === 'Active'
+      ).length,
+      drivePickups:      pickups.filter(p => p.pickupMode === 'Drive').length,
+      individualPickups: pickups.filter(p => p.pickupMode === 'Individual').length,
+      totalRaddiKg:      raddiRecords.reduce((s, r) => s + (r.totalKg || 0), 0),
+      totalRevenue:      raddiRecords.reduce((s, r) => s + (r.totalAmount || 0), 0),
+    }
+  }, [donors, pickups, raddiRecords])
+
+  // ─────────────────────────────────────────────────────────────────────────
+  const value = {
+    // State
+    donors,
+    pickups,
+    kabadiwalas,
+    raddiRecords,
+    dashboardStats,
+
+    // Donor actions
+    addDonor,
+    updateDonor,
+    deleteDonor,
+
+    // Pickup actions
+    schedulePickup,
+    recordPickup,
+    updatePickup,
+    deletePickup,
+
+    // Kabadiwala actions
+    addKabadiwala,
+    updateKabadiwala,
+    deleteKabadiwala,
+    recordKabadiwalaPayment,
+  }
+
+  return <AppContext.Provider value={value}>{children}</AppContext.Provider>
 }

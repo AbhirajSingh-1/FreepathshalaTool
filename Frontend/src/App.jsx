@@ -1,17 +1,18 @@
+// Frontend/src/App.jsx
 import { useState, useEffect } from 'react'
-import { AppProvider }      from './context/AppContext'
-import Sidebar              from './component/Layout/Sidebar'
-import Header               from './component/Layout/Header'
-import Dashboard            from './pages/Dashboard'
-import Donors               from './pages/Donors'
-import Pickups              from './pages/Pickups'
-import Kabadiwala           from './pages/Kabadiwala'
-import Payments             from './pages/Payments'
-import PickupScheduler      from './pages/PickupScheduler'
-import KabadiPickups        from './pages/KabadiPickups'
-import CustomerPickups      from './pages/CustomerPickups'
-import Reports              from './pages/Reports'
-import RaddiMaster          from './pages/RaddiMaster'
+import { AppProvider } from './context/AppContext'
+import Sidebar           from './component/Layout/Sidebar'
+import Header            from './component/Layout/Header'
+import Dashboard         from './pages/Dashboard'
+import Donors            from './pages/Donors'
+import Pickups           from './pages/Pickups'
+import Kabadiwala        from './pages/Kabadiwala'
+import Payments          from './pages/Payments'
+import PickupScheduler   from './pages/PickupScheduler'
+import KabadiPickups     from './pages/KabadiPickups'
+import CustomerPickups   from './pages/CustomerPickups'
+import Reports           from './pages/Reports'
+import RaddiMaster       from './pages/RaddiMaster'
 
 const PAGES = {
   dashboard:       Dashboard,
@@ -31,7 +32,7 @@ function getPageFromHash() {
   return PAGES[hash] ? hash : 'dashboard'
 }
 
-function AppInner() {
+function AppShell() {
   const [page, setPage]      = useState(getPageFromHash)
   const [sidebarOpen, setSO] = useState(false)
   const [addDonor, setAddD]  = useState(false)
@@ -44,9 +45,9 @@ function AppInner() {
   }
 
   useEffect(() => {
-    const onHash = () => setPage(getPageFromHash())
-    window.addEventListener('hashchange', onHash)
-    return () => window.removeEventListener('hashchange', onHash)
+    const onHashChange = () => setPage(getPageFromHash())
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
   }, [])
 
   const PageComponent = PAGES[page] || Dashboard
@@ -82,7 +83,7 @@ function AppInner() {
 export default function App() {
   return (
     <AppProvider>
-      <AppInner />
+      <AppShell />
     </AppProvider>
   )
 }

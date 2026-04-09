@@ -1,401 +1,466 @@
-/**
- * Payments.jsx — Advanced two-section payment tracking
- * Section A: RST Payment (Kabadiwala → FreePathshala) by pickup/sector
- * Section B: Kabadiwala Payment ledger with edit modal
- *
- * All data flows from AppContext — recording a payment here instantly
- * updates RaddiMaster, Dashboard, and Kabadiwala pages.
- */
+// Frontend/src/pages/Payments.jsx
+// Two sections: A) RST Revenue Analytics  B) Kabadiwala Payment Tracking
 import { useState, useMemo } from 'react'
 import {
-  IndianRupee, X, CheckCircle, Clock, TrendingUp,
-  Download, Plus, CreditCard, Smartphone, FileText, Hash,
+  IndianRupee, X, Clock, CheckCircle, AlertCircle,
+  Download, History, TrendingUp, Plus, Copy, Check,
+  Hash, FileText, CreditCard, Smartphone, BarChart3,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { fmtDate, fmtCurrency, paymentStatusColor, exportToExcel } from '../utils/helpers'
-import { CITY_SECTORS, CITIES } from '../data/mockData'
+import { CITIES, CITY_SECTORS } from '../data/mockData'
+import { RADDI_ITEM_LABELS } from '../data/raddiMockData'
 
 const REF_MODES = [
   { value: 'upi',    label: 'UPI',       icon: Smartphone,  placeholder: 'UPI transaction ID' },
-  { value: 'cash',   label: 'Cash',      icon: IndianRupee, placeholder: 'Receipt no. (optional)' },
-  { value: 'neft',   label: 'NEFT/IMPS', icon: CreditCard,  placeholder: 'NEFT reference number' },
+  { value: 'cash',   label: 'Cash',      icon: IndianRupee, placeholder: 'Receipt number (optional)' },
+  { value: 'neft',   label: 'NEFT/IMPS', icon: CreditCard,  placeholder: 'NEFT/IMPS reference number' },
   { value: 'cheque', label: 'Cheque',    icon: FileText,    placeholder: 'Cheque number' },
   { value: 'other',  label: 'Other',     icon: Hash,        placeholder: 'Reference / transaction ID' },
 ]
 
-// ─── Section A: RST Pickup Payments ───────────────────────────────────────────
+const refModeLabel = (mode) => REF_MODES.find(r => r.value === mode)?.label || mode || '—'
 
-function SectionRST({ pickups, updatePayment }) {
-  const [modal,        setModal]       = useState(null)
-  const [saving,       setSaving]      = useState(false)
-  const [amount,       setAmount]      = useState('')
-  const [date,         setDate]        = useState(new Date().toISOString().slice(0, 10))
-  const [notes,        setNotes]       = useState('')
-  const [refMode,      setRefMode]     = useState('upi')
-  const [refVal,       setRefVal]      = useState('')
-  const [refError,     setRefError]    = useState('')
-  const [filterKab,    setFilterKab]   = useState('All')
-  const [filterCity,   setFilterCity]  = useState('')
-  const [filterSector, setFilterSect]  = useState('')
-  const [filterStat,   setFilterStat]  = useState('All')
-  const [dateFrom,     setDateFrom]    = useState('')
-  const [dateTo,       setDateTo]      = useState('')
+const calcPayStatus = (total, paid) => {
+  const t = Number(total) || 0; const p = Number(paid) || 0
+  if (t === 0) return 'Not Paid'
+  if (p >= t)  return 'Paid'
+  if (p > 0)   return 'Partially Paid'
+  return 'Not Paid'
+}
 
-  const kabNames     = [...new Set(pickups.map(p => p.kabadiwala).filter(Boolean))]
-  const sectOptions  = CITY_SECTORS[filterCity] || []
+// ─────────────────────────────────────────────────────────────────────────────
+// A) RST Revenue Analytics
+// ─────────────────────────────────────────────────────────────────────────────
+function RSTAnalytics({ raddiRecords }) {
+  const [datePreset, setDatePreset]   = useState('month')
+  const [dateFrom,   setDateFrom]     = useState('')
+  const [dateTo,     setDateTo]       = useState('')
+  const [viewType,   setViewType]     = useState('daily')  // 'daily' | 'monthly'
+  const [filterSector, setFilterSector] = useState('')
 
+  const uniqueSectors = useMemo(() => [...new Set(raddiRecords.map(r => r.sector).filter(Boolean))].sort(), [raddiRecords])
+
+  const dateRange = useMemo(() => {
+    const now = new Date()
+    if (datePreset === 'today')  return { from: now.toISOString().slice(0, 10), to: now.toISOString().slice(0, 10) }
+    if (datePreset === 'week')   { const d = new Date(now); d.setDate(d.getDate() - 7); return { from: d.toISOString().slice(0, 10), to: now.toISOString().slice(0, 10) } }
+    if (datePreset === 'month')  { const d = new Date(now); d.setDate(1); return { from: d.toISOString().slice(0, 10), to: now.toISOString().slice(0, 10) } }
+    return { from: dateFrom, to: dateTo }
+  }, [datePreset, dateFrom, dateTo])
+
+  const filtered = useMemo(() => raddiRecords.filter(r => {
+    const matchDate   = (!dateRange.from || r.pickupDate >= dateRange.from) && (!dateRange.to || r.pickupDate <= dateRange.to)
+    const matchSector = !filterSector || r.sector === filterSector
+    return matchDate && matchSector && r.orderStatus === 'Completed'
+  }), [raddiRecords, dateRange, filterSector])
+
+  // Group by date or month
+  const grouped = useMemo(() => {
+    const map = {}
+    filtered.forEach(r => {
+      const key = viewType === 'monthly' ? r.pickupDate?.slice(0, 7) : r.pickupDate
+      if (!map[key]) map[key] = { key, sector: r.sector || 'Unknown', revenue: 0, kg: 0, count: 0 }
+      map[key].revenue += r.totalAmount || 0
+      map[key].kg      += r.totalKg     || 0
+      map[key].count   += 1
+    })
+    return Object.values(map).sort((a, b) => b.key.localeCompare(a.key))
+  }, [filtered, viewType])
+
+  // Sector summary
+  const sectorSummary = useMemo(() => {
+    const map = {}
+    filtered.forEach(r => {
+      const s = r.sector || 'Unknown'
+      if (!map[s]) map[s] = { sector: s, revenue: 0, kg: 0, orders: 0 }
+      map[s].revenue += r.totalAmount || 0
+      map[s].kg      += r.totalKg     || 0
+      map[s].orders  += 1
+    })
+    return Object.values(map).sort((a, b) => b.revenue - a.revenue)
+  }, [filtered])
+
+  const totalRevenue  = filtered.reduce((s, r) => s + (r.totalAmount || 0), 0)
+  const totalKg       = filtered.reduce((s, r) => s + (r.totalKg || 0), 0)
+  const totalOrders   = filtered.length
+
+  return (
+    <div>
+      {/* KPIs */}
+      <div className="stat-grid" style={{ marginBottom: 20 }}>
+        <div className="stat-card orange">
+          <div className="stat-icon" style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}><TrendingUp size={18}/></div>
+          <div className="stat-value">{fmtCurrency(totalRevenue)}</div>
+          <div className="stat-label">Total Revenue (filtered)</div>
+        </div>
+        <div className="stat-card green">
+          <div className="stat-icon" style={{ background: 'var(--secondary-light)', color: 'var(--secondary)' }}>🏋️</div>
+          <div className="stat-value">{totalKg} kg</div>
+          <div className="stat-label">Total Raddi Collected</div>
+        </div>
+        <div className="stat-card blue">
+          <div className="stat-icon" style={{ background: 'var(--info-bg)', color: 'var(--info)' }}>#</div>
+          <div className="stat-value">{totalOrders}</div>
+          <div className="stat-label">Completed Orders</div>
+        </div>
+        <div className="stat-card yellow">
+          <div className="stat-icon" style={{ background: 'var(--accent-light)', color: '#92400E' }}>₹/kg</div>
+          <div className="stat-value">{totalKg > 0 ? Math.round(totalRevenue / totalKg) : 0}</div>
+          <div className="stat-label">Avg Rate (₹/kg)</div>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16, alignItems: 'flex-end' }}>
+        {/* Date presets */}
+        <div style={{ display: 'flex', gap: 6 }}>
+          {[['today','Today'],['week','Last 7 Days'],['month','This Month'],['custom','Custom']].map(([v, l]) => (
+            <button key={v} className={`btn btn-sm ${datePreset === v ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => setDatePreset(v)}>{l}</button>
+          ))}
+        </div>
+        {datePreset === 'custom' && (
+          <>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label style={{ fontSize: 11, fontWeight: 600 }}>From</label>
+              <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} />
+            </div>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label style={{ fontSize: 11, fontWeight: 600 }}>To</label>
+              <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} />
+            </div>
+          </>
+        )}
+        <select value={filterSector} onChange={e => setFilterSector(e.target.value)} style={{ minWidth: 160 }}>
+          <option value="">All Sectors</option>
+          {uniqueSectors.map(s => <option key={s}>{s}</option>)}
+        </select>
+        <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
+          {[['daily','Daily'],['monthly','Monthly']].map(([v, l]) => (
+            <button key={v} className={`btn btn-sm ${viewType === v ? 'btn-outline' : 'btn-ghost'}`}
+              onClick={() => setViewType(v)}>{l}</button>
+          ))}
+        </div>
+      </div>
+
+      <div className="two-col" style={{ marginBottom: 20 }}>
+        {/* Revenue Table */}
+        <div className="card">
+          <div className="card-header">
+            <div className="card-title">{viewType === 'monthly' ? 'Monthly' : 'Daily'} Revenue</div>
+          </div>
+          <div className="table-wrap" style={{ border: 'none', boxShadow: 'none', borderRadius: 0 }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>{viewType === 'monthly' ? 'Month' : 'Date'}</th>
+                  <th>Sector</th>
+                  <th>Orders</th>
+                  <th>Kg</th>
+                  <th>Revenue</th>
+                </tr>
+              </thead>
+              <tbody>
+                {grouped.length === 0 ? (
+                  <tr><td colSpan={5} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>No data for selected range</td></tr>
+                ) : grouped.map(g => (
+                  <tr key={g.key}>
+                    <td style={{ fontFamily: 'monospace', fontSize: 12.5 }}>{g.key}</td>
+                    <td style={{ fontSize: 12.5 }}>{g.sector}</td>
+                    <td style={{ fontWeight: 600 }}>{g.count}</td>
+                    <td style={{ fontWeight: 600 }}>{g.kg} kg</td>
+                    <td style={{ fontWeight: 700, color: 'var(--secondary)' }}>{fmtCurrency(g.revenue)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Sector Summary */}
+        <div className="card">
+          <div className="card-header"><div className="card-title">Sector Summary</div></div>
+          <div className="table-wrap" style={{ border: 'none', boxShadow: 'none', borderRadius: 0 }}>
+            <table>
+              <thead><tr><th>Sector</th><th>Orders</th><th>Kg</th><th>Revenue</th></tr></thead>
+              <tbody>
+                {sectorSummary.length === 0 ? (
+                  <tr><td colSpan={4} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>No data</td></tr>
+                ) : sectorSummary.map(s => (
+                  <tr key={s.sector}>
+                    <td style={{ fontWeight: 600, fontSize: 13 }}>{s.sector}</td>
+                    <td>{s.orders}</td>
+                    <td>{s.kg} kg</td>
+                    <td style={{ fontWeight: 700, color: 'var(--primary)' }}>{fmtCurrency(s.revenue)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// B) Kabadiwala Payment Tracking (original logic, now context-driven)
+// ─────────────────────────────────────────────────────────────────────────────
+function KabadiwalaTracking({ pickups, updatePickup }) {
+  const [modal,       setModal]      = useState(null)
+  const [histModal,   setHistModal]  = useState(null)
+  const [saving,      setSaving]     = useState(false)
+  const [highlightId, setHighlight]  = useState(null)
+  const [copied,      setCopied]     = useState(null)
+  const [editAdditional, setEditAmt] = useState('')
+  const [editDate,    setEditDate]   = useState('')
+  const [editNotes,   setEditNotes]  = useState('')
+  const [editRefMode, setEditRef]    = useState('upi')
+  const [editRefVal,  setEditRefVal] = useState('')
+  const [refError,    setRefError]   = useState('')
+  const [filterKab,   setFilterKab]  = useState('All')
+  const [filterStatus,setFilterStat] = useState('All')
+
+  const kabNames = [...new Set(pickups.map(p => p.kabadiwala).filter(Boolean))]
   const filtered = pickups.filter(p => {
-    if (!p.totalValue && p.status !== 'Completed') return false
-    const mK  = filterKab === 'All'  || p.kabadiwala === filterKab
-    const mCi = !filterCity   || p.city === filterCity
-    const mSe = !filterSector || p.sector === filterSector
-    const mSt = filterStat === 'All' || p.paymentStatus === filterStat
-    const mF  = !dateFrom || p.date >= dateFrom
-    const mT  = !dateTo   || p.date <= dateTo
-    return mK && mCi && mSe && mSt && mF && mT && p.status === 'Completed'
-  }).sort((a, b) => b.date.localeCompare(a.date))
+    if (p.totalValue === 0 && p.status !== 'Completed') return false
+    const matchKab  = filterKab === 'All'    || p.kabadiwala === filterKab
+    const matchStat = filterStatus === 'All' || p.paymentStatus === filterStatus
+    return matchKab && matchStat
+  }).sort((a, b) => (b.date || '').localeCompare(a.date || ''))
 
   const totalValue   = filtered.reduce((s, p) => s + (p.totalValue  || 0), 0)
   const totalPaid    = filtered.reduce((s, p) => s + (p.amountPaid  || 0), 0)
   const totalPending = totalValue - totalPaid
 
-  // Sector-wise breakdown
-  const sectorMap = useMemo(() => {
-    const m = {}
-    filtered.forEach(p => {
-      const k = p.sector || p.city || 'Unknown'
-      if (!m[k]) m[k] = { value: 0, paid: 0, count: 0 }
-      m[k].value += p.totalValue || 0
-      m[k].paid  += p.amountPaid || 0
-      m[k].count += 1
-    })
-    return Object.entries(m).sort(([, a], [, b]) => b.value - a.value)
-  }, [filtered])
-
   const openEdit = (p) => {
     setModal(p)
-    setAmount(String(Math.max(0, (p.totalValue || 0) - (p.amountPaid || 0))))
-    setDate(new Date().toISOString().slice(0, 10))
-    setNotes(''); setRefMode('upi'); setRefVal(''); setRefError('')
+    setEditAmt(String(Math.max(0, (p.totalValue || 0) - (p.amountPaid || 0))))
+    setEditDate(new Date().toISOString().slice(0, 10))
+    setEditNotes(''); setEditRef('upi'); setEditRefVal(''); setRefError('')
   }
 
-  const validate = () => {
-    if (!amount || Number(amount) <= 0) return 'Enter a valid payment amount.'
-    if (refMode !== 'cash' && !refVal.trim()) return `Please enter the ${REF_MODES.find(r => r.value === refMode)?.label} reference.`
-    return ''
-  }
-
-  const save = async () => {
-    const err = validate()
-    if (err) { setRefError(err); return }
+  const savePayment = async () => {
+    if (!editAdditional || Number(editAdditional) <= 0) { setRefError('Enter a valid amount.'); return }
+    if (editRefMode !== 'cash' && !editRefVal.trim()) { setRefError(`Enter ${refModeLabel(editRefMode)} reference.`); return }
     setSaving(true)
-    await new Promise(r => setTimeout(r, 400))
-    updatePayment({ pickupId: modal.id, additionalAmount: Number(amount), date, notes, refMode, refValue: refVal })
-    setSaving(false)
-    setModal(null)
+    const additional   = Number(editAdditional) || 0
+    const newTotalPaid = Math.min((modal.amountPaid || 0) + additional, modal.totalValue || 0)
+    const status       = calcPayStatus(modal.totalValue, newTotalPaid)
+    const newEntry     = { date: editDate, amount: additional, cumulative: newTotalPaid, notes: editNotes.trim(), refMode: editRefMode, refValue: editRefVal.trim() }
+    updatePickup(modal.id, { amountPaid: newTotalPaid, paymentStatus: status, payHistory: [...(modal.payHistory || []), newEntry] })
+    setHighlight(modal.id); setTimeout(() => setHighlight(null), 2500)
+    setModal(null); setSaving(false)
   }
 
-  const handleExport = () => exportToExcel(
-    filtered.map(p => ({
-      'Pickup ID': p.id, Donor: p.donorName, Date: p.date, Society: p.society,
-      Sector: p.sector, City: p.city, Kabadiwala: p.kabadiwala,
-      'RST Value': p.totalValue, 'Amount Paid': p.amountPaid,
-      Due: (p.totalValue || 0) - (p.amountPaid || 0), Status: p.paymentStatus,
-    })),
-    'RST_Payments'
-  )
+  const copyRef = (val) => { navigator.clipboard.writeText(val).catch(() => {}); setCopied(val); setTimeout(() => setCopied(null), 1500) }
+  const selRef  = REF_MODES.find(r => r.value === editRefMode)
+  const prevAmt = modal ? Math.max(0, (modal.totalValue || 0) - (modal.amountPaid || 0)) : 0
+  const previewNewTotal  = modal ? Math.min((modal.amountPaid || 0) + (Number(editAdditional) || 0), modal.totalValue || 0) : 0
+  const previewRemaining = modal ? Math.max(0, (modal.totalValue || 0) - previewNewTotal) : 0
+  const previewStatus    = modal ? calcPayStatus(modal.totalValue, previewNewTotal) : ''
 
   return (
     <div>
-      {/* Summary cards */}
+      {/* Summary */}
       <div className="stat-grid" style={{ marginBottom: 20 }}>
-        <div className="stat-card green">
-          <div className="stat-icon"><IndianRupee size={18} /></div>
-          <div className="stat-value">{fmtCurrency(totalValue)}</div>
-          <div className="stat-label">Total RST Value</div>
-        </div>
-        <div className="stat-card orange">
-          <div className="stat-icon"><CheckCircle size={18} /></div>
-          <div className="stat-value">{fmtCurrency(totalPaid)}</div>
-          <div className="stat-label">Amount Received</div>
-        </div>
-        <div className="stat-card red">
-          <div className="stat-icon"><Clock size={18} /></div>
-          <div className="stat-value">{fmtCurrency(totalPending)}</div>
-          <div className="stat-label">Pending</div>
-        </div>
-        <div className="stat-card blue">
-          <div className="stat-icon"><TrendingUp size={18} /></div>
-          <div className="stat-value">{filtered.length}</div>
-          <div className="stat-label">Total Pickups</div>
-        </div>
+        <div className="stat-card orange"><div className="stat-icon" style={{ background:'var(--primary-light)',color:'var(--primary)' }}><TrendingUp size={18}/></div><div className="stat-value">{fmtCurrency(totalValue)}</div><div className="stat-label">Total RST Value</div></div>
+        <div className="stat-card green"><div className="stat-icon" style={{ background:'var(--secondary-light)',color:'var(--secondary)' }}><CheckCircle size={18}/></div><div className="stat-value">{fmtCurrency(totalPaid)}</div><div className="stat-label">Total Received</div></div>
+        <div className="stat-card red"><div className="stat-icon" style={{ background:'var(--danger-bg)',color:'var(--danger)' }}><Clock size={18}/></div><div className="stat-value">{fmtCurrency(totalPending)}</div><div className="stat-label">Total Pending</div></div>
+        <div className="stat-card blue"><div className="stat-icon" style={{ background:'var(--info-bg)',color:'var(--info)' }}><AlertCircle size={18}/></div><div className="stat-value">{filtered.filter(p => p.paymentStatus !== 'Paid').length}</div><div className="stat-label">Unpaid Entries</div></div>
       </div>
 
-      {/* Sector-wise breakdown */}
-      {sectorMap.length > 0 && (
-        <div className="card" style={{ marginBottom: 20 }}>
-          <div className="card-header"><div className="card-title">Sector-wise Revenue</div></div>
-          <div className="table-wrap" style={{ border: 'none', boxShadow: 'none', borderRadius: 0 }}>
-            <table>
-              <thead><tr><th>Sector</th><th>Pickups</th><th>Total Value</th><th>Received</th><th>Pending</th><th>Recovery %</th></tr></thead>
-              <tbody>
-                {sectorMap.map(([sector, d]) => {
-                  const pct = d.value > 0 ? Math.round((d.paid / d.value) * 100) : 0
-                  return (
-                    <tr key={sector}>
-                      <td style={{ fontWeight: 600 }}>{sector}</td>
-                      <td>{d.count}</td>
-                      <td style={{ fontWeight: 600 }}>{fmtCurrency(d.value)}</td>
-                      <td style={{ color: 'var(--secondary)', fontWeight: 600 }}>{fmtCurrency(d.paid)}</td>
-                      <td style={{ color: 'var(--danger)', fontWeight: 600 }}>{fmtCurrency(d.value - d.paid)}</td>
-                      <td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <div style={{ flex: 1, height: 6, background: 'var(--border-light)', borderRadius: 4, overflow: 'hidden' }}>
-                            <div style={{ width: `${pct}%`, height: '100%', background: pct >= 80 ? 'var(--secondary)' : pct >= 50 ? 'var(--warning)' : 'var(--danger)', borderRadius: 4 }} />
-                          </div>
-                          <span style={{ fontSize: 12, fontWeight: 600, minWidth: 34 }}>{pct}%</span>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
       {/* Filters */}
-      <div className="filter-bar" style={{ flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
-        <select value={filterKab} onChange={e => setFilterKab(e.target.value)} style={{ flex: '1 1 140px' }}>
+      <div className="filter-bar" style={{ flexWrap:'wrap', gap:10, marginBottom:16 }}>
+        <select value={filterKab} onChange={e => setFilterKab(e.target.value)} style={{ flex:'1 1 160px' }}>
           <option value="All">All Kabadiwalas</option>
           {kabNames.map(k => <option key={k}>{k}</option>)}
         </select>
-        <select value={filterCity} onChange={e => { setFilterCity(e.target.value); setFilterSect('') }} style={{ flex: '1 1 120px' }}>
-          <option value="">All Cities</option>
-          {CITIES.map(c => <option key={c}>{c}</option>)}
+        <select value={filterStatus} onChange={e => setFilterStat(e.target.value)} style={{ flex:'1 1 160px' }}>
+          <option value="All">All Payment Status</option>
+          <option>Paid</option><option>Not Paid</option><option>Partially Paid</option>
         </select>
-        <select value={filterSector} onChange={e => setFilterSect(e.target.value)} disabled={!filterCity} style={{ flex: '1 1 130px' }}>
-          <option value="">All Sectors</option>
-          {sectOptions.map(s => <option key={s}>{s}</option>)}
-        </select>
-        <select value={filterStat} onChange={e => setFilterStat(e.target.value)} style={{ flex: '1 1 130px' }}>
-          <option value="All">All Statuses</option>
-          {['Paid', 'Partially Paid', 'Not Paid'].map(s => <option key={s}>{s}</option>)}
-        </select>
-        <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ flex: '1 1 130px' }} />
-        <input type="date" value={dateTo}   onChange={e => setDateTo(e.target.value)}   style={{ flex: '1 1 130px' }} />
-        <button className="btn btn-ghost btn-sm" onClick={handleExport}><Download size={13} /> Export</button>
+        <button className="btn btn-ghost btn-sm" onClick={() => exportToExcel(filtered.map(p => ({'Pickup ID':p.id,'Donor':p.donorName,'Kabadiwala':p.kabadiwala||'—','Date':p.date,'Total Value (₹)':p.totalValue,'Amount Paid (₹)':p.amountPaid,'Remaining (₹)':(p.totalValue||0)-(p.amountPaid||0),'Payment Status':p.paymentStatus})),'Payments_Report')} style={{ marginLeft:'auto' }}>
+          <Download size={13}/> Export
+        </button>
       </div>
 
-      {/* Pickups Table */}
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Pickup ID</th><th>Donor</th><th>Date</th><th>Kabadiwala</th>
-              <th>RST Value</th><th>Paid</th><th>Due</th><th>Status</th><th>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.length === 0 ? (
-              <tr><td colSpan={9} style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}>No records found</td></tr>
-            ) : filtered.map(p => (
-              <tr key={p.id} style={{ background: p.paymentStatus === 'Paid' ? 'rgba(27,94,53,0.03)' : 'inherit' }}>
-                <td><span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-muted)' }}>{p.id}</span></td>
-                <td style={{ fontWeight: 600 }}>{p.donorName}<div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{p.society}</div></td>
-                <td style={{ fontSize: 12.5 }}>{fmtDate(p.date)}</td>
-                <td style={{ fontSize: 12.5 }}>{p.kabadiwala || '—'}</td>
-                <td style={{ fontWeight: 600 }}>{fmtCurrency(p.totalValue)}</td>
-                <td style={{ color: 'var(--secondary)', fontWeight: 600 }}>{fmtCurrency(p.amountPaid || 0)}</td>
-                <td style={{ color: 'var(--danger)', fontWeight: 700 }}>
-                  {(p.totalValue - (p.amountPaid || 0)) > 0 ? fmtCurrency(p.totalValue - (p.amountPaid || 0)) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
-                </td>
-                <td><span className={`badge ${paymentStatusColor(p.paymentStatus)}`}>{p.paymentStatus}</span></td>
-                <td>
-                  {p.paymentStatus !== 'Paid' ? (
-                    <button className="btn btn-primary btn-sm" onClick={() => openEdit(p)} style={{ fontSize: 11 }}>
-                      <Plus size={11} /> Record
-                    </button>
-                  ) : (
-                    <span style={{ fontSize: 11, color: 'var(--secondary)', fontWeight: 600 }}>✓ Cleared</span>
+      {filtered.length === 0 ? (
+        <div className="empty-state"><div className="empty-icon"><IndianRupee size={24}/></div><h3>No records</h3><p>Adjust filters.</p></div>
+      ) : (
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))', gap:14 }}>
+          {filtered.map(p => {
+            const rem  = (p.totalValue||0) - (p.amountPaid||0)
+            const pct  = p.totalValue > 0 ? Math.min(100, Math.round(((p.amountPaid||0)/p.totalValue)*100)) : 0
+            const lastP = (p.payHistory||[]).slice(-1)[0]
+            return (
+              <div key={p.id} className="card" style={{ transition:'box-shadow 0.3s', boxShadow: highlightId===p.id ? '0 0 0 2px var(--secondary)' : undefined }}>
+                <div className="card-body">
+                  <div style={{ display:'flex', alignItems:'flex-start', gap:12, marginBottom:12 }}>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontWeight:700, fontSize:14 }}>{p.donorName}</div>
+                      <div style={{ fontSize:12, color:'var(--text-muted)', marginTop:2 }}>{fmtDate(p.date)} · {p.kabadiwala||'No kabadiwala'}</div>
+                    </div>
+                    <span className={`badge ${paymentStatusColor(p.paymentStatus)}`} style={{ flexShrink:0, fontSize:11 }}>{p.paymentStatus}</span>
+                  </div>
+                  <div style={{ display:'flex', gap:8, marginBottom:12 }}>
+                    {[{val:fmtCurrency(p.totalValue),label:'Total',bg:'var(--bg)',col:'var(--text-primary)'},{val:fmtCurrency(p.amountPaid||0),label:'Paid',bg:'var(--secondary-light)',col:'var(--secondary)'},{val:rem>0?fmtCurrency(rem):'✓',label:'Due',bg:rem>0?'var(--danger-bg)':'var(--bg)',col:rem>0?'var(--danger)':'var(--text-muted)'}].map(item => (
+                      <div key={item.label} style={{ flex:'1 1 80px', background:item.bg, borderRadius:8, padding:'8px 12px', textAlign:'center' }}>
+                        <div style={{ fontWeight:700, fontSize:14, color:item.col }}>{item.val}</div>
+                        <div style={{ fontSize:10, color:'var(--text-muted)', textTransform:'uppercase' }}>{item.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {p.totalValue > 0 && (
+                    <div style={{ marginBottom:12 }}>
+                      <div style={{ height:5, background:'var(--border)', borderRadius:3, overflow:'hidden' }}>
+                        <div style={{ height:'100%', borderRadius:3, transition:'width 0.4s', width:`${pct}%`, background:pct===100?'var(--secondary)':pct>0?'var(--warning)':'var(--danger)' }} />
+                      </div>
+                      <div style={{ fontSize:10.5, color:'var(--text-muted)', marginTop:4 }}>{pct}% paid</div>
+                    </div>
                   )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                  {lastP?.refValue && (
+                    <div style={{ marginBottom:12, padding:'7px 10px', background:'var(--bg)', borderRadius:8, display:'flex', alignItems:'center', gap:8 }}>
+                      <Hash size={11} color="var(--text-muted)"/>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:10, color:'var(--text-muted)', textTransform:'uppercase', fontWeight:600 }}>{refModeLabel(lastP.refMode)} ref</div>
+                        <div style={{ fontSize:12, fontFamily:'monospace', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{lastP.refValue}</div>
+                      </div>
+                      <button className="btn btn-ghost btn-icon btn-sm" onClick={() => copyRef(lastP.refValue)}>
+                        {copied===lastP.refValue ? <Check size={12} color="var(--secondary)"/> : <Copy size={12}/>}
+                      </button>
+                    </div>
+                  )}
+                  <div style={{ display:'flex', gap:8 }}>
+                    {(p.payHistory||[]).length > 0 && (
+                      <button className="btn btn-ghost btn-sm" onClick={() => setHistModal(p)}>
+                        <History size={12}/> History ({p.payHistory.length})
+                      </button>
+                    )}
+                    <button className="btn btn-outline btn-sm" style={{ flex:1 }} onClick={() => openEdit(p)} disabled={p.paymentStatus==='Paid'}>
+                      <Plus size={12}/> {p.paymentStatus==='Paid' ? 'Fully Paid ✓' : 'Record Payment'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
 
-      {/* Payment Modal */}
+      {/* Record Payment Modal */}
       {modal && (
-        <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && setModal(null)}>
-          <div className="modal" style={{ maxWidth: 480 }}>
+        <div className="modal-backdrop" onClick={e => e.target===e.currentTarget && setModal(null)}>
+          <div className="modal" style={{ maxWidth:520 }}>
             <div className="modal-header">
+              <IndianRupee size={18} color="var(--primary)"/>
               <div className="modal-title">Record Payment — {modal.donorName}</div>
-              <button className="btn btn-ghost btn-icon btn-sm" onClick={() => setModal(null)}><X size={16} /></button>
+              <button className="btn btn-ghost btn-icon btn-sm" onClick={() => setModal(null)}><X size={16}/></button>
             </div>
             <div className="modal-body">
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 16, background: 'var(--bg)', borderRadius: 10, padding: 12 }}>
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: 16, fontWeight: 700 }}>{fmtCurrency(modal.totalValue)}</div>
-                  <div style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>Total</div>
-                </div>
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--secondary)' }}>{fmtCurrency(modal.amountPaid || 0)}</div>
-                  <div style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>Paid</div>
-                </div>
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--danger)' }}>{fmtCurrency((modal.totalValue || 0) - (modal.amountPaid || 0))}</div>
-                  <div style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>Due</div>
-                </div>
+              <div style={{ background:'var(--bg)', borderRadius:10, padding:16, marginBottom:20, display:'flex', gap:16, flexWrap:'wrap' }}>
+                {[{label:'Total Value',val:fmtCurrency(modal.totalValue),col:'var(--text-primary)'},{label:'Already Paid',val:fmtCurrency(modal.amountPaid||0),col:'var(--secondary)'},{label:'Remaining',val:fmtCurrency(prevAmt),col:'var(--danger)'}].map(item => (
+                  <div key={item.label} style={{ flex:'1 1 80px' }}>
+                    <div style={{ fontSize:11, color:'var(--text-muted)', textTransform:'uppercase', fontWeight:600 }}>{item.label}</div>
+                    <div style={{ fontWeight:700, fontSize:17, fontFamily:'var(--font-display)', color:item.col }}>{item.val}</div>
+                  </div>
+                ))}
               </div>
-
-              <div className="form-group">
-                <label>Amount Received (₹) <span className="required">*</span></label>
-                <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="Enter amount" min="1" />
-              </div>
-
-              <div className="form-group">
-                <label>Payment Mode <span className="required">*</span></label>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {REF_MODES.map(m => (
-                    <button key={m.value} onClick={() => { setRefMode(m.value); setRefVal('') }}
-                      style={{ padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600, border: `1.5px solid ${refMode === m.value ? 'var(--primary)' : 'var(--border)'}`, background: refMode === m.value ? 'var(--primary-light)' : 'var(--surface)', color: refMode === m.value ? 'var(--primary)' : 'var(--text-secondary)', cursor: 'pointer' }}>
-                      {m.label}
-                    </button>
-                  ))}
+              <div className="form-grid">
+                <div className="form-group full">
+                  <label>Amount Received Now (₹) <span className="required">*</span></label>
+                  <input type="number" min={0} max={prevAmt} inputMode="numeric" value={editAdditional}
+                    onChange={e => { setEditAmt(e.target.value); setRefError('') }} placeholder={`Max ₹${prevAmt}`} autoFocus />
+                  {editAdditional !== '' && (
+                    <div style={{ marginTop:10, padding:'10px 14px', background:'var(--bg)', borderRadius:8, display:'flex', gap:16, flexWrap:'wrap', fontSize:13 }}>
+                      <div>New total: <strong style={{ color:'var(--secondary)' }}>{fmtCurrency(previewNewTotal)}</strong></div>
+                      <div>Remaining: <strong style={{ color:previewRemaining>0?'var(--danger)':'var(--secondary)' }}>{previewRemaining>0?fmtCurrency(previewRemaining):'₹0 ✓'}</strong></div>
+                      <div>Status: <span className={`badge ${paymentStatusColor(previewStatus)}`}>{previewStatus}</span></div>
+                    </div>
+                  )}
                 </div>
-              </div>
-
-              {refMode !== 'cash' && (
                 <div className="form-group">
-                  <label>{REF_MODES.find(r => r.value === refMode)?.label} Reference <span className="required">*</span></label>
-                  <input value={refVal} onChange={e => { setRefVal(e.target.value); setRefError('') }} placeholder={REF_MODES.find(r => r.value === refMode)?.placeholder} />
+                  <label>Payment Date <span className="required">*</span></label>
+                  <input type="date" value={editDate} onChange={e => setEditDate(e.target.value)} />
                 </div>
-              )}
-
-              <div className="form-group">
-                <label>Payment Date</label>
-                <input type="date" value={date} onChange={e => setDate(e.target.value)} />
+                <div className="form-group full">
+                  <label>Payment Method <span className="required">*</span></label>
+                  <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                    {REF_MODES.map(r => { const Icon = r.icon; return (
+                      <button key={r.value} type="button" onClick={() => { setEditRef(r.value); setRefError('') }}
+                        style={{ display:'flex', alignItems:'center', gap:5, padding:'7px 14px', borderRadius:8, fontSize:12.5, cursor:'pointer', fontWeight:editRefMode===r.value?700:400, border:`1.5px solid ${editRefMode===r.value?'var(--primary)':'var(--border)'}`, background:editRefMode===r.value?'var(--primary-light)':'transparent', color:editRefMode===r.value?'var(--primary)':'var(--text-secondary)', transition:'all 0.15s' }}>
+                        <Icon size={13}/>{r.label}
+                      </button>
+                    )})}
+                  </div>
+                </div>
+                <div className="form-group full">
+                  <label>{selRef?.label} Reference{editRefMode !== 'cash' ? <span className="required"> *</span> : <span style={{ fontSize:11, fontWeight:400, color:'var(--text-muted)', marginLeft:4 }}>(optional)</span>}</label>
+                  <div style={{ position:'relative' }}>
+                    <Hash size={14} style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', color:'var(--text-muted)', pointerEvents:'none' }}/>
+                    <input value={editRefVal} onChange={e => { setEditRefVal(e.target.value); setRefError('') }} placeholder={selRef?.placeholder} style={{ paddingLeft:34 }} />
+                  </div>
+                  {refError && <div style={{ fontSize:12, color:'var(--danger)', marginTop:5, display:'flex', alignItems:'center', gap:5 }}><AlertCircle size={12}/>{refError}</div>}
+                </div>
+                <div className="form-group full">
+                  <label>Notes</label>
+                  <textarea value={editNotes} onChange={e => setEditNotes(e.target.value)} placeholder="Notes about this payment…" style={{ minHeight:60 }} />
+                </div>
               </div>
-
-              <div className="form-group">
-                <label>Notes</label>
-                <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Optional notes…" style={{ minHeight: 60 }} />
-              </div>
-
-              {refError && <div style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 4 }}>⚠ {refError}</div>}
             </div>
             <div className="modal-footer">
               <button className="btn btn-ghost" onClick={() => setModal(null)}>Cancel</button>
-              <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Record Payment'}</button>
+              <button className="btn btn-primary" onClick={savePayment} disabled={saving || !editAdditional || Number(editAdditional) <= 0}>
+                {saving ? 'Saving…' : 'Record Payment'}
+              </button>
             </div>
           </div>
         </div>
       )}
-    </div>
-  )
-}
 
-// ─── Section B: Kabadiwala Payment Ledger ────────────────────────────────────
-
-function SectionKabadiwala({ kabPayments, updateKabPayment }) {
-  const [editModal, setEditModal] = useState(null)
-  const [form, setForm] = useState({})
-
-  const open = (k) => { setEditModal(k); setForm({ paidAmount: k.paidAmount, notes: '' }) }
-
-  const save = async () => {
-    await new Promise(r => setTimeout(r, 300))
-    const paid    = Number(form.paidAmount) || 0
-    const pending = editModal.totalAmount - paid
-    updateKabPayment({ ...editModal, paidAmount: paid, pendingAmount: pending, status: paid >= editModal.totalAmount ? 'Cleared' : paid > 0 ? 'Partial' : 'Pending' })
-    setEditModal(null)
-  }
-
-  const totalEarned  = kabPayments.reduce((s, k) => s + k.totalAmount, 0)
-  const totalPaid    = kabPayments.reduce((s, k) => s + k.paidAmount, 0)
-  const totalPending = kabPayments.reduce((s, k) => s + k.pendingAmount, 0)
-
-  return (
-    <div>
-      <div className="stat-grid" style={{ marginBottom: 20 }}>
-        <div className="stat-card green"><div className="stat-icon"><IndianRupee size={18} /></div><div className="stat-value">{fmtCurrency(totalEarned)}</div><div className="stat-label">Total Kabadiwala Earnings</div></div>
-        <div className="stat-card blue"><div className="stat-icon"><CheckCircle size={18} /></div><div className="stat-value">{fmtCurrency(totalPaid)}</div><div className="stat-label">Paid Out</div></div>
-        <div className="stat-card red"><div className="stat-icon"><Clock size={18} /></div><div className="stat-value">{fmtCurrency(totalPending)}</div><div className="stat-label">Still Pending</div></div>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 }}>
-        {kabPayments.map(k => {
-          const pct = k.totalAmount > 0 ? Math.round((k.paidAmount / k.totalAmount) * 100) : 0
-          const statusColor = k.status === 'Cleared' ? 'var(--secondary)' : k.status === 'Partial' ? 'var(--warning)' : 'var(--danger)'
-          return (
-            <div key={k.id} className="card">
-              <div className="card-body">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 16 }}>{k.name}</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{k.mobile} · {k.area}</div>
-                  </div>
-                  <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20, background: `${statusColor}22`, color: statusColor }}>{k.status}</span>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 14 }}>
-                  {[
-                    { label: 'Earned', value: fmtCurrency(k.totalAmount), color: 'var(--text-primary)' },
-                    { label: 'Paid',   value: fmtCurrency(k.paidAmount),  color: 'var(--secondary)' },
-                    { label: 'Due',    value: fmtCurrency(k.pendingAmount), color: 'var(--danger)' },
-                  ].map(({ label, value, color }) => (
-                    <div key={label} style={{ background: 'var(--bg)', borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}>
-                      <div style={{ fontWeight: 700, fontSize: 15, color, fontFamily: 'var(--font-display)' }}>{value}</div>
-                      <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{label}</div>
-                    </div>
-                  ))}
-                </div>
-
-                <div style={{ marginBottom: 12 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>
-                    <span>Recovery</span><span>{pct}%</span>
-                  </div>
-                  <div style={{ height: 6, background: 'var(--border-light)', borderRadius: 4, overflow: 'hidden' }}>
-                    <div style={{ width: `${pct}%`, height: '100%', background: pct >= 80 ? 'var(--secondary)' : pct >= 50 ? 'var(--warning)' : 'var(--danger)', borderRadius: 4, transition: 'width 0.3s' }} />
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{k.pickupCount} pickups</span>
-                  <button className="btn btn-outline btn-sm" onClick={() => open(k)} style={{ fontSize: 12 }}>
-                    Update Payment
-                  </button>
-                </div>
-              </div>
-            </div>
-          )
-        })}
-      </div>
-
-      {editModal && (
-        <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && setEditModal(null)}>
-          <div className="modal" style={{ maxWidth: 400 }}>
+      {/* History Modal */}
+      {histModal && (
+        <div className="modal-backdrop" onClick={e => e.target===e.currentTarget && setHistModal(null)}>
+          <div className="modal" style={{ maxWidth:540 }}>
             <div className="modal-header">
-              <div className="modal-title">Update — {editModal.name}</div>
-              <button className="btn btn-ghost btn-icon btn-sm" onClick={() => setEditModal(null)}><X size={16} /></button>
+              <History size={18} color="var(--info)"/>
+              <div className="modal-title">Payment History — {histModal.donorName}</div>
+              <button className="btn btn-ghost btn-icon btn-sm" onClick={() => setHistModal(null)}><X size={16}/></button>
             </div>
             <div className="modal-body">
-              <div className="form-group">
-                <label>Total Paid So Far (₹)</label>
-                <input type="number" value={form.paidAmount} onChange={e => setForm(f => ({ ...f, paidAmount: e.target.value }))} min="0" max={editModal.totalAmount} />
-                <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 4 }}>Total earned: {fmtCurrency(editModal.totalAmount)}</div>
-              </div>
-              <div className="form-group">
-                <label>Notes</label>
-                <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} style={{ minHeight: 60 }} />
-              </div>
+              {(histModal.payHistory||[]).length === 0 ? (
+                <div className="empty-state" style={{ padding:32 }}><p>No payment history yet.</p></div>
+              ) : [...(histModal.payHistory||[])].reverse().map((h, i, arr) => {
+                const RefIcon = REF_MODES.find(r => r.value===h.refMode)?.icon || Hash
+                return (
+                  <div key={i} style={{ display:'flex', alignItems:'flex-start', gap:14, padding:'14px 0', borderBottom:i<arr.length-1?'1px solid var(--border-light)':'none' }}>
+                    <div style={{ width:38, height:38, borderRadius:10, flexShrink:0, background:'var(--secondary-light)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                      <RefIcon size={16} color="var(--secondary)"/>
+                    </div>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                        <span style={{ fontWeight:700, fontSize:15, color:'var(--secondary)' }}>+{fmtCurrency(h.amount)}</span>
+                        <span className="badge badge-muted" style={{ fontSize:10 }}>{refModeLabel(h.refMode)}</span>
+                      </div>
+                      {h.refValue && (
+                        <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:6, padding:'5px 10px', background:'var(--bg)', borderRadius:6, border:'1px solid var(--border-light)' }}>
+                          <Hash size={11} color="var(--text-muted)"/>
+                          <span style={{ fontSize:12, fontFamily:'monospace', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{h.refValue}</span>
+                          <button className="btn btn-ghost btn-icon btn-sm" onClick={() => copyRef(h.refValue)}>
+                            {copied===h.refValue ? <Check size={11} color="var(--secondary)"/> : <Copy size={11}/>}
+                          </button>
+                        </div>
+                      )}
+                      {h.notes && <div style={{ fontSize:12, color:'var(--text-muted)', marginTop:5, fontStyle:'italic' }}>{h.notes}</div>}
+                    </div>
+                    <div style={{ textAlign:'right', fontSize:12.5, color:'var(--text-muted)', flexShrink:0 }}>{fmtDate(h.date)}</div>
+                  </div>
+                )
+              })}
             </div>
             <div className="modal-footer">
-              <button className="btn btn-ghost" onClick={() => setEditModal(null)}>Cancel</button>
-              <button className="btn btn-primary" onClick={save}>Save</button>
+              <button className="btn btn-ghost" onClick={() => setHistModal(null)}>Close</button>
             </div>
           </div>
         </div>
@@ -404,28 +469,29 @@ function SectionKabadiwala({ kabPayments, updateKabPayment }) {
   )
 }
 
-// ─── Main Payments Page ───────────────────────────────────────────────────────
-
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN EXPORT
+// ─────────────────────────────────────────────────────────────────────────────
 export default function Payments() {
-  const { pickups, kabPayments, updatePayment, updateKabPayment } = useApp()
-  const [section, setSection] = useState('rst')
+  const { pickups, raddiRecords, updatePickup } = useApp()
+  const [view, setView] = useState('analytics') // 'analytics' | 'kabadiwala'
 
   return (
     <div className="page-body">
-      <div className="tabs" style={{ marginBottom: 20 }}>
-        <button className={`tab ${section === 'rst' ? 'active' : ''}`} onClick={() => setSection('rst')}>
-          <IndianRupee size={13} style={{ marginRight: 4 }} />
-          RST Payment Tracking
-        </button>
-        <button className={`tab ${section === 'kab' ? 'active' : ''}`} onClick={() => setSection('kab')}>
-          Kabadiwala Payment Ledger
-        </button>
+      {/* View Switcher */}
+      <div style={{ marginBottom: 24 }}>
+        <div className="tabs" style={{ marginBottom: 0 }}>
+          <button className={`tab ${view === 'analytics' ? 'active' : ''}`} onClick={() => setView('analytics')}>
+            <BarChart3 size={13} style={{ marginRight: 4 }} /> RST Revenue Analytics
+          </button>
+          <button className={`tab ${view === 'kabadiwala' ? 'active' : ''}`} onClick={() => setView('kabadiwala')}>
+            <IndianRupee size={13} style={{ marginRight: 4 }} /> Kabadiwala Payments
+          </button>
+        </div>
       </div>
 
-      {section === 'rst'
-        ? <SectionRST       pickups={pickups}       updatePayment={updatePayment} />
-        : <SectionKabadiwala kabPayments={kabPayments} updateKabPayment={updateKabPayment} />
-      }
+      {view === 'analytics' && <RSTAnalytics raddiRecords={raddiRecords} />}
+      {view === 'kabadiwala' && <KabadiwalaTracking pickups={pickups} updatePickup={updatePickup} />}
     </div>
   )
 }
