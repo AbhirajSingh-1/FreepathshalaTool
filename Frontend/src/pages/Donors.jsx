@@ -19,18 +19,17 @@ const EMPTY_FORM = {
 export default function Donors({ triggerAddDonor, onAddDonorDone }) {
   const { donors, addDonor, updateDonor, deleteDonor } = useApp()
 
-  const [modal, setModal]   = useState(false)
+  const [modal, setModal]     = useState(false)
   const [editing, setEditing] = useState(null)
-  const [form, setForm]     = useState(EMPTY_FORM)
-  const [saving, setSaving] = useState(false)
+  const [form, setForm]       = useState(EMPTY_FORM)
+  const [saving, setSaving]   = useState(false)
 
-  // Filters
-  const [search, setSearch]             = useState('')
-  const [filterCity, setFilterCity]     = useState('')
-  const [filterSector, setFilterSector] = useState('')
-  const [filterStatus, setFilterStatus] = useState('')
+  const [search, setSearch]               = useState('')
+  const [filterCity, setFilterCity]       = useState('')
+  const [filterSector, setFilterSector]   = useState('')
+  const [filterStatus, setFilterStatus]   = useState('')
   const [filterSociety, setFilterSociety] = useState('')
-  const [showFilters, setShowFilters]   = useState(false)
+  const [showFilters, setShowFilters]     = useState(false)
 
   const sectorOptions = filterCity ? (CITY_SECTORS[filterCity] || []) : []
   const formSectors   = CITY_SECTORS[form.city] || []
@@ -63,11 +62,7 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
     if (form.status === 'Lost' && !form.lostReason) return
     setSaving(true)
     try {
-      if (editing) {
-        updateDonor(editing.id, form)
-      } else {
-        addDonor(form)
-      }
+      editing ? updateDonor(editing.id, form) : addDonor(form)
       closeModal()
     } finally { setSaving(false) }
   }
@@ -92,15 +87,16 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
   return (
     <div className="page-body">
       {/* Filter Bar */}
-      <div style={{ marginBottom: 10 }}>
+      <div style={{ marginBottom: 12 }}>
+        {/* Row 1: search + filter toggle + add */}
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'nowrap', marginBottom: 8 }}>
-          <div className="search-wrap" style={{ flex: 1, minWidth: 0 }}>
-            <Search className="icon" />
+          <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+            <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
             <input
               placeholder="Search name, mobile, society…"
               value={search}
               onChange={e => setSearch(e.target.value)}
-              style={{ fontSize: 13 }}
+              style={{ paddingLeft: 32, fontSize: 13, width: '100%' }}
             />
           </div>
           <button
@@ -115,47 +111,52 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
                 </span>
               : 'Filter'}
           </button>
-          <button className="btn btn-primary btn-sm" onClick={() => openModal()} style={{ flexShrink: 0, padding: '6px 10px', fontSize: 12, whiteSpace: 'nowrap' }}>
+          <button className="btn btn-primary btn-sm" onClick={() => openModal()} style={{ flexShrink: 0, padding: '6px 10px', fontSize: 12 }}>
             <Plus size={13} /> Add
           </button>
         </div>
 
+        {/* Row 2: Advanced filters */}
         {showFilters && (
           <div style={{
-            display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6,
-            background: 'var(--bg)', borderRadius: 10, padding: 10,
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(145px, 1fr))',
+            gap: 8,
+            background: 'var(--bg)',
+            borderRadius: 10,
+            padding: 10,
             border: '1px solid var(--border-light)',
           }}>
-            <select value={filterCity} onChange={e => { setFilterCity(e.target.value); setFilterSector('') }} style={{ fontSize: 12, height: 34, borderRadius: 6, padding: '0 8px' }}>
+            <select value={filterCity} onChange={e => { setFilterCity(e.target.value); setFilterSector('') }} style={{ fontSize: 12 }}>
               <option value="">All Cities</option>
               {CITIES.map(c => <option key={c}>{c}</option>)}
             </select>
-            <select value={filterSector} onChange={e => setFilterSector(e.target.value)} disabled={!filterCity} style={{ fontSize: 12, height: 34, borderRadius: 6, padding: '0 8px' }}>
-              <option value="">{filterCity ? 'All Sectors' : 'Select City First'}</option>
+            <select value={filterSector} onChange={e => setFilterSector(e.target.value)} disabled={!filterCity} style={{ fontSize: 12 }}>
+              <option value="">{filterCity ? 'All Sectors' : 'City First'}</option>
               {sectorOptions.map(s => <option key={s}>{s}</option>)}
             </select>
-            <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ fontSize: 12, height: 34, borderRadius: 6, padding: '0 8px' }}>
+            <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ fontSize: 12 }}>
               <option value="">All Status</option>
               {DONOR_STATUSES.map(s => <option key={s}>{s}</option>)}
             </select>
-            <select value={filterSociety} onChange={e => setFilterSociety(e.target.value)} style={{ fontSize: 12, height: 34, borderRadius: 6, padding: '0 8px' }}>
+            <select value={filterSociety} onChange={e => setFilterSociety(e.target.value)} style={{ fontSize: 12 }}>
               <option value="">All Societies</option>
               {allSocieties.map(s => <option key={s}>{s}</option>)}
             </select>
             {hasFilters && (
               <button
                 className="btn btn-ghost btn-sm"
-                style={{ gridColumn: '1 / -1', fontSize: 11, height: 30 }}
+                style={{ fontSize: 11, height: 34 }}
                 onClick={() => { setFilterCity(''); setFilterSector(''); setFilterStatus(''); setFilterSociety('') }}
               >
-                <X size={11} /> Clear All Filters
+                <X size={11} /> Clear All
               </button>
             )}
           </div>
         )}
       </div>
 
-      <div style={{ fontSize: 12, color: 'var(--text-muted)', margin: '8px 0 12px' }}>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 12px' }}>
         Showing <strong>{filtered.length}</strong> of <strong>{donors.length}</strong> donors
       </div>
 
@@ -172,20 +173,25 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
             const overdue = d.nextPickup && new Date(d.nextPickup) < new Date() && d.status === 'Active'
 
             return (
-              <div key={d.id} className="card" style={{ overflow: 'hidden' }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '14px 16px', flexWrap: 'wrap' }}>
+              <div key={d.id} className="card">
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 14px', flexWrap: 'nowrap' }}>
+                  {/* Avatar */}
                   <div style={{ width: 40, height: 40, borderRadius: 10, flexShrink: 0, background: 'var(--primary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 700, color: 'var(--primary)' }}>
                     {d.name[0]}
                   </div>
-                  <div style={{ flex: '1 1 140px', minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 14 }}>{d.name}</div>
+                  {/* Info */}
+                  <div style={{ flex: '1 1 0', minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14 }} className="truncate">{d.name}</div>
                     <div style={{ fontSize: 11.5, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', marginTop: 2 }}>
-                      <Phone size={10} /> {d.mobile}
-                      <span style={{ color: 'var(--border)' }}>·</span>
-                      <MapPin size={10} /> {d.society}{d.sector && `, ${d.sector}`}, {d.city}
+                      <Phone size={10} style={{ flexShrink: 0 }} /> {d.mobile}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4, marginTop: 1 }} className="truncate">
+                      <MapPin size={10} style={{ flexShrink: 0 }} />
+                      <span className="truncate">{d.society}{d.sector && `, ${d.sector}`}, {d.city}</span>
                     </div>
                   </div>
-                  <div className="td-actions" style={{ flexShrink: 0 }}>
+                  {/* Actions */}
+                  <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
                     <button className="btn btn-ghost btn-icon btn-sm" title="Edit" onClick={() => openModal(d)}>
                       <Edit2 size={13} />
                     </button>
@@ -200,20 +206,20 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
                   {[
                     { label: 'Status',  value: <span className={`badge ${donorStatusColor(d.status)}`} style={{ fontSize: 10 }}>{d.status}</span> },
                     { label: 'Health',  value: <span className={`badge ${health.color}`} style={{ fontSize: 10 }}>{health.label}</span> },
-                    { label: 'RST Value', value: <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--secondary)' }}>{fmtCurrency(d.totalRST)}</span> },
-                    { label: overdue ? '⚠ Overdue' : 'Next Pickup', value: <span style={{ fontWeight: 600, fontSize: 12, color: overdue ? 'var(--danger)' : 'inherit' }}>{d.status === 'Lost' ? '—' : fmtDate(d.nextPickup)}</span> },
+                    { label: 'RST',     value: <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--secondary)' }}>{fmtCurrency(d.totalRST)}</span> },
+                    { label: overdue ? '⚠ Overdue' : 'Next', value: <span style={{ fontWeight: 600, fontSize: 11.5, color: overdue ? 'var(--danger)' : 'inherit' }}>{d.status === 'Lost' ? '—' : fmtDate(d.nextPickup)}</span> },
                   ].map((item, i) => (
-                    <div key={i} style={{ flex: 1, padding: '8px 6px', textAlign: 'center', borderRight: i < 3 ? '1px solid var(--border-light)' : 'none' }}>
+                    <div key={i} style={{ flex: 1, padding: '8px 4px', textAlign: 'center', borderRight: i < 3 ? '1px solid var(--border-light)' : 'none', minWidth: 0 }}>
                       <div style={{ marginBottom: 2 }}>{item.value}</div>
-                      <div style={{ fontSize: 9.5, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>{item.label}</div>
+                      <div style={{ fontSize: 9.5, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.03em' }} className="truncate">{item.label}</div>
                     </div>
                   ))}
                 </div>
 
                 {d.status === 'Lost' && d.lostReason && (
-                  <div style={{ padding: '6px 16px', background: 'var(--danger-bg)', fontSize: 11.5, color: 'var(--danger)' }}>
+                  <div style={{ padding: '6px 14px', background: 'var(--danger-bg)', fontSize: 11.5, color: 'var(--danger)' }}>
                     <AlertTriangle size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />
-                    Lost reason: <strong>{d.lostReason}</strong>
+                    Lost: <strong>{d.lostReason}</strong>
                   </div>
                 )}
               </div>
@@ -234,7 +240,7 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
               <div className="form-grid">
                 <div className="form-group">
                   <label>Full Name <span className="required">*</span></label>
-                  <input value={form.name} onChange={e => setField('name', e.target.value)} placeholder="Donor full name" />
+                  <input value={form.name} onChange={e => setField('name', e.target.value)} placeholder="Donor full name" autoFocus />
                 </div>
                 <div className="form-group">
                   <label>Mobile Number <span className="required">*</span></label>

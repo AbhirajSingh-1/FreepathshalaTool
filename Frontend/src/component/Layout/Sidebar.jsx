@@ -15,8 +15,8 @@ const NAV = [
   { id: 'payments',         label: 'Payment Tracking',     icon: IndianRupee },
   { section: 'Scheduling' },
   { id: 'pickupscheduler',  label: 'Pickup Scheduler',     icon: CalendarDays },
-  { id: 'kabadipickups',    label: 'Kabadi Pickup List',   icon: CalendarSearch },
-  { id: 'customerpickups',  label: 'Donor Pickup History', icon: PackageSearch },
+  // { id: 'kabadipickups',    label: 'Kabadi Pickup List',   icon: CalendarSearch },
+  // { id: 'customerpickups',  label: 'Donor Pickup History', icon: PackageSearch },
   { section: 'Insights' },
   { id: 'reports',          label: 'Reports',              icon: BarChart3 },
   { id: 'raddimaster',      label: 'Raddi Master',         icon: Table2 },   // ← NEW

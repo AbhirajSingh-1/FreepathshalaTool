@@ -1,16 +1,32 @@
 // Frontend/src/pages/PickupScheduler.jsx
-// Office-use only: scheduling (no RST/payment logic)
 import { useState, useEffect, useRef } from 'react'
 import {
   CalendarDays, Plus, Search, X, ChevronDown, Check,
-  Clock, User, MapPin, FileText, CheckCircle,
+  Clock, User, MapPin, FileText, CheckCircle, AlertTriangle,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import { TIME_SLOTS, schedulerPickups } from '../data/schedulerData'
+import { schedulerPickups } from '../data/schedulerData'
 import DonorModal from '../components/DonorModal'
 import PickupTabs from '../components/PickupTabs'
 import { fmtDate } from '../utils/helpers'
 import { PICKUP_MODES } from '../data/mockData'
+
+// ── Time slot config ─────────────────────────────────────────────────────────
+const ALL_TIME_SLOTS = [
+  '9:00 AM – 10:00 AM',
+  '10:00 AM – 11:00 AM',
+  '11:00 AM – 12:00 PM',
+  '12:00 PM – 1:00 PM',
+  '2:00 PM – 3:00 PM',
+  '3:00 PM – 4:00 PM',
+  '4:00 PM – 5:00 PM',
+  '5:00 PM – 6:00 PM',
+]
+
+const DRIVE_TIME_SLOTS = [
+  '9:00 AM – 12:00 PM',
+  '2:00 PM – 5:00 PM',
+]
 
 // ── Toast ────────────────────────────────────────────────────────────────────
 function Toast({ message, onDone }) {
@@ -99,22 +115,21 @@ function DonorDropdown({ donors, value, onChange, onAddNew }) {
               placeholder="Type name, mobile, or society…"
               style={{ paddingLeft: 28, width: '100%', fontSize: 13, border: 'none', outline: 'none', background: 'transparent' }} />
           </div>
-          <button
-            onClick={() => { setOpen(false); onAddNew() }}
+          <button onClick={() => { setOpen(false); onAddNew() }}
             style={{
               width: '100%', padding: '10px 14px', textAlign: 'left',
               border: 'none', borderBottom: '1px solid var(--border-light)',
               background: 'var(--primary-light)', cursor: 'pointer',
               display: 'flex', alignItems: 'center', gap: 8,
               fontSize: 13, fontWeight: 700, color: 'var(--primary)',
-            }}
-          >
+            }}>
             <Plus size={14} /> Add New Donor
           </button>
           <div style={{ maxHeight: 240, overflowY: 'auto' }}>
             {filtered.length === 0 ? (
               <div style={{ padding: '16px 14px', textAlign: 'center', fontSize: 13, color: 'var(--text-muted)' }}>
-                No donors found. <button onClick={() => { setOpen(false); onAddNew() }}
+                No donors found.{' '}
+                <button onClick={() => { setOpen(false); onAddNew() }}
                   style={{ background: 'none', border: 'none', color: 'var(--primary)', fontWeight: 700, cursor: 'pointer' }}>
                   Add new?
                 </button>
@@ -151,20 +166,28 @@ function DonorDropdown({ donors, value, onChange, onAddNew }) {
 export default function PickupScheduler() {
   const { donors, addDonor, schedulePickup } = useApp()
 
-  const [tabLoading, setTabLoading] = useState(true)
-  const [tabData, setTabData]       = useState({})
+  const [tabLoading, setTabLoading]     = useState(true)
+  const [tabData, setTabData]           = useState({})
   const [selectedDonor, setSelectedDonor] = useState('')
-  const [date, setDate]             = useState('')
-  const [timeSlot, setTimeSlot]     = useState('')
-  const [pickupMode, setPickupMode] = useState('Individual')
-  const [notes, setNotes]           = useState('')
-  const [saving, setSaving]         = useState(false)
-  const [activeTab, setActiveTab]   = useState('scheduled')
+  const [date, setDate]                 = useState('')
+  const [timeSlot, setTimeSlot]         = useState('')
+  const [pickupMode, setPickupMode]     = useState('Individual')
+  const [notes, setNotes]               = useState('')
+  const [saving, setSaving]             = useState(false)
+  const [activeTab, setActiveTab]       = useState('scheduled')
   const [showDonorModal, setDonorModal] = useState(false)
-  const [toast, setToast]           = useState(null)
-  const [formError, setFormError]   = useState('')
+  const [toast, setToast]               = useState(null)
+  const [formError, setFormError]       = useState('')
 
-  const activeDonors = donors.filter(d => d.status !== 'Lost')
+  const activeDonors  = donors.filter(d => d.status !== 'Lost')
+
+  // ── Drive mode: only show specific slots, reset on mode change ──
+  const timeSlots = pickupMode === 'Drive' ? DRIVE_TIME_SLOTS : ALL_TIME_SLOTS
+
+  const handleModeChange = (mode) => {
+    setPickupMode(mode)
+    setTimeSlot('') // always reset time slot on mode change
+  }
 
   useEffect(() => {
     setTabLoading(true)
@@ -196,19 +219,16 @@ export default function PickupScheduler() {
       society:    donor.society || '',
       sector:     donor.sector  || '',
       city:       donor.city    || '',
-      date,
-      timeSlot,
-      pickupMode,
-      notes,
+      date, timeSlot, pickupMode, notes,
     })
 
     const newEntry = {
-      id: pickup.id,
-      donorName: donor.name,
-      mobile: donor.mobile,
-      society: donor.society || '',
-      sector: donor.sector   || '',
-      city:   donor.city     || '',
+      id:            pickup.id,
+      donorName:     donor.name,
+      mobile:        donor.mobile,
+      society:       donor.society || '',
+      sector:        donor.sector  || '',
+      city:          donor.city    || '',
       scheduledDate: date,
       timeSlot,
       notes,
@@ -284,7 +304,7 @@ export default function PickupScheduler() {
                 <label>Pickup Mode</label>
                 <div style={{ display: 'flex', gap: 8 }}>
                   {PICKUP_MODES.map(mode => (
-                    <button key={mode} type="button" onClick={() => setPickupMode(mode)}
+                    <button key={mode} type="button" onClick={() => handleModeChange(mode)}
                       style={{
                         flex: 1, padding: '7px 12px', borderRadius: 8, fontSize: 13,
                         border: `1.5px solid ${pickupMode === mode ? 'var(--primary)' : 'var(--border)'}`,
@@ -296,13 +316,25 @@ export default function PickupScheduler() {
                     </button>
                   ))}
                 </div>
+                {pickupMode === 'Drive' && (
+                  <div style={{ fontSize: 11.5, color: 'var(--info)', marginTop: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <AlertTriangle size={11} /> Drive mode: only community time slots available
+                  </div>
+                )}
               </div>
 
               {/* Time Slot */}
               <div className="form-group" style={{ margin: 0 }}>
-                <label>Time Slot <span className="required">*</span></label>
+                <label>
+                  Time Slot <span className="required">*</span>
+                  {pickupMode === 'Drive' && (
+                    <span style={{ fontSize: 11, color: 'var(--info)', fontWeight: 400, marginLeft: 6 }}>
+                      (Drive slots only)
+                    </span>
+                  )}
+                </label>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {TIME_SLOTS.map(slot => (
+                  {timeSlots.map(slot => (
                     <button key={slot} type="button"
                       onClick={() => { setTimeSlot(slot); setFormError('') }}
                       style={{
@@ -311,8 +343,7 @@ export default function PickupScheduler() {
                         background: timeSlot === slot ? 'var(--primary-light)' : 'transparent',
                         color: timeSlot === slot ? 'var(--primary)' : 'var(--text-secondary)',
                         fontWeight: timeSlot === slot ? 700 : 400, cursor: 'pointer', transition: 'all 0.12s',
-                      }}
-                    >
+                      }}>
                       <Clock size={10} style={{ marginRight: 4, verticalAlign: 'middle' }} />
                       {slot}
                     </button>
@@ -353,8 +384,9 @@ export default function PickupScheduler() {
             <div className="card-body" style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
               <p style={{ marginBottom: 8 }}>1. <strong>Search</strong> for an existing donor or click <span style={{ color: 'var(--primary)', fontWeight: 700 }}>+ Add New Donor</span>.</p>
               <p style={{ marginBottom: 8 }}>2. Choose a <strong>pickup date</strong>, <strong>mode</strong>, and <strong>time slot</strong>.</p>
-              <p style={{ marginBottom: 8 }}>3. Add optional <strong>notes</strong> for the team.</p>
-              <p>4. Hit <strong>Schedule Pickup</strong> — it will appear under <em>Scheduled</em> below.</p>
+              <p style={{ marginBottom: 8 }}>3. <strong>Individual</strong> mode shows all time slots. <strong>Drive</strong> mode shows only morning (9–12) and afternoon (2–5) slots.</p>
+              <p style={{ marginBottom: 8 }}>4. Add optional <strong>notes</strong> for the team.</p>
+              <p>5. Hit <strong>Schedule Pickup</strong> — it will appear under <em>Scheduled</em> below.</p>
             </div>
           </div>
           <button className="btn btn-outline" style={{ width: '100%', justifyContent: 'center', padding: '10px' }}

@@ -95,7 +95,7 @@ function RSTAnalytics({ raddiRecords }) {
           <div className="stat-label">Total Revenue (filtered)</div>
         </div>
         <div className="stat-card green">
-          <div className="stat-icon" style={{ background: 'var(--secondary-light)', color: 'var(--secondary)' }}>🏋️</div>
+          <div className="stat-icon" style={{ background: 'var(--secondary-light)', color: 'var(--secondary)' }}>𓍝</div>
           <div className="stat-value">{totalKg} kg</div>
           <div className="stat-label">Total Raddi Collected</div>
         </div>

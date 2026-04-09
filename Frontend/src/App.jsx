@@ -9,8 +9,8 @@ import Pickups           from './pages/Pickups'
 import Kabadiwala        from './pages/Kabadiwala'
 import Payments          from './pages/Payments'
 import PickupScheduler   from './pages/PickupScheduler'
-import KabadiPickups     from './pages/KabadiPickups'
-import CustomerPickups   from './pages/CustomerPickups'
+// import KabadiPickups     from './pages/KabadiPickups'
+// import CustomerPickups   from './pages/CustomerPickups'
 import Reports           from './pages/Reports'
 import RaddiMaster       from './pages/RaddiMaster'
 
@@ -22,7 +22,7 @@ const PAGES = {
   payments:        Payments,
   pickupscheduler: PickupScheduler,
   kabadipickups:   KabadiPickups,
-  customerpickups: CustomerPickups,
+  // customerpickups: CustomerPickups,
   reports:         Reports,
   raddimaster:     RaddiMaster,
 }
