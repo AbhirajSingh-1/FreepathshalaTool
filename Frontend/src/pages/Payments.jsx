@@ -9,7 +9,7 @@ import {
 import { useApp } from '../context/AppContext'
 import { fmtDate, fmtCurrency, paymentStatusColor, exportToExcel } from '../utils/helpers'
 import { CITIES, CITY_SECTORS } from '../data/mockData'
-import { RADDI_ITEM_LABELS } from '../data/raddiMockData'
+import { RADDI_ITEM_LABELS } from '../data/raddimockData'
 
 const REF_MODES = [
   { value: 'upi',    label: 'UPI',       icon: Smartphone,  placeholder: 'UPI transaction ID' },
