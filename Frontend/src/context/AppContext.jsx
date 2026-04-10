@@ -17,7 +17,7 @@ import {
   kabadiwalas as _initKabs,
 } from '../data/mockData'
 
-import { raddiMasterData as _initRaddi } from '../data/raddimockData'
+import { raddiMasterData as _initRaddi } from '../data/raddiMockData'
 
 // ─── Context ──────────────────────────────────────────────────────────────────
 const AppContext = createContext(null)
