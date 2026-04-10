@@ -1,14 +1,14 @@
 // Frontend/src/pages/Donors.jsx
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import {
   Search, Plus, Edit2, Trash2, X, Phone, MapPin,
-  AlertTriangle, SlidersHorizontal,
+  AlertTriangle, SlidersHorizontal, Clock,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import {
   CITIES, CITY_SECTORS, SOCIETIES, DONOR_STATUSES, LOST_REASONS,
 } from '../data/mockData'
-import { fmtDate, fmtCurrency, donorStatusColor, getDonorHealthStatus } from '../utils/helpers'
+import { fmtDate, fmtCurrency, donorStatusColor, getDonorHealthStatus, daysSince } from '../utils/helpers'
 
 const EMPTY_FORM = {
   name: '', mobile: '', house: '', society: '',
@@ -16,13 +16,48 @@ const EMPTY_FORM = {
   lostReason: '', notes: '',
 }
 
+// ── Segmentation config ───────────────────────────────────────────────────────
+const SEGMENTS = [
+  { id: 'All',         label: 'All',         color: 'var(--text-secondary)' },
+  { id: 'Active',      label: 'Active',      color: 'var(--secondary)' },
+  { id: 'Pickup Due',  label: 'Pickup Due',  color: 'var(--info)' },
+  { id: 'At Risk',     label: 'At Risk',     color: 'var(--warning)' },
+  { id: 'Churned',     label: 'Churned',     color: 'var(--text-muted)' },
+  { id: 'Postponed',   label: 'Postponed',   color: '#92400E' },
+  { id: 'Lost',        label: 'Lost',        color: 'var(--danger)' },
+]
+
+function getHealthLabel(donor) {
+  if (donor.status === 'Lost')      return 'Lost'
+  if (donor.status === 'Postponed') return 'Postponed'
+  return getDonorHealthStatus(donor.lastPickup).label
+}
+
+// ── Days since badge ──────────────────────────────────────────────────────────
+function DaysSinceBadge({ lastPickup }) {
+  const days = daysSince(lastPickup)
+  if (days === null) return <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Never picked up</span>
+  const color =
+    days <= 30 ? 'var(--secondary)' :
+    days <= 45 ? 'var(--info)' :
+    days <= 60 ? 'var(--warning)' :
+    'var(--danger)'
+  return (
+    <span style={{ fontSize: 11, color, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 3 }}>
+      <Clock size={10} />
+      {days}d ago
+    </span>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 export default function Donors({ triggerAddDonor, onAddDonorDone }) {
   const { donors, addDonor, updateDonor, deleteDonor } = useApp()
 
-  const [modal, setModal]     = useState(false)
-  const [editing, setEditing] = useState(null)
-  const [form, setForm]       = useState(EMPTY_FORM)
-  const [saving, setSaving]   = useState(false)
+  const [modal, setModal]       = useState(false)
+  const [editing, setEditing]   = useState(null)
+  const [form, setForm]         = useState(EMPTY_FORM)
+  const [saving, setSaving]     = useState(false)
 
   const [search, setSearch]               = useState('')
   const [filterCity, setFilterCity]       = useState('')
@@ -30,14 +65,15 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
   const [filterStatus, setFilterStatus]   = useState('')
   const [filterSociety, setFilterSociety] = useState('')
   const [showFilters, setShowFilters]     = useState(false)
+  const [activeSeg, setActiveSeg]         = useState('All')
 
   const sectorOptions = filterCity ? (CITY_SECTORS[filterCity] || []) : []
   const formSectors   = CITY_SECTORS[form.city] || []
 
-  const allSocieties = [...new Set([
+  const allSocieties = useMemo(() => [...new Set([
     ...SOCIETIES,
     ...donors.map(d => d.society).filter(Boolean),
-  ])].sort()
+  ])].sort(), [donors])
 
   useEffect(() => {
     if (triggerAddDonor) { openModal(); onAddDonorDone?.() }
@@ -72,23 +108,76 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
     deleteDonor(id)
   }
 
-  const q = search.toLowerCase()
-  const filtered = donors.filter(d => {
-    const matchQ      = !q || d.name.toLowerCase().includes(q) || d.mobile.includes(q) || d.society?.toLowerCase().includes(q)
-    const matchCity   = !filterCity   || d.city === filterCity
-    const matchSector = !filterSector || d.sector === filterSector
-    const matchStatus = !filterStatus || d.status === filterStatus
-    const matchSoc    = !filterSociety || d.society === filterSociety
-    return matchQ && matchCity && matchSector && matchStatus && matchSoc
-  })
+  // ── Segment counts ────────────────────────────────────────────────────────
+  const segCounts = useMemo(() => {
+    const counts = { All: donors.length }
+    donors.forEach(d => {
+      const label = getHealthLabel(d)
+      counts[label] = (counts[label] || 0) + 1
+    })
+    return counts
+  }, [donors])
+
+  // ── Filtered donors (segment + search + filters) ──────────────────────────
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase()
+    return donors.filter(d => {
+      const segLabel = getHealthLabel(d)
+      const matchSeg    = activeSeg === 'All' || segLabel === activeSeg
+      const matchQ      = !q || d.name.toLowerCase().includes(q) || d.mobile.includes(q) || d.society?.toLowerCase().includes(q)
+      const matchCity   = !filterCity   || d.city === filterCity
+      const matchSector = !filterSector || d.sector === filterSector
+      const matchStatus = !filterStatus || d.status === filterStatus
+      const matchSoc    = !filterSociety || d.society === filterSociety
+      return matchSeg && matchQ && matchCity && matchSector && matchStatus && matchSoc
+    })
+  }, [donors, activeSeg, search, filterCity, filterSector, filterStatus, filterSociety])
 
   const hasFilters = filterCity || filterSector || filterStatus || filterSociety
 
   return (
     <div className="page-body">
-      {/* Filter Bar */}
+
+      {/* ── Segmentation Tab Bar ── */}
+      <div style={{ marginBottom: 16, overflowX: 'auto' }}>
+        <div style={{ display: 'flex', gap: 6, minWidth: 'max-content', paddingBottom: 2 }}>
+          {SEGMENTS.map(seg => {
+            const count   = segCounts[seg.id] || 0
+            const isActive = activeSeg === seg.id
+            return (
+              <button
+                key={seg.id}
+                onClick={() => setActiveSeg(seg.id)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  padding: '7px 14px', borderRadius: 'var(--radius-sm)',
+                  border: `1.5px solid ${isActive ? seg.color : 'var(--border)'}`,
+                  background: isActive ? 'var(--surface)' : 'transparent',
+                  cursor: 'pointer', fontSize: 12.5, fontWeight: isActive ? 700 : 500,
+                  color: isActive ? seg.color : 'var(--text-muted)',
+                  transition: 'all 0.15s',
+                  boxShadow: isActive ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
+                }}
+              >
+                {seg.label}
+                {count > 0 && (
+                  <span style={{
+                    background: isActive ? seg.color : 'var(--border)',
+                    color: isActive ? 'white' : 'var(--text-muted)',
+                    fontSize: 10.5, fontWeight: 700,
+                    padding: '1px 6px', borderRadius: 20, minWidth: 18, textAlign: 'center',
+                  }}>
+                    {count}
+                  </span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* ── Filter Bar ── */}
       <div style={{ marginBottom: 12 }}>
-        {/* Row 1: search + filter toggle + add */}
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'nowrap', marginBottom: 8 }}>
           <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
             <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
@@ -116,15 +205,10 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
           </button>
         </div>
 
-        {/* Row 2: Advanced filters */}
         {showFilters && (
           <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(145px, 1fr))',
-            gap: 8,
-            background: 'var(--bg)',
-            borderRadius: 10,
-            padding: 10,
+            display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(145px, 1fr))',
+            gap: 8, background: 'var(--bg)', borderRadius: 10, padding: 10,
             border: '1px solid var(--border-light)',
           }}>
             <select value={filterCity} onChange={e => { setFilterCity(e.target.value); setFilterSector('') }} style={{ fontSize: 12 }}>
@@ -158,22 +242,32 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
 
       <div style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 12px' }}>
         Showing <strong>{filtered.length}</strong> of <strong>{donors.length}</strong> donors
+        {activeSeg !== 'All' && <> in <strong>{activeSeg}</strong></>}
       </div>
 
       {filtered.length === 0 ? (
         <div className="empty-state">
           <div className="empty-icon"><Search size={24} /></div>
           <h3>No donors found</h3>
-          <p>Try adjusting your search or filters.</p>
+          <p>Try adjusting your search, filters, or segment tab.</p>
         </div>
       ) : (
         <div style={{ display: 'grid', gap: 10 }}>
           {filtered.map(d => {
             const health  = getDonorHealthStatus(d.lastPickup)
             const overdue = d.nextPickup && new Date(d.nextPickup) < new Date() && d.status === 'Active'
+            const days    = daysSince(d.lastPickup)
 
             return (
-              <div key={d.id} className="card">
+              <div key={d.id} className="card" style={{
+                borderLeft: `3px solid ${
+                  d.status === 'Lost'      ? 'var(--danger)' :
+                  health.label === 'At Risk' ? 'var(--warning)' :
+                  health.label === 'Pickup Due' ? 'var(--info)' :
+                  health.label === 'Churned'  ? 'var(--text-muted)' :
+                  'transparent'
+                }`,
+              }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 14px', flexWrap: 'nowrap' }}>
                   {/* Avatar */}
                   <div style={{ width: 40, height: 40, borderRadius: 10, flexShrink: 0, background: 'var(--primary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 700, color: 'var(--primary)' }}>
@@ -181,7 +275,10 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
                   </div>
                   {/* Info */}
                   <div style={{ flex: '1 1 0', minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 14 }} className="truncate">{d.name}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <div style={{ fontWeight: 700, fontSize: 14 }} className="truncate">{d.name}</div>
+                      <DaysSinceBadge lastPickup={d.lastPickup} />
+                    </div>
                     <div style={{ fontSize: 11.5, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', marginTop: 2 }}>
                       <Phone size={10} style={{ flexShrink: 0 }} /> {d.mobile}
                     </div>
@@ -220,6 +317,14 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
                   <div style={{ padding: '6px 14px', background: 'var(--danger-bg)', fontSize: 11.5, color: 'var(--danger)' }}>
                     <AlertTriangle size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />
                     Lost: <strong>{d.lostReason}</strong>
+                  </div>
+                )}
+
+                {/* At Risk / Churned advisory */}
+                {(health.label === 'At Risk' || health.label === 'Churned') && d.status === 'Active' && days !== null && (
+                  <div style={{ padding: '6px 14px', background: health.label === 'Churned' ? 'var(--border-light)' : 'var(--warning-bg)', fontSize: 11.5, color: health.label === 'Churned' ? 'var(--text-muted)' : '#92400E', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Clock size={11} />
+                    {days} days since last pickup — {health.label === 'Churned' ? 'urgent follow-up needed' : 'schedule soon'}
                   </div>
                 )}
               </div>

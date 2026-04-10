@@ -5,42 +5,40 @@ import { useState, useMemo, useCallback } from 'react'
 import {
   Search, Plus, X, CheckSquare, Square,
   IndianRupee, MapPin, Phone,
-  CheckCircle, Truck, Clock, ChevronDown,
-  AlertCircle, Package, Weight,
+  CheckCircle, Truck, Clock,
+  AlertCircle, Package, Weight, Hash,
 } from 'lucide-react'
-import { useApp }  from '../context/AppContext'
-import DonorModal  from '../components/DonorModal'
+import { useApp } from '../context/AppContext'
+import DonorModal from '../components/DonorModal'
 import { RST_ITEMS, SKS_ITEMS, PICKUP_MODES } from '../data/mockData'
-import { fmtDate, fmtCurrency } from '../utils/helpers'
+import { fmtDate, fmtCurrency, generateOrderId } from '../utils/helpers'
 
 // ─── constants ────────────────────────────────────────────────────────────────
-const today = () => new Date().toISOString().slice(0, 10)
+const todayStr = () => new Date().toISOString().slice(0, 10)
 
 const SKS_PACKAGING_OPTIONS = [
   { value: 'individual', label: 'Individual items' },
-  { value: 'small_bag',  label: 'Small bag'        },
-  { value: 'large_bag',  label: 'Large bag'        },
-  { value: 'small_box',  label: 'Small box'        },
-  { value: 'large_box',  label: 'Large box'        },
+  { value: 'small_bag',  label: 'Small bag' },
+  { value: 'large_bag',  label: 'Large bag' },
+  { value: 'small_box',  label: 'Small box' },
+  { value: 'large_box',  label: 'Large box' },
 ]
+
+const PAYMENT_STATUS_OPTIONS = ['Paid', 'Not Paid', 'Partially Paid', 'Write Off']
 
 const EMPTY_FORM = {
   donorId:        '',
-  date:           today(),
+  date:           todayStr(),
   pickupMode:     'Individual',
-  // RST — per-item weights replace the single rstWeight field
-// RST
-  rstItems:        [],
-  rstOtherText:    '',
-  rstItemWeights:  {},    // { itemName: { value: '', unit: 'kg' } }   // free-text when "Others" is selected in RST chips
-  // SKS
+  rstItems:       [],
+  rstOtherText:   '',
+  rstItemWeights: {},   // { itemName: { value: '', unit: 'kg' } }
   sksItems:       [],
-  sksItemDetails: {},      // { [itemName]: { quantity, packaging } }
-  sksOtherText:   '',      // free-text when "Others" is selected in SKS chips
-  // Payment
+  sksItemDetails: {},   // { itemName: { quantity: '', packaging: 'individual' } }
+  sksOtherText:   '',
   totalValue:     '',
   amountPaid:     '',
-  // Kabadiwala
+  paymentStatus:  'Not Paid',
   kabadiwala:     '',
   kabadiMobile:   '',
   notes:          '',
@@ -53,6 +51,11 @@ function derivePayStatus(total, paid) {
   if (p >= t)   return 'Paid'
   if (p > 0)    return 'Partially Paid'
   return 'Not Paid'
+}
+
+function toKg(value, unit) {
+  const n = parseFloat(value) || 0
+  return unit === 'gm' ? n / 1000 : n
 }
 
 // ─── Donor search dropdown ────────────────────────────────────────────────────
@@ -155,15 +158,13 @@ function DonorSearch({ donors, selectedId, onSelect, onAddNew }) {
                 {d.name[0]}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 600, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  {d.name}
-                  {d.id === selectedId && <CheckCircle size={12} color="var(--primary)" />}
-                </div>
+                <div style={{ fontWeight: 600, fontSize: 13 }}>{d.name}</div>
                 <div style={{ fontSize: 11.5, color: 'var(--text-muted)', display: 'flex', gap: 8 }}>
                   <span>{d.mobile}</span>
                   {d.society && <span>· {d.society}</span>}
                 </div>
               </div>
+              {d.id === selectedId && <CheckCircle size={12} color="var(--primary)" />}
             </div>
           ))}
         </div>
@@ -179,20 +180,18 @@ function RSTItemChips({ items, selected, weights, onToggle, onWeight, otherText,
   const colorText = 'var(--primary-dark)'
 
   const totalWeight = selected.reduce((sum, item) => {
-    return sum + (parseFloat(weights[item]) || 0)
+    return sum + toKg(weights[item]?.value, weights[item]?.unit || 'kg')
   }, 0)
 
-  const fmt = (n) => n % 1 === 0 ? n.toString() : n.toFixed(2)
+  const fmt = (n) => n % 1 === 0 ? n.toString() : n.toFixed(3)
 
   return (
     <div>
-      {/* Chips grid */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 8px' }}>
         {items.map(item => {
           const isOn = selected.includes(item)
           return (
             <div key={item} style={{ display: 'flex', alignItems: 'stretch', marginBottom: 2 }}>
-              {/* Item chip button */}
               <button
                 type="button"
                 onClick={() => onToggle(item)}
@@ -214,94 +213,54 @@ function RSTItemChips({ items, selected, weights, onToggle, onWeight, otherText,
                 {item}
               </button>
 
-              {/* Weight input — only when selected */}
               {isOn && (
-  <div style={{
-    display: 'flex',
-    alignItems: 'center',
-    gap: 4,
-    padding: '5px 10px 5px 8px',
-    borderRadius: '0 20px 20px 0',
-    border: `1.5px solid ${color}`,
-    borderLeft: 'none',
-    background: colorBg,
-  }}>
-    
-    {/* LEFT INPUT */}
-    <input
-      type="text"
-      inputMode="decimal"
-      value={weights[item]?.value || ''}
-      onChange={e =>
-        onWeight(item, {
-          ...weights[item],
-          value: e.target.value.replace(/[^0-9.]/g, '')
-        })
-      }
-      placeholder="0"
-      style={{
-        width: 40,
-        border: 'none',
-        background: 'transparent',
-        fontSize: 12,
-        fontWeight: 700,
-        outline: 'none',
-        textAlign: 'right',
-      }}
-    />
-
-    {/* RIGHT DROPDOWN */}
-    <select
-      value={weights[item]?.unit || 'kg'}
-      onChange={e =>
-        onWeight(item, {
-          ...weights[item],
-          unit: e.target.value
-        })
-      }
-      style={{
-        fontSize: 11,
-        border: 'none',
-        background: 'transparent',
-        fontWeight: 600,
-        cursor: 'pointer'
-      }}
-    >
-      <option value="kg">kg</option>
-      <option value="gm">gm</option>
-    </select>
-  </div>
-)}
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 4,
+                  padding: '5px 10px 5px 8px',
+                  borderRadius: '0 20px 20px 0',
+                  border: `1.5px solid ${color}`,
+                  borderLeft: 'none',
+                  background: colorBg,
+                }}>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={weights[item]?.value || ''}
+                    onChange={e =>
+                      onWeight(item, { ...weights[item], value: e.target.value.replace(/[^0-9.]/g, '') })
+                    }
+                    placeholder="0"
+                    style={{
+                      width: 40, border: 'none', background: 'transparent',
+                      fontSize: 12, fontWeight: 700, outline: 'none', textAlign: 'right',
+                    }}
+                  />
+                  <select
+                    value={weights[item]?.unit || 'kg'}
+                    onChange={e => onWeight(item, { ...weights[item], unit: e.target.value })}
+                    style={{ fontSize: 11, border: 'none', background: 'transparent', fontWeight: 600, cursor: 'pointer' }}
+                  >
+                    <option value="kg">kg</option>
+                    <option value="gm">gm</option>
+                  </select>
+                </div>
+              )}
             </div>
           )
         })}
       </div>
 
-      {/* "Others" free-text */}
       {selected.includes('Others') && (
         <div style={{
-          marginTop: 10,
-          display: 'flex', alignItems: 'center', gap: 8,
-          padding: '9px 13px',
-          background: colorBg,
-          border: `1.5px solid ${color}`,
-          borderRadius: 8,
-          animation: 'expandIn 0.18s ease',
+          marginTop: 10, display: 'flex', alignItems: 'center', gap: 8,
+          padding: '9px 13px', background: colorBg,
+          border: `1.5px solid ${color}`, borderRadius: 8,
         }}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: colorText, flexShrink: 0, whiteSpace: 'nowrap' }}>
-            Specify:
-          </span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: colorText, flexShrink: 0 }}>Specify:</span>
           <input
-            type="text"
-            value={otherText}
-            onChange={e => onOtherText(e.target.value)}
-            placeholder="e.g. Broken mirror, Mattress, Old lamp…"
-            autoFocus
-            style={{
-              flex: 1, border: 'none', outline: 'none',
-              background: 'transparent', fontSize: 13,
-              padding: 0, color: 'var(--text-primary)',
-            }}
+            type="text" value={otherText} onChange={e => onOtherText(e.target.value)}
+            placeholder="e.g. Broken mirror, Mattress…" autoFocus
+            style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: 13, padding: 0, color: 'var(--text-primary)' }}
           />
           {otherText && (
             <button type="button" onClick={() => onOtherText('')}
@@ -312,40 +271,90 @@ function RSTItemChips({ items, selected, weights, onToggle, onWeight, otherText,
         </div>
       )}
 
-      {/* Auto-calculated total */}
       {selected.length > 0 && (
         <div style={{
           marginTop: 10, padding: '8px 14px',
           background: totalWeight > 0 ? 'var(--secondary-light)' : 'var(--bg)',
           borderRadius: 8,
           border: `1px solid ${totalWeight > 0 ? 'rgba(27,94,53,0.2)' : 'var(--border-light)'}`,
-          display: 'flex', alignItems: 'center', gap: 8,
-          fontSize: 13, transition: 'all 0.2s',
+          display: 'flex', alignItems: 'center', gap: 8, fontSize: 13,
         }}>
           <Weight size={14} color={totalWeight > 0 ? 'var(--secondary)' : 'var(--text-muted)'} />
           <span style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>Total RST Weight:</span>
-          <span style={{
-            fontWeight: 800, fontSize: 15,
-            color: totalWeight > 0 ? 'var(--secondary)' : 'var(--text-muted)',
-            fontFamily: 'var(--font-display)',
-          }}>
+          <span style={{ fontWeight: 800, fontSize: 15, color: totalWeight > 0 ? 'var(--secondary)' : 'var(--text-muted)', fontFamily: 'var(--font-display)' }}>
             {totalWeight > 0 ? `${fmt(totalWeight)} kg` : '—'}
           </span>
-          <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 2 }}>
-            (auto-calculated)
-          </span>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 2 }}>(auto-calculated)</span>
         </div>
       )}
     </div>
   )
 }
 
-// ─── Item chip selector (SKS only) ───────────────────────────────────────────
+// ─── Rate Breakdown (read-only, shown when kabadiwala has rateChart) ──────────
+function RateBreakdown({ rstItems, rstItemWeights, rateChart }) {
+  if (!rateChart || rstItems.length === 0) return null
+
+  const rows = rstItems.map(item => {
+    const w   = rstItemWeights[item] || { value: '', unit: 'kg' }
+    const kg  = toKg(w.value, w.unit || 'kg')
+    const rate = rateChart[item] ?? null
+    const amt  = rate !== null && kg > 0 ? Math.round(kg * rate) : null
+    return { item, kg, rate, amt }
+  }).filter(r => r.rate !== null)
+
+  if (rows.length === 0) return null
+
+  const totalKg  = rows.reduce((s, r) => s + r.kg, 0)
+  const totalAmt = rows.reduce((s, r) => s + (r.amt || 0), 0)
+
+  return (
+    <div style={{
+      marginTop: 12, borderRadius: 10, overflow: 'hidden',
+      border: '1px solid rgba(27,94,53,0.25)', background: 'var(--secondary-light)',
+    }}>
+      <div style={{
+        display: 'grid', gridTemplateColumns: '1fr 70px 80px 80px',
+        padding: '6px 12px', background: 'rgba(27,94,53,0.12)',
+        fontSize: 10.5, fontWeight: 700, color: 'var(--secondary)',
+        textTransform: 'uppercase', letterSpacing: '0.04em',
+      }}>
+        <span>Item</span><span>Kg</span><span>Rate (₹/kg)</span><span>Amount</span>
+      </div>
+      {rows.map((r, idx) => (
+        <div key={r.item} style={{
+          display: 'grid', gridTemplateColumns: '1fr 70px 80px 80px',
+          padding: '7px 12px', fontSize: 12.5,
+          borderTop: idx > 0 ? '1px solid rgba(27,94,53,0.1)' : 'none',
+        }}>
+          <span style={{ fontWeight: 600, color: 'var(--secondary-dark)' }}>{r.item}</span>
+          <span style={{ color: 'var(--text-secondary)' }}>{r.kg > 0 ? r.kg.toFixed(3) : '—'}</span>
+          <span style={{ color: 'var(--text-muted)' }}>₹{r.rate}</span>
+          <span style={{ fontWeight: 700, color: r.amt ? 'var(--secondary)' : 'var(--text-muted)' }}>
+            {r.amt ? `₹${r.amt.toLocaleString('en-IN')}` : '—'}
+          </span>
+        </div>
+      ))}
+      <div style={{
+        display: 'grid', gridTemplateColumns: '1fr 70px 80px 80px',
+        padding: '8px 12px', fontSize: 13, fontWeight: 700,
+        borderTop: '1px solid rgba(27,94,53,0.2)',
+        background: 'rgba(27,94,53,0.15)', color: 'var(--secondary)',
+      }}>
+        <span>Total</span>
+        <span>{totalKg > 0 ? totalKg.toFixed(3) : '—'} kg</span>
+        <span />
+        <span>₹{totalAmt.toLocaleString('en-IN')}</span>
+      </div>
+    </div>
+  )
+}
+
+// ─── SKS Item chips ───────────────────────────────────────────────────────────
 function ItemChips({ items, selected, otherText, color, colorBg, colorText, onChange, onOtherText }) {
   const toggle = (item) => onChange(
     selected.includes(item) ? selected.filter(i => i !== item) : [...selected, item]
   )
-  const othersOn = selected.includes('Others')
 
   return (
     <div>
@@ -368,30 +377,17 @@ function ItemChips({ items, selected, otherText, color, colorBg, colorText, onCh
         })}
       </div>
 
-      {othersOn && (
+      {selected.includes('Others') && (
         <div style={{
-          marginTop: 10,
-          display: 'flex', alignItems: 'center', gap: 8,
-          padding: '9px 13px',
-          background: colorBg,
-          border: `1.5px solid ${color}`,
-          borderRadius: 8,
-          animation: 'expandIn 0.18s ease',
+          marginTop: 10, display: 'flex', alignItems: 'center', gap: 8,
+          padding: '9px 13px', background: colorBg,
+          border: `1.5px solid ${color}`, borderRadius: 8,
         }}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: colorText, flexShrink: 0, whiteSpace: 'nowrap' }}>
-            Specify:
-          </span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: colorText, flexShrink: 0 }}>Specify:</span>
           <input
-            type="text"
-            value={otherText}
-            onChange={e => onOtherText(e.target.value)}
-            placeholder="e.g. Broken mirror, Mattress, Old lamp…"
-            autoFocus
-            style={{
-              flex: 1, border: 'none', outline: 'none',
-              background: 'transparent', fontSize: 13,
-              padding: 0, color: 'var(--text-primary)',
-            }}
+            type="text" value={otherText} onChange={e => onOtherText(e.target.value)}
+            placeholder="e.g. Broken mirror, Mattress…" autoFocus
+            style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: 13, padding: 0, color: 'var(--text-primary)' }}
           />
           {otherText && (
             <button type="button" onClick={() => onOtherText('')}
@@ -455,114 +451,9 @@ function SKSDetails({ sksItems, sksItemDetails, onChangeDetail }) {
   )
 }
 
-// ─── RST per-item weight + rate display ──────────────────────────────────────
-function RSTWeightInputs({ rstItems, rstItemWeights, rateChart, onChangeWeight }) {
-  if (rstItems.length === 0) return null
-
-  const toKg = (val, unit) => {
-    const n = parseFloat(val) || 0
-    return unit === 'gm' ? n / 1000 : n
-  }
-
-  return (
-    <div style={{
-      background: 'var(--bg)', borderRadius: 10,
-      border: '1px solid var(--border-light)', overflow: 'hidden', marginTop: 10,
-    }}>
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: rateChart ? '1fr 90px 60px 70px 70px' : '1fr 90px 60px',
-        padding: '6px 12px', background: 'var(--primary-light)',
-        fontSize: 10.5, fontWeight: 700, color: 'var(--primary)',
-        textTransform: 'uppercase', letterSpacing: '0.04em',
-      }}>
-        <span>Item</span>
-        <span>Weight</span>
-        <span>Unit</span>
-        {rateChart && <><span>Rate (₹/kg)</span><span>Amount</span></>}
-      </div>
-
-      {rstItems.map((item, idx) => {
-        const det  = rstItemWeights[item] || { value: '', unit: 'kg' }
-        const rate = rateChart?.[item] ?? null
-        const kg   = toKg(det.value, det.unit)
-        const amt  = rate !== null ? Math.round(kg * rate) : null
-
-        return (
-          <div key={item} style={{
-            display: 'grid',
-            gridTemplateColumns: rateChart ? '1fr 90px 60px 70px 70px' : '1fr 90px 60px',
-            padding: '8px 12px', alignItems: 'center',
-            borderTop: idx > 0 ? '1px solid var(--border-light)' : 'none',
-          }}>
-            <span style={{ fontSize: 12.5, fontWeight: 600 }}>{item}</span>
-            <input
-              type="text" inputMode="decimal" placeholder="0"
-              value={det.value}
-              onChange={e => onChangeWeight(item, { ...det, value: e.target.value.replace(/[^0-9.]/g, '') })}
-              style={{ padding: '5px 8px', fontSize: 13, border: '1.5px solid var(--border)', borderRadius: 6, background: 'var(--surface)', width: '100%' }}
-            />
-            <select
-              value={det.unit}
-              onChange={e => onChangeWeight(item, { ...det, unit: e.target.value })}
-              style={{ marginLeft: 6, padding: '5px 4px', fontSize: 12, border: '1.5px solid var(--border)', borderRadius: 6, background: 'var(--surface)' }}
-            >
-              <option value="kg">kg</option>
-              <option value="gm">gm</option>
-            </select>
-            {rateChart && (
-              <>
-                <span style={{ textAlign: 'center', fontSize: 12.5, color: 'var(--text-muted)', paddingLeft: 8 }}>
-                  {rate !== null ? `₹${rate}` : '—'}
-                </span>
-                <span style={{ textAlign: 'center', fontSize: 12.5, fontWeight: 700, color: amt ? 'var(--secondary)' : 'var(--text-muted)', paddingLeft: 8 }}>
-                  {amt ? `₹${amt}` : '—'}
-                </span>
-              </>
-            )}
-          </div>
-        )
-      })}
-
-      {/* Totals row */}
-      <div style={{
-        padding: '8px 12px', borderTop: '1px solid var(--border-light)',
-        background: 'var(--primary-light)',
-        display: 'flex', gap: 20, flexWrap: 'wrap', fontSize: 12.5,
-      }}>
-        {(() => {
-          const totalKg = rstItems.reduce((s, item) => {
-            const det = rstItemWeights[item] || { value: '', unit: 'kg' }
-            const n   = parseFloat(det.value) || 0
-            return s + (det.unit === 'gm' ? n / 1000 : n)
-          }, 0)
-          const totalAmt = rateChart
-            ? rstItems.reduce((s, item) => {
-                const det  = rstItemWeights[item] || { value: '', unit: 'kg' }
-                const kg   = (parseFloat(det.value) || 0) / (det.unit === 'gm' ? 1000 : 1)
-                const rate = rateChart?.[item] ?? 0
-                return s + kg * rate
-              }, 0)
-            : null
-          return (
-            <>
-              <span>Total: <strong>{totalKg.toFixed(3)} kg</strong></span>
-              {totalAmt !== null && (
-                <span style={{ color: 'var(--secondary)', fontWeight: 700 }}>
-                  Est. Value: ₹{Math.round(totalAmt)}
-                </span>
-              )}
-            </>
-          )
-        })()}
-      </div>
-    </div>
-  )
-}
-
 // ─── Toast ────────────────────────────────────────────────────────────────────
 function Toast({ msg, onDone }) {
-  useState(() => { const t = setTimeout(onDone, 2800); return () => clearTimeout(t) })
+  useState(() => { const t = setTimeout(onDone, 3000); return () => clearTimeout(t) })
   return (
     <div style={{
       position: 'fixed', bottom: 28, right: 24, zIndex: 200,
@@ -595,6 +486,17 @@ function SectionLabel({ badge, badgeClass, title, count }) {
   )
 }
 
+// ─── Payment status badge helper ──────────────────────────────────────────────
+function PayStatusBadge({ status }) {
+  const map = {
+    'Paid':           'badge-success',
+    'Not Paid':       'badge-danger',
+    'Partially Paid': 'badge-warning',
+    'Write Off':      'badge-muted',
+  }
+  return <span className={`badge ${map[status] || 'badge-muted'}`} style={{ fontSize: 11 }}>{status}</span>
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 export default function Pickups() {
   const { donors, kabadiwalas, raddiRecords, addDonor, createPickup } = useApp()
@@ -607,25 +509,34 @@ export default function Pickups() {
 
   const activeDonors  = useMemo(() => donors.filter(d => d.status !== 'Lost'), [donors])
   const selectedDonor = useMemo(() => activeDonors.find(d => d.id === form.donorId) || null, [activeDonors, form.donorId])
-  const selectedKabadiwala = useMemo(
-    () => kabadiwalas.find(k => k.name === form.kabadiwala) || null,
-    [kabadiwalas, form.kabadiwala]
-  )
-  const rateChart = selectedKabadiwala?.rateChart || null
-  
+  const selectedKab   = useMemo(() => kabadiwalas.find(k => k.name === form.kabadiwala) || null, [kabadiwalas, form.kabadiwala])
+  const rateChart     = selectedKab?.rateChart || null
+
   const recentRecords = useMemo(
     () => [...raddiRecords].sort((a, b) => (b.pickupDate || '').localeCompare(a.pickupDate || '')).slice(0, 15),
     [raddiRecords]
   )
 
-  // ── Auto-calculated RST total weight ────────────────────────────────────────
+  // Auto-calculated RST total weight (kg)
   const rstTotalWeight = useMemo(() => {
     return form.rstItems.reduce((sum, item) => {
-      return sum + (parseFloat(form.rstItemWeights[item]) || 0)
+      const w = form.rstItemWeights[item] || { value: '', unit: 'kg' }
+      return sum + toKg(w.value, w.unit || 'kg')
     }, 0)
   }, [form.rstItems, form.rstItemWeights])
 
-  // ── Field setter ────────────────────────────────────────────────────────────
+  // Auto-calculated RST total value from rate chart
+  const rstEstimatedValue = useMemo(() => {
+    if (!rateChart) return 0
+    return form.rstItems.reduce((sum, item) => {
+      const w    = form.rstItemWeights[item] || { value: '', unit: 'kg' }
+      const kg   = toKg(w.value, w.unit || 'kg')
+      const rate = rateChart[item] ?? 0
+      return sum + Math.round(kg * rate)
+    }, 0)
+  }, [form.rstItems, form.rstItemWeights, rateChart])
+
+  // ── Field setter ─────────────────────────────────────────────────────────
   const set = useCallback((key, val) => {
     setForm(f => {
       const next = { ...f, [key]: val }
@@ -638,8 +549,7 @@ export default function Pickups() {
     setErrors(e => ({ ...e, [key]: '' }))
   }, [kabadiwalas])
 
-  // RST items toggle — also cleans up rstItemWeights for deselected items
-const setRST = useCallback((items) =>
+  const setRST = useCallback((items) =>
     setForm(f => {
       const newWeights = {}
       items.forEach(i => { newWeights[i] = f.rstItemWeights[i] || { value: '', unit: 'kg' } })
@@ -651,18 +561,10 @@ const setRST = useCallback((items) =>
     })
   , [])
 
-  // Per-item weight update
- const updateRstWeight = useCallback((itemName, data) => {
-  setForm(f => ({
-    ...f,
-    rstItemWeights: {
-      ...f.rstItemWeights,
-      [itemName]: data
-    }
-  }))
-}, [])
+  const updateRstWeight = useCallback((itemName, data) => {
+    setForm(f => ({ ...f, rstItemWeights: { ...f.rstItemWeights, [itemName]: data } }))
+  }, [])
 
-  // SKS items — clear sksOtherText if "Others" deselected
   const setSKS = useCallback((items) =>
     setForm(f => ({
       ...f, sksItems: items,
@@ -674,11 +576,7 @@ const setRST = useCallback((items) =>
     setForm(f => ({ ...f, sksItemDetails: { ...f.sksItemDetails, [item]: detail } }))
   , [])
 
-  const setRSTWeight = useCallback((item, detail) =>
-    setForm(f => ({ ...f, rstItemWeights: { ...f.rstItemWeights, [item]: detail } }))
-  , [])
-
-  // ── Add new donor ───────────────────────────────────────────────────────────
+  // ── Add new donor ─────────────────────────────────────────────────────────
   const handleAddDonor = useCallback(async (data) => {
     const newDonor = await addDonor(data)
     setForm(f => ({ ...f, donorId: newDonor.id }))
@@ -686,7 +584,14 @@ const setRST = useCallback((items) =>
     setToast(`${newDonor.name} added and selected`)
   }, [addDonor])
 
-  // ── Validate ────────────────────────────────────────────────────────────────
+  // ── Auto-fill total value from rate chart ─────────────────────────────────
+  const autoFillValue = () => {
+    if (rstEstimatedValue > 0) {
+      set('totalValue', String(rstEstimatedValue))
+    }
+  }
+
+  // ── Validate ──────────────────────────────────────────────────────────────
   const validate = () => {
     const e = {}
     if (!form.donorId) e.donorId = 'Please select a donor'
@@ -694,7 +599,7 @@ const setRST = useCallback((items) =>
     return e
   }
 
-  // ── Submit ──────────────────────────────────────────────────────────────────
+  // ── Submit ────────────────────────────────────────────────────────────────
   const handleSave = async () => {
     const e = validate()
     if (Object.keys(e).length) { setErrors(e); return }
@@ -704,22 +609,27 @@ const setRST = useCallback((items) =>
       const totalValue = Number(form.totalValue) || 0
       const amountPaid = Number(form.amountPaid)  || 0
 
-      // Expand "Others" chip → descriptive label if user typed something
       const finalRST = form.rstItems.map(i =>
-        i === 'Others' && form.rstOtherText.trim()
-          ? `Others (${form.rstOtherText.trim()})` : i
+        i === 'Others' && form.rstOtherText.trim() ? `Others (${form.rstOtherText.trim()})` : i
       )
       const finalSKS = form.sksItems.map(i =>
-        i === 'Others' && form.sksOtherText.trim()
-          ? `Others (${form.sksOtherText.trim()})` : i
+        i === 'Others' && form.sksOtherText.trim() ? `Others (${form.sksOtherText.trim()})` : i
       )
 
       const type =
         finalRST.length > 0 && finalSKS.length > 0 ? 'RST+SKS'
-        : finalSKS.length > 0                       ? 'SKS'
+        : finalSKS.length > 0 ? 'SKS'
         : 'RST'
 
+      const paymentStatus =
+        form.paymentStatus === 'Write Off'
+          ? 'Write Off'
+          : derivePayStatus(totalValue, amountPaid)
+
+      const orderId = generateOrderId()
+
       await createPickup({
+        orderId,
         donorId:        donor.id,
         donorName:      donor.name,
         mobile:         donor.mobile   || '',
@@ -733,33 +643,33 @@ const setRST = useCallback((items) =>
         rstItems:       finalRST,
         sksItems:       finalSKS,
         sksItemDetails: form.sksItemDetails,
-        // Per-item weights stored for auditability
         rstItemWeights: form.rstItemWeights,
-        rstTotalWeight: rstTotalWeight > 0 ? rstTotalWeight.toString() : '',
+        rstTotalWeight: rstTotalWeight > 0 ? rstTotalWeight.toFixed(3) : '',
         rstWeightUnit:  'kg',
         totalKg:        rstTotalWeight,
         totalValue,
         amountPaid,
-        paymentStatus:  derivePayStatus(totalValue, amountPaid),
+        paymentStatus,
         kabadiwala:     form.kabadiwala,
         kabadiMobile:   form.kabadiMobile,
         notes:          form.notes,
       })
 
-      setForm({ ...EMPTY_FORM, date: today() })
+      setForm({ ...EMPTY_FORM, date: todayStr() })
       setErrors({})
-      setToast('Pickup recorded successfully!')
+      setToast(`Pickup recorded! Order ID: ${orderId}`)
     } finally {
       setSaving(false)
     }
   }
 
-  // ── Payment preview ─────────────────────────────────────────────────────────
-  const payStatus = derivePayStatus(form.totalValue, form.amountPaid)
+  // ── Payment preview ───────────────────────────────────────────────────────
+  const payStatus = form.paymentStatus === 'Write Off'
+    ? 'Write Off'
+    : derivePayStatus(form.totalValue, form.amountPaid)
   const remaining = Math.max(0, (Number(form.totalValue) || 0) - (Number(form.amountPaid) || 0))
   const formDirty = form.donorId || form.rstItems.length > 0 || form.sksItems.length > 0 || form.totalValue
 
-  // ─────────────────────────────────────────────────────────────────────────
   return (
     <div className="page-body">
 
@@ -785,15 +695,10 @@ const setRST = useCallback((items) =>
         </div>
       </div>
 
-      {/* Two-column grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.1fr) minmax(0,0.9fr)', gap: 20, alignItems: 'start' }}
         className="two-col-form">
         <style>{`
           @media (max-width: 820px) { .two-col-form { grid-template-columns: 1fr !important; } }
-          @keyframes expandIn {
-            from { opacity: 0; transform: translateY(-4px); }
-            to   { opacity: 1; transform: translateY(0); }
-          }
         `}</style>
 
         {/* ── LEFT: form ── */}
@@ -825,7 +730,6 @@ const setRST = useCallback((items) =>
               )}
             </div>
 
-            {/* Donor location */}
             {selectedDonor && (
               <div style={{
                 padding: '9px 13px', background: 'var(--secondary-light)',
@@ -846,7 +750,7 @@ const setRST = useCallback((items) =>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div className="form-group" style={{ margin: 0 }}>
                 <label>Pickup Date <span className="required">*</span></label>
-                <input type="date" value={form.date} max={today()} onChange={e => set('date', e.target.value)} />
+                <input type="date" value={form.date} max={todayStr()} onChange={e => set('date', e.target.value)} />
                 {errors.date && (
                   <div style={{ fontSize: 12, color: 'var(--danger)', marginTop: 3 }}>{errors.date}</div>
                 )}
@@ -869,7 +773,7 @@ const setRST = useCallback((items) =>
               </div>
             </div>
 
-            {/* ── RST Items with per-item weights ── */}
+            {/* ── RST Items ── */}
             <div className="form-group" style={{ margin: 0 }}>
               <SectionLabel
                 badge="RST" badgeClass="badge-success"
@@ -889,6 +793,32 @@ const setRST = useCallback((items) =>
                 otherText={form.rstOtherText}
                 onOtherText={v => set('rstOtherText', v)}
               />
+
+              {/* Rate Breakdown (shown when kabadiwala with rateChart is selected) */}
+              {rateChart && form.rstItems.length > 0 && (
+                <>
+                  <div style={{ marginTop: 10, fontSize: 11.5, fontWeight: 600, color: 'var(--secondary)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span>Rate breakdown — {selectedKab?.name}</span>
+                    {rstEstimatedValue > 0 && (
+                      <button
+                        type="button"
+                        onClick={autoFillValue}
+                        style={{
+                          background: 'var(--secondary)', color: 'white', border: 'none',
+                          borderRadius: 6, padding: '3px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                        }}
+                      >
+                        Auto-fill ₹{rstEstimatedValue.toLocaleString('en-IN')}
+                      </button>
+                    )}
+                  </div>
+                  <RateBreakdown
+                    rstItems={form.rstItems}
+                    rstItemWeights={form.rstItemWeights}
+                    rateChart={rateChart}
+                  />
+                </>
+              )}
             </div>
 
             {/* ── SKS Items ── */}
@@ -908,60 +838,11 @@ const setRST = useCallback((items) =>
                 onChange={setSKS}
                 onOtherText={v => set('sksOtherText', v)}
               />
-              {/* Quantity + packaging detail table */}
               <SKSDetails
                 sksItems={form.sksItems}
                 sksItemDetails={form.sksItemDetails}
                 onChangeDetail={setSKSDetail}
               />
-            </div>
-
-            {/* ── Payment ── */}
-            <div style={{ background: 'var(--bg)', borderRadius: 10, padding: 14, border: '1px solid var(--border-light)' }}>
-              <div style={{
-                fontSize: 11.5, fontWeight: 700, color: 'var(--text-muted)',
-                textTransform: 'uppercase', letterSpacing: '0.05em',
-                marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6,
-              }}>
-                <IndianRupee size={13} color="var(--warning)" /> Payment Details
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label>
-                    Total Value (₹)
-                    <span style={{ fontSize: 10.5, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 4 }}>Kab → FP</span>
-                  </label>
-                  <input type="text" inputMode="numeric" placeholder="0" value={form.totalValue}
-                    onChange={e => set('totalValue', e.target.value.replace(/[^0-9]/g, ''))} />
-                </div>
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label>Amount Paid (₹)</label>
-                  <input type="text" inputMode="numeric" placeholder="0" value={form.amountPaid}
-                    onChange={e => set('amountPaid', e.target.value.replace(/[^0-9]/g, ''))} />
-                </div>
-              </div>
-
-              {(form.totalValue || form.amountPaid) && (
-                <div style={{
-                  marginTop: 10, padding: '8px 12px',
-                  background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border-light)',
-                  display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 12.5, alignItems: 'center',
-                }}>
-                  <span className={`badge ${
-                    payStatus === 'Paid' ? 'badge-success'
-                    : payStatus === 'Partially Paid' ? 'badge-warning'
-                    : 'badge-danger'
-                  }`} style={{ fontSize: 11 }}>
-                    {payStatus}
-                  </span>
-                  {remaining > 0 && (
-                    <span style={{ color: 'var(--danger)', fontWeight: 600 }}>Due: {fmtCurrency(remaining)}</span>
-                  )}
-                  {payStatus === 'Paid' && (
-                    <span style={{ color: 'var(--secondary)', fontWeight: 600 }}>Fully paid ✓</span>
-                  )}
-                </div>
-              )}
             </div>
 
             {/* ── Kabadiwala ── */}
@@ -981,6 +862,75 @@ const setRST = useCallback((items) =>
                   maxLength={10}
                 />
               </div>
+            </div>
+
+            {/* ── Payment ── */}
+            <div style={{ background: 'var(--bg)', borderRadius: 10, padding: 14, border: '1px solid var(--border-light)' }}>
+              <div style={{
+                fontSize: 11.5, fontWeight: 700, color: 'var(--text-muted)',
+                textTransform: 'uppercase', letterSpacing: '0.05em',
+                marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6,
+              }}>
+                <IndianRupee size={13} color="var(--warning)" /> Payment Details
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>
+                    Total Value (₹)
+                    <span style={{ fontSize: 10.5, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 4 }}>Kab → FP</span>
+                  </label>
+                  <input type="text" inputMode="numeric" placeholder="0" value={form.totalValue}
+                    onChange={e => set('totalValue', e.target.value.replace(/[^0-9]/g, ''))} />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>Amount Paid (₹)</label>
+                  <input type="text" inputMode="numeric" placeholder="0" value={form.amountPaid}
+                    onChange={e => set('amountPaid', e.target.value.replace(/[^0-9]/g, ''))} />
+                </div>
+              </div>
+
+              {/* Payment Status selector */}
+              <div className="form-group" style={{ margin: '12px 0 0' }}>
+                <label>Payment Status</label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+                  {PAYMENT_STATUS_OPTIONS.map(s => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => set('paymentStatus', s)}
+                      style={{
+                        padding: '5px 12px', borderRadius: 20, fontSize: 12, cursor: 'pointer',
+                        border: `1.5px solid ${form.paymentStatus === s ? 'var(--primary)' : 'var(--border)'}`,
+                        background: form.paymentStatus === s ? 'var(--primary-light)' : 'transparent',
+                        color: form.paymentStatus === s ? 'var(--primary)' : 'var(--text-secondary)',
+                        fontWeight: form.paymentStatus === s ? 700 : 400,
+                      }}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {(form.totalValue || form.amountPaid) && (
+                <div style={{
+                  marginTop: 10, padding: '8px 12px',
+                  background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border-light)',
+                  display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 12.5, alignItems: 'center',
+                }}>
+                  <PayStatusBadge status={payStatus} />
+                  {remaining > 0 && payStatus !== 'Write Off' && (
+                    <span style={{ color: 'var(--danger)', fontWeight: 600 }}>Due: {fmtCurrency(remaining)}</span>
+                  )}
+                  {payStatus === 'Paid' && (
+                    <span style={{ color: 'var(--secondary)', fontWeight: 600 }}>Fully paid ✓</span>
+                  )}
+                  {payStatus === 'Write Off' && (
+                    <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>Amount written off</span>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Notes */}
@@ -1010,10 +960,9 @@ const setRST = useCallback((items) =>
               )}
             </button>
 
-            {/* Clear */}
             {formDirty && (
               <button type="button"
-                onClick={() => { setForm({ ...EMPTY_FORM, date: today() }); setErrors({}) }}
+                onClick={() => { setForm({ ...EMPTY_FORM, date: todayStr() }); setErrors({}) }}
                 style={{
                   background: 'none', border: 'none', cursor: 'pointer',
                   fontSize: 12.5, color: 'var(--text-muted)',
@@ -1035,13 +984,13 @@ const setRST = useCallback((items) =>
             </div>
             <div className="card-body" style={{ fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.8, padding: '12px 16px' }}>
               {[
-                ['1.', 'Search for the donor by name or mobile.'],
-                ['2.', 'Not found? Click + Add New Donor.'],
-                ['3.', 'Tick RST chips — a weight field appears inline for each.'],
-                ['4.', 'Enter kg per item; total auto-calculates below.'],
-                ['5.', 'Tick SKS chips for goods and fill quantity/packaging.'],
-                ['6.', 'Enter value and payment received.'],
-                ['7.', 'Select the kabadiwala, then hit Save.'],
+                ['1.', 'Search or add a donor.'],
+                ['2.', 'Tick RST chips — a weight+unit field appears per item.'],
+                ['3.', 'Select a kabadiwala to see live rate breakdown.'],
+                ['4.', 'Click "Auto-fill" to copy the estimated total value.'],
+                ['5.', 'Tick SKS chips and fill quantity / packaging.'],
+                ['6.', 'Set payment status and amount received.'],
+                ['7.', 'Hit Save — an Order ID is auto-generated.'],
               ].map(([n, t]) => (
                 <div key={n} style={{ display: 'flex', gap: 10, marginBottom: 4 }}>
                   <span style={{ fontWeight: 700, color: 'var(--primary)', flexShrink: 0 }}>{n}</span>
@@ -1081,7 +1030,8 @@ const setRST = useCallback((items) =>
                     <div style={{ fontWeight: 600, fontSize: 12.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {r.name}
                     </div>
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      {r.orderId && <><Hash size={9} />{r.orderId} · </>}
                       {fmtDate(r.pickupDate)}{r.totalKg > 0 ? ` · ${r.totalKg} kg` : ''}
                     </div>
                   </div>
@@ -1093,7 +1043,8 @@ const setRST = useCallback((items) =>
                     ) : (
                       <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>—</div>
                     )}
-                    <div style={{ fontSize: 10, fontWeight: 600,
+                    <div style={{
+                      fontSize: 10, fontWeight: 600,
                       color: r.paymentStatus === 'Received' ? 'var(--secondary)'
                         : r.paymentStatus === 'Yet to Receive' ? '#92400E'
                         : 'var(--danger)',
