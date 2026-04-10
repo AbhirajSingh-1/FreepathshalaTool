@@ -1,56 +1,20 @@
 // Frontend/src/pages/Pickups.jsx
-// ─── Pickups Page — 100% global state via useApp() ───────────────────────────
-//
-// KEY FIX:  This page NO LONGER calls fetchDonors() / fetchPickups() from api.js.
-//           All data comes from AppContext which is the single source of truth.
-//           Any donor added via PickupScheduler is immediately visible here.
-//
-// DONOR RESOLUTION:
-//   pickup.donorId  →  donors.find(d => d.id === pickup.donorId)
-//   Fallback: pickup.donorName (snapshot stored at creation time)
+// ─── Field Staff: Record Pickup ───────────────────────────────────────────────
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import {
-  Search, Plus, Edit2, Trash2, X, Truck, Download,
-  ChevronDown, ChevronUp, Filter, IndianRupee, CheckSquare, Square, Package,
+  Search, Plus, X, CheckSquare, Square,
+  IndianRupee, MapPin, Phone,
+  CheckCircle, Truck, Clock, ChevronDown,
+  AlertCircle, Package,
 } from 'lucide-react'
-import { useApp } from '../context/AppContext'
-import {
-  RST_ITEMS, SKS_ITEMS, PICKUP_STATUSES, PAYMENT_STATUSES,
-  POSTPONE_REASONS, PICKUP_MODES, CITIES, CITY_SECTORS,
-} from '../data/mockData'
-import {
-  fmtDate, fmtCurrency, pickupStatusColor, paymentStatusColor, exportToExcel,
-} from '../utils/helpers'
-import DonorSearchSelect from '../components/DonorSearchSelect'
+import { useApp }  from '../context/AppContext'
+import DonorModal  from '../components/DonorModal'
+import { RST_ITEMS, SKS_ITEMS, PICKUP_MODES } from '../data/mockData'
+import { fmtDate, fmtCurrency } from '../utils/helpers'
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ─── constants ────────────────────────────────────────────────────────────────
 const today = () => new Date().toISOString().slice(0, 10)
-
-const EMPTY_FORM = {
-  donorId:        '',
-  donorName:      '',  // snapshot – filled automatically from selected donor
-  society:        '',
-  sector:         '',
-  city:           '',
-  date:           today(),
-  status:         'Pending',
-  pickupMode:     'Individual',
-  type:           'RST',
-  rstItems:       [],
-  sksItems:       [],
-  sksItemDetails: {},
-  rstTotalWeight: '',
-  rstWeightUnit:  'kg',
-  totalValue:     '',
-  amountPaid:     '',
-  paymentStatus:  'Not Paid',
-  kabadiwala:     '',
-  kabadiMobile:   '',
-  nextDate:       '',
-  postponeReason: '',
-  notes:          '',
-}
 
 const SKS_PACKAGING_OPTIONS = [
   { value: 'individual', label: 'Individual items' },
@@ -60,702 +24,801 @@ const SKS_PACKAGING_OPTIONS = [
   { value: 'large_box',  label: 'Large box'        },
 ]
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
-function RSTItemSelector({ rstItems, onChangeItems }) {
-  const toggle = (item) => onChangeItems(
-    rstItems.includes(item) ? rstItems.filter(i => i !== item) : [...rstItems, item]
-  )
+const EMPTY_FORM = {
+  donorId:        '',
+  date:           today(),
+  pickupMode:     'Individual',
+  // RST
+  rstItems:       [],
+  rstOtherText:   '',        // free-text when "Others" is selected in RST chips
+  rstWeight:      '',
+  rstWeightUnit:  'kg',
+  // SKS
+  sksItems:       [],
+  sksItemDetails: {},        // { [itemName]: { quantity, packaging } }
+  sksOtherText:   '',        // free-text when "Others" is selected in SKS chips
+  // Payment
+  totalValue:     '',
+  amountPaid:     '',
+  // Kabadiwala
+  kabadiwala:     '',
+  kabadiMobile:   '',
+  notes:          '',
+}
+
+function derivePayStatus(total, paid) {
+  const t = Number(total) || 0
+  const p = Number(paid)  || 0
+  if (t === 0)  return 'Not Paid'
+  if (p >= t)   return 'Paid'
+  if (p > 0)    return 'Partially Paid'
+  return 'Not Paid'
+}
+
+// ─── Donor search dropdown ────────────────────────────────────────────────────
+function DonorSearch({ donors, selectedId, onSelect, onAddNew }) {
+  const [query, setQuery] = useState('')
+  const [open,  setOpen]  = useState(false)
+
+  const selected = useMemo(() => donors.find(d => d.id === selectedId), [donors, selectedId])
+
+  const filtered = useMemo(() => {
+    const q = query.toLowerCase().trim()
+    if (!q) return donors.slice(0, 30)
+    return donors.filter(d =>
+      d.name.toLowerCase().includes(q) || (d.mobile || '').includes(q)
+    )
+  }, [donors, query])
+
+  const choose = (d) => { onSelect(d.id); setOpen(false); setQuery('') }
+  const clear  = (e) => { e.stopPropagation(); onSelect(''); setQuery('') }
+  const handleBlur = (e) => { if (!e.currentTarget.contains(e.relatedTarget)) setOpen(false) }
+
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-      {RST_ITEMS.map(item => {
-        const checked = rstItems.includes(item)
-        return (
-          <button key={item} type="button" onClick={() => toggle(item)} style={{
-            display: 'flex', alignItems: 'center', gap: 5,
-            padding: '4px 10px', borderRadius: 20, fontSize: 12, cursor: 'pointer',
-            border: `1.5px solid ${checked ? 'var(--primary)' : 'var(--border)'}`,
-            background: checked ? 'var(--primary-light)' : 'transparent',
-            color: checked ? 'var(--primary)' : 'var(--text-secondary)',
-            fontWeight: checked ? 600 : 400, transition: 'all 0.15s',
-          }}>
-            {checked ? <CheckSquare size={12} /> : <Square size={12} />}
-            {item}
+    <div style={{ position: 'relative' }} onBlur={handleBlur}>
+      <div
+        onClick={() => setOpen(true)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 10,
+          padding: '9px 12px',
+          border: `1.5px solid ${open ? 'var(--primary)' : 'var(--border)'}`,
+          boxShadow: open ? '0 0 0 3px rgba(232,82,26,0.1)' : 'none',
+          borderRadius: 'var(--radius-sm)', background: 'var(--surface)',
+          cursor: 'text', transition: 'all 0.15s',
+        }}
+      >
+        <Search size={14} color="var(--text-muted)" style={{ flexShrink: 0 }} />
+        {selected && !open ? (
+          <>
+            <span style={{ flex: 1, fontWeight: 600, fontSize: 13.5 }}>
+              {selected.name}
+              <span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: 8, fontSize: 12 }}>
+                {selected.mobile}
+              </span>
+            </span>
+            <button type="button" onMouseDown={clear}
+              style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 2, color: 'var(--text-muted)', display: 'flex' }}>
+              <X size={14} />
+            </button>
+          </>
+        ) : (
+          <input
+            autoFocus={open}
+            type="text"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Search by name or mobile…"
+            style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: 13.5, padding: 0, color: 'var(--text-primary)' }}
+          />
+        )}
+      </div>
+
+      {open && (
+        <div tabIndex={-1} style={{
+          position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, zIndex: 80,
+          background: 'var(--surface)', border: '1px solid var(--border)',
+          borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-md)',
+          maxHeight: 260, overflowY: 'auto',
+        }}>
+          <button type="button" tabIndex={0}
+            onMouseDown={e => { e.preventDefault(); setOpen(false); onAddNew() }}
+            style={{
+              width: '100%', padding: '10px 14px', textAlign: 'left',
+              border: 'none', borderBottom: '1px solid var(--border-light)',
+              background: 'var(--primary-light)', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 8,
+              fontSize: 13, fontWeight: 700, color: 'var(--primary)',
+            }}>
+            <Plus size={14} /> Add New Donor
           </button>
-        )
-      })}
+          {filtered.length === 0 ? (
+            <div style={{ padding: '14px 16px', textAlign: 'center', fontSize: 13, color: 'var(--text-muted)' }}>
+              No donors match "{query}"
+            </div>
+          ) : filtered.map(d => (
+            <div key={d.id} tabIndex={0}
+              onMouseDown={e => { e.preventDefault(); choose(d) }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '9px 14px', borderBottom: '1px solid var(--border-light)',
+                cursor: 'pointer',
+                background: d.id === selectedId ? 'var(--primary-light)' : 'transparent',
+              }}
+              onMouseEnter={e => { if (d.id !== selectedId) e.currentTarget.style.background = 'var(--bg)' }}
+              onMouseLeave={e => { e.currentTarget.style.background = d.id === selectedId ? 'var(--primary-light)' : 'transparent' }}
+            >
+              <div style={{
+                width: 32, height: 32, borderRadius: 8, flexShrink: 0,
+                background: 'var(--primary-light)', display: 'flex', alignItems: 'center',
+                justifyContent: 'center', fontWeight: 700, color: 'var(--primary)', fontSize: 14,
+              }}>
+                {d.name[0]}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 600, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {d.name}
+                  {d.id === selectedId && <CheckCircle size={12} color="var(--primary)" />}
+                </div>
+                <div style={{ fontSize: 11.5, color: 'var(--text-muted)', display: 'flex', gap: 8 }}>
+                  <span>{d.mobile}</span>
+                  {d.society && <span>· {d.society}</span>}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
 
-function SKSItemSelector({ sksItems, sksItemDetails, onChangeItems, onChangeDetail }) {
-  const toggle = (item) => onChangeItems(
-    sksItems.includes(item) ? sksItems.filter(i => i !== item) : [...sksItems, item]
+// ─── Item chip selector ───────────────────────────────────────────────────────
+// When "Others" chip is selected, an inline text box fades in below the chips.
+function ItemChips({ items, selected, otherText, color, colorBg, colorText, onChange, onOtherText }) {
+  const toggle = (item) => onChange(
+    selected.includes(item) ? selected.filter(i => i !== item) : [...selected, item]
   )
+  const othersOn = selected.includes('Others')
+
   return (
     <div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: sksItems.length > 0 ? 14 : 0 }}>
-        {SKS_ITEMS.map(item => {
-          const checked = sksItems.includes(item)
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {items.map(item => {
+          const on = selected.includes(item)
           return (
             <button key={item} type="button" onClick={() => toggle(item)} style={{
               display: 'flex', alignItems: 'center', gap: 5,
               padding: '4px 10px', borderRadius: 20, fontSize: 12, cursor: 'pointer',
-              border: `1.5px solid ${checked ? 'var(--info)' : 'var(--border)'}`,
-              background: checked ? 'var(--info-bg)' : 'transparent',
-              color: checked ? 'var(--info)' : 'var(--text-secondary)',
-              fontWeight: checked ? 600 : 400, transition: 'all 0.15s',
+              border: `1.5px solid ${on ? color : 'var(--border)'}`,
+              background: on ? colorBg : 'transparent',
+              color: on ? colorText : 'var(--text-secondary)',
+              fontWeight: on ? 600 : 400, transition: 'all 0.13s',
             }}>
-              {checked ? <CheckSquare size={12} /> : <Square size={12} />}
+              {on ? <CheckSquare size={11} /> : <Square size={11} />}
               {item}
             </button>
           )
         })}
       </div>
-      {sksItems.length > 0 && (
-        <div style={{ background: 'var(--bg)', borderRadius: 10, border: '1px solid var(--border-light)', overflow: 'hidden' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 1fr', padding: '7px 12px', background: 'var(--border-light)', fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-            <span>Item</span><span>Count</span><span>Packaging</span>
-          </div>
-          {sksItems.map((item, idx) => {
-            const detail = sksItemDetails[item] || { quantity: '', packaging: 'individual' }
-            return (
-              <div key={item} style={{ display: 'grid', gridTemplateColumns: '1fr 80px 1fr', padding: '8px 12px', alignItems: 'center', borderTop: idx > 0 ? '1px solid var(--border-light)' : 'none' }}>
-                <span style={{ fontSize: 13, fontWeight: 600 }}>{item}</span>
-                <input type="number" min={1} step={1} inputMode="numeric" placeholder="1" value={detail.quantity}
-                  onChange={e => onChangeDetail(item, { ...detail, quantity: e.target.value })}
-                  style={{ width: '100%', padding: '5px 8px', fontSize: 13, border: '1.5px solid var(--border)', borderRadius: 6, background: 'var(--surface)' }} />
-                <select value={detail.packaging} onChange={e => onChangeDetail(item, { ...detail, packaging: e.target.value })}
-                  style={{ padding: '5px 8px', fontSize: 12, marginLeft: 8, border: '1.5px solid var(--border)', borderRadius: 6, background: 'var(--surface)' }}>
-                  {SKS_PACKAGING_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              </div>
-            )
-          })}
-          <div style={{ padding: '8px 12px', borderTop: '1px solid var(--border-light)', fontSize: 12.5, color: 'var(--text-secondary)', background: 'var(--info-bg)' }}>
-            Total: <strong style={{ color: 'var(--info)' }}>
-              {sksItems.reduce((s, item) => s + (Number(sksItemDetails[item]?.quantity) || 0), 0)}
-            </strong>
-          </div>
+
+      {/* "Others" free-text — animated reveal */}
+      {othersOn && (
+        <div style={{
+          marginTop: 10,
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '9px 13px',
+          background: colorBg,
+          border: `1.5px solid ${color}`,
+          borderRadius: 8,
+          animation: 'expandIn 0.18s ease',
+        }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: colorText, flexShrink: 0, whiteSpace: 'nowrap' }}>
+            Specify:
+          </span>
+          <input
+            type="text"
+            value={otherText}
+            onChange={e => onOtherText(e.target.value)}
+            placeholder="e.g. Broken mirror, Mattress, Old lamp…"
+            autoFocus
+            style={{
+              flex: 1, border: 'none', outline: 'none',
+              background: 'transparent', fontSize: 13,
+              padding: 0, color: 'var(--text-primary)',
+            }}
+          />
+          {otherText && (
+            <button type="button" onClick={() => onOtherText('')}
+              style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 2 }}>
+              <X size={13} />
+            </button>
+          )}
         </div>
       )}
     </div>
   )
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
-export default function Pickups({ triggerAddPickup, onAddPickupDone }) {
+// ─── SKS quantity + packaging table ──────────────────────────────────────────
+function SKSDetails({ sksItems, sksItemDetails, onChangeDetail }) {
+  if (sksItems.length === 0) return null
+  return (
+    <div style={{
+      background: 'var(--bg)', borderRadius: 10,
+      border: '1px solid var(--border-light)', overflow: 'hidden', marginTop: 10,
+    }}>
+      <div style={{
+        display: 'grid', gridTemplateColumns: '1fr 70px 1fr',
+        padding: '6px 12px', background: 'var(--info-bg)',
+        fontSize: 10.5, fontWeight: 700, color: 'var(--info)',
+        textTransform: 'uppercase', letterSpacing: '0.04em',
+      }}>
+        <span>Item</span><span>Count</span><span>Packaging</span>
+      </div>
+      {sksItems.map((item, idx) => {
+        const det = sksItemDetails[item] || { quantity: '', packaging: 'individual' }
+        return (
+          <div key={item} style={{
+            display: 'grid', gridTemplateColumns: '1fr 70px 1fr',
+            padding: '8px 12px', alignItems: 'center',
+            borderTop: idx > 0 ? '1px solid var(--border-light)' : 'none',
+          }}>
+            <span style={{ fontSize: 13, fontWeight: 600 }}>{item}</span>
+            <input
+              type="number" min={1} step={1} inputMode="numeric"
+              placeholder="1" value={det.quantity}
+              onChange={e => onChangeDetail(item, { ...det, quantity: e.target.value })}
+              style={{ width: '100%', padding: '5px 8px', fontSize: 13, border: '1.5px solid var(--border)', borderRadius: 6, background: 'var(--surface)' }}
+            />
+            <select
+              value={det.packaging}
+              onChange={e => onChangeDetail(item, { ...det, packaging: e.target.value })}
+              style={{ marginLeft: 8, padding: '5px 7px', fontSize: 12, border: '1.5px solid var(--border)', borderRadius: 6, background: 'var(--surface)' }}
+            >
+              {SKS_PACKAGING_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
+        )
+      })}
+      <div style={{ padding: '7px 12px', borderTop: '1px solid var(--border-light)', background: 'var(--info-bg)', fontSize: 12, color: 'var(--info)' }}>
+        Total items: <strong>
+          {sksItems.reduce((s, item) => s + (Number(sksItemDetails[item]?.quantity) || 0), 0)}
+        </strong>
+      </div>
+    </div>
+  )
+}
 
-  // ════════════════════════════════════════════════════════════════════════
-  // ALL DATA FROM GLOBAL STATE — no local copies, no api.js calls
-  // ════════════════════════════════════════════════════════════════════════
-  const {
-    donors,           // global donors — includes donors added from ANY page
-    pickups,          // global pickups
-    kabadiwalas,      // global kabadiwalas
-    createPickup,     // create new pickup (any status)
-    updatePickup,     // patch existing pickup
-    deletePickup,     // remove pickup
-  } = useApp()
+// ─── Toast ────────────────────────────────────────────────────────────────────
+function Toast({ msg, onDone }) {
+  useState(() => { const t = setTimeout(onDone, 2800); return () => clearTimeout(t) })
+  return (
+    <div style={{
+      position: 'fixed', bottom: 28, right: 24, zIndex: 200,
+      background: 'var(--secondary)', color: 'white',
+      padding: '12px 20px', borderRadius: 12,
+      display: 'flex', alignItems: 'center', gap: 10,
+      boxShadow: 'var(--shadow-lg)', animation: 'slideUp 0.25s ease',
+      fontSize: 13.5, fontWeight: 600, pointerEvents: 'none',
+    }}>
+      <CheckCircle size={16} /> {msg}
+    </div>
+  )
+}
 
-  // ── UI-only local state ───────────────────────────────────────────────────
-  const [modal,      setModal]      = useState(false)
-  const [editing,    setEditing]    = useState(null)
+// ─── Section label ────────────────────────────────────────────────────────────
+function SectionLabel({ badge, badgeClass, title, count }) {
+  return (
+    <label style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
+      <span className={`badge ${badgeClass}`} style={{ fontSize: 10 }}>{badge}</span>
+      <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-secondary)' }}>{title}</span>
+      {count > 0 && (
+        <span style={{
+          background: 'var(--primary)', color: 'white',
+          borderRadius: 20, fontSize: 10, padding: '1px 7px', fontWeight: 700,
+        }}>
+          {count} selected
+        </span>
+      )}
+    </label>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+export default function Pickups() {
+  const { donors, kabadiwalas, raddiRecords, addDonor, createPickup } = useApp()
+
   const [form,       setForm]       = useState(EMPTY_FORM)
   const [saving,     setSaving]     = useState(false)
-  const [expandedId, setExpandedId] = useState(null)
+  const [errors,     setErrors]     = useState({})
+  const [toast,      setToast]      = useState(null)
+  const [donorModal, setDonorModal] = useState(false)
 
-  // Filters
-  const [search,        setSearch]        = useState('')
-  const [filterStatus,  setFilterStatus]  = useState('All')
-  const [filterMode,    setFilterMode]    = useState('All')
-  const [filterCity,    setFilterCity]    = useState('')
-  const [filterSector,  setFilterSector]  = useState('')
-  const [filterKab,     setFilterKab]     = useState('All')
-  const [filterPayment, setFilterPayment] = useState('All')
-  const [dateFrom,      setDateFrom]      = useState('')
-  const [dateTo,        setDateTo]        = useState('')
-  const [showFilters,   setShowFilters]   = useState(false)
+  const activeDonors  = useMemo(() => donors.filter(d => d.status !== 'Lost'), [donors])
+  const selectedDonor = useMemo(() => activeDonors.find(d => d.id === form.donorId) || null, [activeDonors, form.donorId])
 
-  // ── Derived lists ─────────────────────────────────────────────────────────
-  const activeDonors = useMemo(
-    () => donors.filter(d => d.status !== 'Lost'),
-    [donors]
+  const recentRecords = useMemo(
+    () => [...raddiRecords].sort((a, b) => (b.pickupDate || '').localeCompare(a.pickupDate || '')).slice(0, 15),
+    [raddiRecords]
   )
 
-  const kabNames = useMemo(
-    () => kabadiwalas.map(k => k.name),
-    [kabadiwalas]
-  )
-
-  const filterSectors = filterCity ? (CITY_SECTORS[filterCity] || []) : []
-  const formSectors   = CITY_SECTORS[form.city] || []
-
-  // Donor linked to the form's donorId
-  const selectedDonor = useMemo(
-    () => activeDonors.find(d => d.id === form.donorId) || null,
-    [activeDonors, form.donorId]
-  )
-
-  // ── Open modal from header "+ Record Pickup" button ───────────────────────
-  useEffect(() => {
-    if (triggerAddPickup) { openModal(); onAddPickupDone?.() }
-  }, [triggerAddPickup])
-
-  // ── Modal helpers ─────────────────────────────────────────────────────────
-  const openModal = (pickup = null) => {
-    setEditing(pickup)
-    if (pickup) {
-      // Editing: resolve donor from global state (donorId is the truth)
-      const donor = donors.find(d => d.id === pickup.donorId)
-      setForm({
-        ...EMPTY_FORM,
-        ...pickup,
-        donorId:   pickup.donorId   || '',
-        donorName: donor?.name      || pickup.donorName || '',
-        society:   donor?.society   || pickup.society   || '',
-        sector:    donor?.sector    || pickup.sector     || '',
-        city:      donor?.city      || pickup.city       || '',
-      })
-    } else {
-      setForm(EMPTY_FORM)
-    }
-    setModal(true)
-  }
-  const closeModal = () => { setModal(false); setEditing(null) }
-
-  // ── Field setter — handles cascades ──────────────────────────────────────
-  const setField = (key, val) => setForm(f => {
-    const next = { ...f, [key]: val }
-
-    // When a donor is selected, snapshot their location fields
-    if (key === 'donorId') {
-      const donor = activeDonors.find(d => d.id === val)
-      if (donor) {
-        next.donorName = donor.name
-        next.society   = donor.society || ''
-        next.sector    = donor.sector  || ''
-        next.city      = donor.city    || ''
-      } else {
-        next.donorName = ''; next.society = ''; next.sector = ''; next.city = ''
+  // ── Field setter ────────────────────────────────────────────────────────────
+  const set = useCallback((key, val) => {
+    setForm(f => {
+      const next = { ...f, [key]: val }
+      if (key === 'kabadiwala') {
+        const kab = kabadiwalas.find(k => k.name === val)
+        next.kabadiMobile = kab?.mobile || ''
       }
-    }
+      return next
+    })
+    setErrors(e => ({ ...e, [key]: '' }))
+  }, [kabadiwalas])
 
-    // City reset cascades sector
-    if (key === 'city') next.sector = ''
+  // RST items — clear rstOtherText if "Others" deselected
+  const setRST = useCallback((items) =>
+    setForm(f => ({
+      ...f, rstItems: items,
+      rstOtherText: items.includes('Others') ? f.rstOtherText : '',
+    }))
+  , [])
 
-    // Auto-fill kabadiwala mobile
-    if (key === 'kabadiwala') {
-      const kab = kabadiwalas.find(k => k.name === val)
-      next.kabadiMobile = kab?.mobile || ''
-    }
+  // SKS items — clear sksOtherText if "Others" deselected
+  const setSKS = useCallback((items) =>
+    setForm(f => ({
+      ...f, sksItems: items,
+      sksOtherText: items.includes('Others') ? f.sksOtherText : '',
+    }))
+  , [])
 
-    // Auto-derive payment status
-    if (key === 'amountPaid' || key === 'totalValue') {
-      const total = Number(key === 'totalValue' ? val : next.totalValue) || 0
-      const paid  = Number(key === 'amountPaid'  ? val : next.amountPaid)  || 0
-      if      (total === 0)   next.paymentStatus = 'Not Paid'
-      else if (paid >= total) next.paymentStatus = 'Paid'
-      else if (paid > 0)      next.paymentStatus = 'Partially Paid'
-      else                    next.paymentStatus = 'Not Paid'
-    }
+  const setSKSDetail = useCallback((item, detail) =>
+    setForm(f => ({ ...f, sksItemDetails: { ...f.sksItemDetails, [item]: detail } }))
+  , [])
 
-    return next
-  })
+  // ── Add new donor ───────────────────────────────────────────────────────────
+  const handleAddDonor = useCallback(async (data) => {
+    const newDonor = await addDonor(data)
+    setForm(f => ({ ...f, donorId: newDonor.id }))
+    setDonorModal(false)
+    setToast(`${newDonor.name} added and selected`)
+  }, [addDonor])
 
-  const setRSTItems  = (items)         => setForm(f => ({ ...f, rstItems: items }))
-  const setSKSItems  = (items)         => setForm(f => ({ ...f, sksItems: items }))
-  const setSKSDetail = (item, detail)  => setForm(f => ({ ...f, sksItemDetails: { ...f.sksItemDetails, [item]: detail } }))
+  // ── Validate ────────────────────────────────────────────────────────────────
+  const validate = () => {
+    const e = {}
+    if (!form.donorId) e.donorId = 'Please select a donor'
+    if (!form.date)    e.date    = 'Pickup date is required'
+    return e
+  }
 
-  // ── Save (create or update) ───────────────────────────────────────────────
-  const save = async () => {
-    if (!form.donorId || !form.date) return
+  // ── Submit ──────────────────────────────────────────────────────────────────
+  const handleSave = async () => {
+    const e = validate()
+    if (Object.keys(e).length) { setErrors(e); return }
     setSaving(true)
     try {
-      // Resolve live donor name at save time (in case donor was edited after selection)
-      const donor = activeDonors.find(d => d.id === form.donorId)
+      const donor      = activeDonors.find(d => d.id === form.donorId)
+      const totalValue = Number(form.totalValue) || 0
+      const amountPaid = Number(form.amountPaid)  || 0
 
-      const payload = {
-        ...form,
-        donorName:    donor?.name     || form.donorName,
-        mobile:       donor?.mobile   || '',
-        society:      donor?.society  || form.society,
-        sector:       donor?.sector   || form.sector,
-        city:         donor?.city     || form.city,
-        totalValue:   Number(form.totalValue) || 0,
-        amountPaid:   Number(form.amountPaid)  || 0,
-        // Derive type from items chosen
-        type:
-          form.rstItems.length > 0 && form.sksItems.length > 0 ? 'RST+SKS'
-          : form.rstItems.length > 0                            ? 'RST'
-          : form.sksItems.length > 0                            ? 'SKS'
-          : 'RST',
-      }
+      // Expand "Others" chip → descriptive label if user typed something
+      const finalRST = form.rstItems.map(i =>
+        i === 'Others' && form.rstOtherText.trim()
+          ? `Others (${form.rstOtherText.trim()})` : i
+      )
+      const finalSKS = form.sksItems.map(i =>
+        i === 'Others' && form.sksOtherText.trim()
+          ? `Others (${form.sksOtherText.trim()})` : i
+      )
 
-      if (editing) {
-        await updatePickup(editing.id, payload)
-      } else {
-        await createPickup(payload)
-      }
-      closeModal()
+      const type =
+        finalRST.length > 0 && finalSKS.length > 0 ? 'RST+SKS'
+        : finalSKS.length > 0                       ? 'SKS'
+        : 'RST'
+
+      await createPickup({
+        donorId:        donor.id,
+        donorName:      donor.name,
+        mobile:         donor.mobile   || '',
+        society:        donor.society  || '',
+        sector:         donor.sector   || '',
+        city:           donor.city     || '',
+        date:           form.date,
+        pickupMode:     form.pickupMode,
+        status:         'Completed',
+        type,
+        rstItems:       finalRST,
+        sksItems:       finalSKS,
+        sksItemDetails: form.sksItemDetails,
+        rstTotalWeight: form.rstWeight || '',
+        rstWeightUnit:  form.rstWeightUnit,
+        totalKg:        Number(form.rstWeight) || 0,
+        totalValue,
+        amountPaid,
+        paymentStatus:  derivePayStatus(totalValue, amountPaid),
+        kabadiwala:     form.kabadiwala,
+        kabadiMobile:   form.kabadiMobile,
+        notes:          form.notes,
+      })
+
+      setForm({ ...EMPTY_FORM, date: today() })
+      setErrors({})
+      setToast('Pickup recorded successfully!')
     } finally {
       setSaving(false)
     }
   }
 
-  const remove = async (id) => {
-    if (!confirm('Delete this pickup record?')) return
-    await deletePickup(id)
-    if (expandedId === id) setExpandedId(null)
-  }
-
-  // ── Export ────────────────────────────────────────────────────────────────
-  const handleExport = () => {
-    exportToExcel(filteredPickups.map(p => {
-      const donor = donors.find(d => d.id === p.donorId)
-      return {
-        'Pickup ID':    p.id,
-        Donor:          donor?.name     || p.donorName,
-        Mobile:         donor?.mobile   || p.mobile || '',
-        Date:           p.date,
-        City:           donor?.city     || p.city,
-        Sector:         donor?.sector   || p.sector,
-        Society:        donor?.society  || p.society,
-        Mode:           p.pickupMode,
-        Type:           p.type,
-        Status:         p.status,
-        'RST Items':    (p.rstItems  || []).join(', '),
-        'SKS Items':    (p.sksItems  || []).join(', '),
-        Weight:         p.rstTotalWeight ? `${p.rstTotalWeight} ${p.rstWeightUnit || 'kg'}` : '',
-        'Total Value':  p.totalValue,
-        'Amount Paid':  p.amountPaid,
-        'Payment':      p.paymentStatus,
-        Kabadiwala:     p.kabadiwala,
-        'Next Date':    p.nextDate,
-        Notes:          p.notes,
-      }
-    }), 'Pickups_Export')
-  }
-
-  // ── Filtering ─────────────────────────────────────────────────────────────
-  const filteredPickups = useMemo(() => {
-    const q = search.toLowerCase()
-    return pickups.filter(p => {
-      // Resolve donor for search (handles donors added after pickup was created)
-      const donor = donors.find(d => d.id === p.donorId)
-      const name  = donor?.name    || p.donorName || ''
-      const soc   = donor?.society || p.society   || ''
-      const city  = donor?.city    || p.city      || ''
-      const sec   = donor?.sector  || p.sector    || ''
-
-      const matchQ      = !q || name.toLowerCase().includes(q) || soc.toLowerCase().includes(q) || p.id?.toLowerCase().includes(q)
-      const matchStatus = filterStatus  === 'All' || p.status      === filterStatus
-      const matchCity   = !filterCity              || city          === filterCity
-      const matchSector = !filterSector            || sec           === filterSector
-      const matchKab    = filterKab     === 'All' || p.kabadiwala  === filterKab
-      const matchMode   = filterMode    === 'All' || p.pickupMode  === filterMode
-      const matchPay    = filterPayment === 'All' || p.paymentStatus === filterPayment
-      const matchFrom   = !dateFrom || (p.date || '') >= dateFrom
-      const matchTo     = !dateTo   || (p.date || '') <= dateTo
-
-      return matchQ && matchStatus && matchCity && matchSector && matchKab && matchMode && matchPay && matchFrom && matchTo
-    }).sort((a, b) => (b.date || '').localeCompare(a.date || ''))
-  }, [pickups, donors, search, filterStatus, filterCity, filterSector, filterKab, filterMode, filterPayment, dateFrom, dateTo])
-
-  const hasAdvFilters = filterCity || filterSector || filterKab !== 'All' || filterPayment !== 'All' || dateFrom || dateTo
+  // ── Payment preview ─────────────────────────────────────────────────────────
+  const payStatus = derivePayStatus(form.totalValue, form.amountPaid)
+  const remaining = Math.max(0, (Number(form.totalValue) || 0) - (Number(form.amountPaid) || 0))
+  const formDirty = form.donorId || form.rstItems.length > 0 || form.sksItems.length > 0 || form.totalValue
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <div className="page-body">
 
-      {/* ── Filter Row ── */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          <div style={{ position: 'relative', flex: '2 1 180px', minWidth: 0 }}>
-            <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
-            <input placeholder="Search donor, society, ID…" value={search} onChange={e => setSearch(e.target.value)} style={{ paddingLeft: 32, fontSize: 13, width: '100%' }} />
+      {/* Page header */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20,
+        padding: '12px 16px', background: 'var(--secondary-light)',
+        borderRadius: 'var(--radius)', border: '1px solid rgba(27,94,53,0.15)',
+      }}>
+        <div style={{
+          width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+          background: 'var(--secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <Truck size={18} color="white" />
+        </div>
+        <div>
+          <div style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 15, color: 'var(--secondary)' }}>
+            Record a Pickup
           </div>
-          <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ flex: '1 1 120px', minWidth: 0, fontSize: 13 }}>
-            <option value="All">All Status</option>
-            {PICKUP_STATUSES.map(s => <option key={s}>{s}</option>)}
-          </select>
-          <select value={filterMode} onChange={e => setFilterMode(e.target.value)} style={{ flex: '1 1 110px', minWidth: 0, fontSize: 13 }}>
-            <option value="All">All Modes</option>
-            <option value="Individual">Individual</option>
-            <option value="Drive">Drive</option>
-          </select>
-          <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-            <button
-              className={`btn btn-sm ${showFilters ? 'btn-outline' : 'btn-ghost'}`}
-              onClick={() => setShowFilters(f => !f)}
-              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', fontSize: 12 }}
-            >
-              <Filter size={13} />
-              {hasAdvFilters
-                ? <span style={{ background: 'var(--primary)', color: '#fff', borderRadius: '50%', width: 16, height: 16, fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    {[filterCity, filterSector, filterKab !== 'All' ? filterKab : '', filterPayment !== 'All' ? filterPayment : '', dateFrom, dateTo].filter(Boolean).length}
-                  </span>
-                : 'More'}
-            </button>
-            <button className="btn btn-ghost btn-sm" onClick={handleExport} style={{ padding: '6px 10px', fontSize: 12 }}>
-              <Download size={13} />
-              <span className="hide-xs">Export</span>
-            </button>
-            <button className="btn btn-primary btn-sm" onClick={() => openModal()} style={{ padding: '6px 12px', fontSize: 12, whiteSpace: 'nowrap' }}>
-              <Plus size={13} /> Record
-            </button>
+          <div style={{ fontSize: 12, color: 'var(--secondary)', opacity: 0.7 }}>
+            Field staff use only · Records go directly to Raddi Master &amp; Payments
           </div>
         </div>
+      </div>
 
-        {showFilters && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 8, padding: 12, background: 'var(--bg)', borderRadius: 10, border: '1px solid var(--border-light)' }}>
-            <select value={filterKab} onChange={e => setFilterKab(e.target.value)} style={{ fontSize: 12 }}>
-              <option value="All">All Kabadiwalas</option>
-              {kabNames.map(k => <option key={k}>{k}</option>)}
-            </select>
-            <select value={filterPayment} onChange={e => setFilterPayment(e.target.value)} style={{ fontSize: 12 }}>
-              <option value="All">All Payments</option>
-              {PAYMENT_STATUSES.map(s => <option key={s}>{s}</option>)}
-            </select>
-            <select value={filterCity} onChange={e => { setFilterCity(e.target.value); setFilterSector('') }} style={{ fontSize: 12 }}>
-              <option value="">All Cities</option>
-              {CITIES.map(c => <option key={c}>{c}</option>)}
-            </select>
-            <select value={filterSector} onChange={e => setFilterSector(e.target.value)} disabled={!filterCity} style={{ fontSize: 12 }}>
-              <option value="">{filterCity ? 'All Sectors' : 'City First'}</option>
-              {filterSectors.map(s => <option key={s}>{s}</option>)}
-            </select>
+      {/* Two-column grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.1fr) minmax(0,0.9fr)', gap: 20, alignItems: 'start' }}
+        className="two-col-form">
+        <style>{`
+          @media (max-width: 820px) { .two-col-form { grid-template-columns: 1fr !important; } }
+          @keyframes expandIn {
+            from { opacity: 0; transform: translateY(-4px); }
+            to   { opacity: 1; transform: translateY(0); }
+          }
+        `}</style>
+
+        {/* ── LEFT: form ── */}
+        <div className="card">
+          <div className="card-header">
+            <Package size={16} color="var(--primary)" />
+            <div className="card-title">Collection Details</div>
+          </div>
+          <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+            {/* Donor */}
             <div className="form-group" style={{ margin: 0 }}>
-              <label style={{ fontSize: 10.5, fontWeight: 600 }}>From</label>
-              <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ fontSize: 12 }} />
+              <label>
+                Donor <span className="required">*</span>
+                <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 6 }}>
+                  search by name or mobile
+                </span>
+              </label>
+              <DonorSearch
+                donors={activeDonors}
+                selectedId={form.donorId}
+                onSelect={id => { set('donorId', id); setErrors(e => ({ ...e, donorId: '' })) }}
+                onAddNew={() => setDonorModal(true)}
+              />
+              {errors.donorId && (
+                <div style={{ fontSize: 12, color: 'var(--danger)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <AlertCircle size={12} /> {errors.donorId}
+                </div>
+              )}
             </div>
+
+            {/* Donor location */}
+            {selectedDonor && (
+              <div style={{
+                padding: '9px 13px', background: 'var(--secondary-light)',
+                borderRadius: 8, fontSize: 12.5, color: 'var(--secondary)',
+                display: 'flex', alignItems: 'center', gap: 8,
+              }}>
+                <MapPin size={13} style={{ flexShrink: 0 }} />
+                {[selectedDonor.society, selectedDonor.sector, selectedDonor.city].filter(Boolean).join(', ')}
+                {selectedDonor.mobile && (
+                  <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+                    <Phone size={11} /> {selectedDonor.mobile}
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Date + Mode */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label>Pickup Date <span className="required">*</span></label>
+                <input type="date" value={form.date} max={today()} onChange={e => set('date', e.target.value)} />
+                {errors.date && (
+                  <div style={{ fontSize: 12, color: 'var(--danger)', marginTop: 3 }}>{errors.date}</div>
+                )}
+              </div>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label>Mode</label>
+                <div style={{ display: 'flex', gap: 6, height: 40 }}>
+                  {PICKUP_MODES.map(m => (
+                    <button key={m} type="button" onClick={() => set('pickupMode', m)} style={{
+                      flex: 1, borderRadius: 8, fontSize: 12.5, cursor: 'pointer',
+                      border: `1.5px solid ${form.pickupMode === m ? 'var(--primary)' : 'var(--border)'}`,
+                      background: form.pickupMode === m ? 'var(--primary-light)' : 'transparent',
+                      color: form.pickupMode === m ? 'var(--primary)' : 'var(--text-secondary)',
+                      fontWeight: form.pickupMode === m ? 700 : 400,
+                    }}>
+                      {m}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* ── RST Items ── */}
             <div className="form-group" style={{ margin: 0 }}>
-              <label style={{ fontSize: 10.5, fontWeight: 600 }}>To</label>
-              <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={{ fontSize: 12 }} />
+              <SectionLabel
+                badge="RST" badgeClass="badge-success"
+                title="Raddi Se Tarakki — Scrap Items"
+                count={form.rstItems.length}
+              />
+              <ItemChips
+                items={RST_ITEMS}
+                selected={form.rstItems}
+                otherText={form.rstOtherText}
+                color="var(--primary)"
+                colorBg="var(--primary-light)"
+                colorText="var(--primary)"
+                onChange={setRST}
+                onOtherText={v => set('rstOtherText', v)}
+              />
             </div>
-            {hasAdvFilters && (
-              <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, height: 34 }}
-                onClick={() => { setFilterCity(''); setFilterSector(''); setFilterKab('All'); setFilterPayment('All'); setDateFrom(''); setDateTo('') }}>
-                <X size={11} /> Clear
+
+            {/* RST Weight */}
+            <div className="form-group" style={{ margin: 0 }}>
+              <label>Total RST Weight</label>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input
+                  type="text" inputMode="decimal" placeholder="0"
+                  value={form.rstWeight}
+                  onChange={e => set('rstWeight', e.target.value.replace(/[^0-9.]/g, ''))}
+                  style={{ width: 110 }}
+                />
+                <select value={form.rstWeightUnit} onChange={e => set('rstWeightUnit', e.target.value)} style={{ width: 75 }}>
+                  <option value="kg">kg</option>
+                  <option value="gm">gm</option>
+                </select>
+              </div>
+            </div>
+
+            {/* ── SKS Items ── */}
+            <div className="form-group" style={{ margin: 0 }}>
+              <SectionLabel
+                badge="SKS" badgeClass="badge-info"
+                title="Sammaan Ka Saaman — Goods Donated"
+                count={form.sksItems.length}
+              />
+              <ItemChips
+                items={SKS_ITEMS}
+                selected={form.sksItems}
+                otherText={form.sksOtherText}
+                color="var(--info)"
+                colorBg="var(--info-bg)"
+                colorText="var(--info)"
+                onChange={setSKS}
+                onOtherText={v => set('sksOtherText', v)}
+              />
+              {/* Quantity + packaging detail table — only when SKS items selected */}
+              <SKSDetails
+                sksItems={form.sksItems}
+                sksItemDetails={form.sksItemDetails}
+                onChangeDetail={setSKSDetail}
+              />
+            </div>
+
+            {/* ── Payment ── */}
+            <div style={{ background: 'var(--bg)', borderRadius: 10, padding: 14, border: '1px solid var(--border-light)' }}>
+              <div style={{
+                fontSize: 11.5, fontWeight: 700, color: 'var(--text-muted)',
+                textTransform: 'uppercase', letterSpacing: '0.05em',
+                marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6,
+              }}>
+                <IndianRupee size={13} color="var(--warning)" /> Payment Details
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>
+                    Total Value (₹)
+                    <span style={{ fontSize: 10.5, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 4 }}>Kab → FP</span>
+                  </label>
+                  <input type="text" inputMode="numeric" placeholder="0" value={form.totalValue}
+                    onChange={e => set('totalValue', e.target.value.replace(/[^0-9]/g, ''))} />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>Amount Paid (₹)</label>
+                  <input type="text" inputMode="numeric" placeholder="0" value={form.amountPaid}
+                    onChange={e => set('amountPaid', e.target.value.replace(/[^0-9]/g, ''))} />
+                </div>
+              </div>
+
+              {(form.totalValue || form.amountPaid) && (
+                <div style={{
+                  marginTop: 10, padding: '8px 12px',
+                  background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border-light)',
+                  display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 12.5, alignItems: 'center',
+                }}>
+                  <span className={`badge ${
+                    payStatus === 'Paid' ? 'badge-success'
+                    : payStatus === 'Partially Paid' ? 'badge-warning'
+                    : 'badge-danger'
+                  }`} style={{ fontSize: 11 }}>
+                    {payStatus}
+                  </span>
+                  {remaining > 0 && (
+                    <span style={{ color: 'var(--danger)', fontWeight: 600 }}>Due: {fmtCurrency(remaining)}</span>
+                  )}
+                  {payStatus === 'Paid' && (
+                    <span style={{ color: 'var(--secondary)', fontWeight: 600 }}>Fully paid ✓</span>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* ── Kabadiwala ── */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label>Kabadiwala</label>
+                <select value={form.kabadiwala} onChange={e => set('kabadiwala', e.target.value)}>
+                  <option value="">None / Unassigned</option>
+                  {kabadiwalas.map(k => <option key={k.id} value={k.name}>{k.name}</option>)}
+                </select>
+              </div>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label>Kabadiwala Mobile</label>
+                <input type="text" inputMode="numeric" placeholder="Auto-filled"
+                  value={form.kabadiMobile}
+                  onChange={e => set('kabadiMobile', e.target.value)}
+                  maxLength={10}
+                />
+              </div>
+            </div>
+
+            {/* Notes */}
+            <div className="form-group" style={{ margin: 0 }}>
+              <label>
+                Notes
+                <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 6 }}>(optional)</span>
+              </label>
+              <textarea value={form.notes} onChange={e => set('notes', e.target.value)}
+                placeholder="Any observations or remarks…" style={{ minHeight: 62, resize: 'vertical' }} />
+            </div>
+
+            {/* Save */}
+            <button className="btn btn-primary" onClick={handleSave} disabled={saving}
+              style={{ width: '100%', justifyContent: 'center', padding: '11px', fontSize: 14, fontWeight: 700 }}>
+              {saving ? (
+                <>
+                  <span className="spin" style={{
+                    display: 'inline-block', width: 14, height: 14,
+                    border: '2px solid rgba(255,255,255,0.35)',
+                    borderTopColor: 'white', borderRadius: '50%',
+                  }} />
+                  Saving…
+                </>
+              ) : (
+                <><CheckCircle size={16} /> Save Pickup Record</>
+              )}
+            </button>
+
+            {/* Clear */}
+            {formDirty && (
+              <button type="button"
+                onClick={() => { setForm({ ...EMPTY_FORM, date: today() }); setErrors({}) }}
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  fontSize: 12.5, color: 'var(--text-muted)',
+                  textAlign: 'center', width: '100%', padding: 4, textDecoration: 'underline',
+                }}>
+                Clear form
               </button>
             )}
           </div>
-        )}
-      </div>
-
-      <div style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 12px' }}>
-        <strong>{filteredPickups.length}</strong> pickup record{filteredPickups.length !== 1 ? 's' : ''}
-      </div>
-
-      {/* ── Pickup List ── */}
-      {filteredPickups.length === 0 ? (
-        <div className="empty-state">
-          <div className="empty-icon"><Truck size={24} /></div>
-          <h3>No pickups found</h3>
-          <p>Adjust search or filters, or record a new pickup.</p>
         </div>
-      ) : (
-        <div style={{ display: 'grid', gap: 10 }}>
-          {filteredPickups.map(p => {
-            // ──────────────────────────────────────────────────────────────
-            // DONOR RESOLUTION: always use global donors as the source of
-            // truth. Fall back to the snapshot stored in the pickup record.
-            // ──────────────────────────────────────────────────────────────
-            const donor      = donors.find(d => d.id === p.donorId)
-            const donorName  = donor?.name    || p.donorName || 'Unknown Donor'
-            const donorSoc   = donor?.society || p.society   || ''
-            const donorSec   = donor?.sector  || p.sector    || ''
-            const isExpanded = expandedId === p.id
-            const isOverdue  = p.status === 'Pending' && p.date < today()
 
-            return (
-              <div key={p.id} className="card" style={{ overflow: 'hidden', borderLeft: isOverdue ? '4px solid var(--danger)' : undefined }}>
-                {/* Summary row */}
-                <div
-                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', cursor: 'pointer', flexWrap: 'nowrap' }}
-                  onClick={() => setExpandedId(isExpanded ? null : p.id)}
-                >
-                  <div style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--info-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <Truck size={15} color="var(--info)" />
+        {/* ── RIGHT: guide + recent ── */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+          <div className="card">
+            <div className="card-header">
+              <Clock size={15} color="var(--info)" />
+              <div className="card-title" style={{ fontSize: 13.5 }}>Quick Guide</div>
+            </div>
+            <div className="card-body" style={{ fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.8, padding: '12px 16px' }}>
+              {[
+                ['1.', 'Search for the donor by name or mobile.'],
+                ['2.', 'Not found? Click + Add New Donor.'],
+                ['3.', 'Tick RST chips for scrap and SKS chips for goods.'],
+                ['4.', 'Selecting "Others" opens a text box — describe the item.'],
+                ['5.', 'For SKS items, fill in quantity and packaging type.'],
+                ['6.', 'Enter weight, value, and payment received.'],
+                ['7.', 'Select the kabadiwala, then hit Save.'],
+              ].map(([n, t]) => (
+                <div key={n} style={{ display: 'flex', gap: 10, marginBottom: 4 }}>
+                  <span style={{ fontWeight: 700, color: 'var(--primary)', flexShrink: 0 }}>{n}</span>
+                  <span>{t}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="card-header">
+              <Truck size={15} color="var(--secondary)" />
+              <div className="card-title" style={{ fontSize: 13.5 }}>Recent Recordings</div>
+              <span style={{ fontSize: 11.5, color: 'var(--text-muted)', marginLeft: 'auto' }}>
+                Last {Math.min(recentRecords.length, 15)}
+              </span>
+            </div>
+            <div style={{ padding: '4px 0' }}>
+              {recentRecords.length === 0 ? (
+                <div className="empty-state" style={{ padding: 28 }}>
+                  <div className="empty-icon"><Truck size={20} /></div>
+                  <p style={{ fontSize: 12.5 }}>No recordings yet.</p>
+                </div>
+              ) : recentRecords.map((r, i) => (
+                <div key={r.orderId || i} style={{
+                  display: 'flex', alignItems: 'center', gap: 9, padding: '9px 14px',
+                  borderBottom: i < recentRecords.length - 1 ? '1px solid var(--border-light)' : 'none',
+                }}>
+                  <div style={{
+                    width: 30, height: 30, borderRadius: 8, flexShrink: 0,
+                    background: 'var(--primary-light)', display: 'flex', alignItems: 'center',
+                    justifyContent: 'center', fontWeight: 700, color: 'var(--primary)', fontSize: 13,
+                  }}>
+                    {(r.name || '?')[0]}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 13 }} className="truncate">{donorName}</div>
-                    <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }} className="truncate">
-                      {fmtDate(p.date)} · {donorSoc || donorSec || '—'}
+                    <div style={{ fontWeight: 600, fontSize: 12.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {r.name}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                      {fmtDate(r.pickupDate)}{r.totalKg > 0 ? ` · ${r.totalKg} kg` : ''}
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 5, flexShrink: 0, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                    <span className={`badge ${p.type === 'RST' ? 'badge-success' : p.type === 'SKS' ? 'badge-info' : 'badge-warning'}`} style={{ fontSize: 10 }}>{p.type}</span>
-                    <span className={`badge ${pickupStatusColor(p.status)}`} style={{ fontSize: 10 }}>{isOverdue ? 'Overdue' : p.status}</span>
-                    {p.totalValue > 0 && (
-                      <span style={{ fontWeight: 700, fontSize: 12.5, color: 'var(--primary)', whiteSpace: 'nowrap' }}>{fmtCurrency(p.totalValue)}</span>
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    {r.totalAmount > 0 ? (
+                      <div style={{ fontWeight: 700, fontSize: 12.5, color: 'var(--primary)' }}>
+                        {fmtCurrency(r.totalAmount)}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>—</div>
                     )}
-                    {isExpanded ? <ChevronUp size={15} color="var(--text-muted)" /> : <ChevronDown size={15} color="var(--text-muted)" />}
-                  </div>
-                </div>
-
-                {/* Expanded detail */}
-                {isExpanded && (
-                  <div style={{ borderTop: '1px solid var(--border-light)', padding: '14px' }}>
-                    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 12, fontSize: 12.5 }}>
-                      {p.pickupMode && (
-                        <div>
-                          <div style={{ fontSize: 10.5, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 2 }}>Mode</div>
-                          <span className="badge badge-muted" style={{ fontSize: 11 }}>{p.pickupMode}</span>
-                        </div>
-                      )}
-                      {/* Show live donor mobile */}
-                      {(donor?.mobile || p.mobile) && (
-                        <div>
-                          <div style={{ fontSize: 10.5, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 2 }}>Mobile</div>
-                          <div style={{ fontWeight: 600 }}>{donor?.mobile || p.mobile}</div>
-                        </div>
-                      )}
-                      {p.kabadiwala && (
-                        <div>
-                          <div style={{ fontSize: 10.5, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 2 }}>Kabadiwala</div>
-                          <div style={{ fontWeight: 600 }}>{p.kabadiwala}</div>
-                        </div>
-                      )}
-                      <div>
-                        <div style={{ fontSize: 10.5, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 2 }}>Payment</div>
-                        <span className={`badge ${paymentStatusColor(p.paymentStatus)}`} style={{ fontSize: 11 }}>{p.paymentStatus}</span>
-                      </div>
-                      {p.rstTotalWeight && (
-                        <div>
-                          <div style={{ fontSize: 10.5, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 2 }}>Weight</div>
-                          <div style={{ fontWeight: 600 }}>{p.rstTotalWeight} {p.rstWeightUnit || 'kg'}</div>
-                        </div>
-                      )}
-                      {p.nextDate && (
-                        <div>
-                          <div style={{ fontSize: 10.5, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 2 }}>Next Pickup</div>
-                          <div style={{ fontWeight: 600 }}>{fmtDate(p.nextDate)}</div>
-                        </div>
-                      )}
-                    </div>
-
-                    {p.rstItems?.length > 0 && (
-                      <div style={{ marginBottom: 10 }}>
-                        <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--secondary)', textTransform: 'uppercase', marginBottom: 6 }}>RST Items</div>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                          {p.rstItems.map(item => (
-                            <span key={item} style={{ background: 'var(--secondary-light)', color: 'var(--secondary)', fontSize: 11.5, padding: '3px 10px', borderRadius: 20, fontWeight: 600 }}>{item}</span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {p.sksItems?.length > 0 && (
-                      <div style={{ marginBottom: 10 }}>
-                        <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--info)', textTransform: 'uppercase', marginBottom: 6 }}>SKS Items</div>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                          {p.sksItems.map(item => {
-                            const d   = p.sksItemDetails?.[item]
-                            const pkg = SKS_PACKAGING_OPTIONS.find(o => o.value === d?.packaging)?.label
-                            return (
-                              <span key={item} style={{ background: 'var(--info-bg)', color: 'var(--info)', fontSize: 11.5, padding: '3px 10px', borderRadius: 20, fontWeight: 600 }}>
-                                {item}{d?.quantity && ` · ${d.quantity}`}{pkg && ` (${pkg})`}
-                              </span>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    {p.notes && (
-                      <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic', marginBottom: 10 }}>{p.notes}</div>
-                    )}
-
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button className="btn btn-outline btn-sm" onClick={() => openModal(p)}><Edit2 size={12} /> Edit</button>
-                      <button className="btn btn-danger btn-sm"  onClick={() => remove(p.id)}><Trash2 size={12} /> Delete</button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      )}
-
-      {/* ── Add / Edit Modal ── */}
-      {modal && (
-        <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && closeModal()}>
-          <div className="modal" style={{ maxWidth: 680, width: '96vw' }}>
-            <div className="modal-header">
-              <div className="modal-title">{editing ? 'Edit Pickup' : 'Record Pickup'}</div>
-              <button className="btn btn-ghost btn-icon btn-sm" onClick={closeModal}><X size={16} /></button>
-            </div>
-
-            <div className="modal-body" style={{ maxHeight: '75vh', overflowY: 'auto' }}>
-              <div className="form-grid">
-
-                {/* ── DONOR SEARCH SELECT ── */}
-                {/* Uses GLOBAL donors from context — shows ALL donors including  */}
-                {/* ones added from PickupScheduler or any other page.           */}
-                <div className="form-group full">
-                  <label>Donor <span className="required">*</span></label>
-                  <DonorSearchSelect
-                    donors={activeDonors}
-                    selectedDonor={selectedDonor}
-                    onSelect={(donor) => setField('donorId', donor?.id || '')}
-                  />
-                  {selectedDonor && (
-                    <div style={{ padding: '10px 14px', background: 'var(--secondary-light)', borderRadius: 8, fontSize: 12.5, color: 'var(--secondary)', display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
-                      <Package size={13} />
-                      {[selectedDonor.society, selectedDonor.sector, selectedDonor.city].filter(Boolean).join(', ')}
-                    </div>
-                  )}
-                </div>
-
-                <div className="form-group">
-                  <label>Pickup Date <span className="required">*</span></label>
-                  <input type="date" value={form.date} onChange={e => setField('date', e.target.value)} />
-                </div>
-                <div className="form-group">
-                  <label>Next Pickup Date</label>
-                  <input type="date" value={form.nextDate} onChange={e => setField('nextDate', e.target.value)} />
-                </div>
-                <div className="form-group">
-                  <label>Status</label>
-                  <select value={form.status} onChange={e => setField('status', e.target.value)}>
-                    {PICKUP_STATUSES.map(s => <option key={s}>{s}</option>)}
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label>Pickup Mode</label>
-                  <select value={form.pickupMode} onChange={e => setField('pickupMode', e.target.value)}>
-                    {PICKUP_MODES.map(m => <option key={m}>{m}</option>)}
-                  </select>
-                </div>
-
-                {form.status === 'Postponed' && (
-                  <div className="form-group full">
-                    <label>Postpone Reason <span className="required">*</span></label>
-                    <select value={form.postponeReason} onChange={e => setField('postponeReason', e.target.value)}>
-                      <option value="">Select reason</option>
-                      {POSTPONE_REASONS.map(r => <option key={r}>{r}</option>)}
-                    </select>
-                  </div>
-                )}
-
-                {/* RST Items */}
-                <div className="form-group full">
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                    <span className="badge badge-success" style={{ fontSize: 10 }}>RST</span>
-                    Raddi Se Tarakki Items
-                  </label>
-                  <RSTItemSelector rstItems={form.rstItems} onChangeItems={setRSTItems} />
-                </div>
-
-                {/* SKS Items */}
-                <div className="form-group full">
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                    <span className="badge badge-info" style={{ fontSize: 10 }}>SKS</span>
-                    Sammaan Ka Saaman Items
-                    <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 400 }}>(count + packaging)</span>
-                  </label>
-                  <SKSItemSelector
-                    sksItems={form.sksItems}
-                    sksItemDetails={form.sksItemDetails}
-                    onChangeItems={setSKSItems}
-                    onChangeDetail={setSKSDetail}
-                  />
-                </div>
-
-                {/* Payment Section */}
-                <div className="form-group full">
-                  <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <IndianRupee size={14} color="var(--warning)" /> Payment Details
-                  </label>
-                  <div style={{ background: 'var(--bg)', borderRadius: 10, padding: 14, border: '1px solid var(--border-light)' }}>
-                    <div className="form-grid">
-                      <div className="form-group full" style={{ margin: 0 }}>
-                        <label>Total RST Weight</label>
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                          <input
-                            type="text" inputMode="decimal" placeholder="0"
-                            value={form.rstTotalWeight}
-                            onChange={e => setField('rstTotalWeight', e.target.value.replace(/[^0-9.]/g, ''))}
-                            style={{ width: 100 }}
-                          />
-                          <select value={form.rstWeightUnit} onChange={e => setField('rstWeightUnit', e.target.value)} style={{ minWidth: 70 }}>
-                            <option value="kg">kg</option>
-                            <option value="gm">gm</option>
-                          </select>
-                        </div>
-                      </div>
-                      <div className="form-group" style={{ margin: 0 }}>
-                        <label>Total Value (₹) <span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 400 }}>(Kab → FP)</span></label>
-                        <input type="text" inputMode="numeric" placeholder="0" value={form.totalValue}
-                          onChange={e => setField('totalValue', e.target.value.replace(/[^0-9]/g, ''))} />
-                      </div>
-                      <div className="form-group" style={{ margin: 0 }}>
-                        <label>Amount Paid (₹)</label>
-                        <input type="text" inputMode="numeric" placeholder="0" value={form.amountPaid}
-                          onChange={e => setField('amountPaid', e.target.value.replace(/[^0-9]/g, ''))} />
-                      </div>
-                      <div className="form-group" style={{ margin: 0 }}>
-                        <label>Payment Status</label>
-                        <select value={form.paymentStatus} onChange={e => setField('paymentStatus', e.target.value)}>
-                          {PAYMENT_STATUSES.map(s => <option key={s}>{s}</option>)}
-                        </select>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: 6 }}>
-                        <span className={`badge ${form.paymentStatus === 'Paid' ? 'badge-success' : form.paymentStatus === 'Partially Paid' ? 'badge-warning' : 'badge-danger'}`} style={{ fontSize: 12 }}>
-                          {form.paymentStatus}
-                        </span>
-                      </div>
+                    <div style={{ fontSize: 10, fontWeight: 600,
+                      color: r.paymentStatus === 'Received' ? 'var(--secondary)'
+                        : r.paymentStatus === 'Yet to Receive' ? '#92400E'
+                        : 'var(--danger)',
+                    }}>
+                      {r.paymentStatus}
                     </div>
                   </div>
                 </div>
-
-                {/* Kabadiwala */}
-                <div className="form-group">
-                  <label>Kabadiwala</label>
-                  <select value={form.kabadiwala} onChange={e => setField('kabadiwala', e.target.value)}>
-                    <option value="">None / Unassigned</option>
-                    {kabadiwalas.map(k => <option key={k.id} value={k.name}>{k.name} — {k.area}</option>)}
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label>Kabadiwala Mobile</label>
-                  <input value={form.kabadiMobile} onChange={e => setField('kabadiMobile', e.target.value)} placeholder="Auto-filled" maxLength={10} inputMode="numeric" />
-                </div>
-                <div className="form-group">
-                  <label>City</label>
-                  <select value={form.city} onChange={e => setField('city', e.target.value)}>
-                    <option value="">Select City</option>
-                    {CITIES.map(c => <option key={c}>{c}</option>)}
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label>Sector / Area</label>
-                  <select value={form.sector} onChange={e => setField('sector', e.target.value)} disabled={!form.city}>
-                    <option value="">{form.city ? 'Select Sector' : 'Select City First'}</option>
-                    {formSectors.map(s => <option key={s}>{s}</option>)}
-                  </select>
-                </div>
-                <div className="form-group full">
-                  <label>Notes</label>
-                  <textarea value={form.notes} onChange={e => setField('notes', e.target.value)} placeholder="Any additional notes…" style={{ minHeight: 64 }} />
-                </div>
-              </div>
-            </div>
-
-            <div className="modal-footer">
-              <button className="btn btn-ghost" onClick={closeModal}>Cancel</button>
-              <button
-                className="btn btn-primary"
-                onClick={save}
-                disabled={saving || !form.donorId || !form.date || (form.status === 'Postponed' && !form.postponeReason)}
-              >
-                {saving ? 'Saving…' : editing ? 'Save Changes' : 'Record Pickup'}
-              </button>
+              ))}
             </div>
           </div>
         </div>
-      )}
+      </div>
+
+      {donorModal && <DonorModal onClose={() => setDonorModal(false)} onAdd={handleAddDonor} />}
+      {toast && <Toast msg={toast} onDone={() => setToast(null)} />}
     </div>
   )
 }
