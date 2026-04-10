@@ -1,14 +1,86 @@
 // Frontend/src/pages/Donors.jsx
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import {
   Search, Plus, Edit2, Trash2, X, Phone, MapPin,
-  AlertTriangle, SlidersHorizontal, Clock,
+  AlertTriangle, SlidersHorizontal, Clock, CheckCircle,
+  AlertCircle, UserX,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import {
   CITIES, CITY_SECTORS, SOCIETIES, DONOR_STATUSES, LOST_REASONS,
 } from '../data/mockData'
-import { fmtDate, fmtCurrency, donorStatusColor, getDonorHealthStatus, daysSince } from '../utils/helpers'
+import { fmtDate, fmtCurrency, donorStatusColor } from '../utils/helpers'
+import { differenceInDays, parseISO } from 'date-fns'
+
+// ── Segment config ────────────────────────────────────────────────────────────
+const SEGMENTS = [
+  {
+    id: 'all',
+    label: 'All',
+    color: 'var(--text-secondary)',
+    bg: 'var(--border-light)',
+    borderColor: 'var(--border)',
+    icon: null,
+    description: '',
+  },
+  {
+    id: 'Active',
+    label: 'Active',
+    color: 'var(--secondary)',
+    bg: 'var(--secondary-light)',
+    borderColor: 'var(--secondary)',
+    icon: CheckCircle,
+    description: '1–30 days since last pickup',
+    days: [1, 30],
+  },
+  {
+    id: 'Pickup Due',
+    label: 'Pickup Due',
+    color: 'var(--info)',
+    bg: 'var(--info-bg)',
+    borderColor: 'var(--info)',
+    icon: Clock,
+    description: '31–45 days since last pickup',
+    days: [31, 45],
+  },
+  {
+    id: 'At Risk',
+    label: 'At Risk',
+    color: 'var(--warning)',
+    bg: 'var(--warning-bg)',
+    borderColor: 'var(--warning)',
+    icon: AlertCircle,
+    description: '46–60 days since last pickup',
+    days: [46, 60],
+  },
+  {
+    id: 'Churned',
+    label: 'Churned',
+    color: 'var(--danger)',
+    bg: 'var(--danger-bg)',
+    borderColor: 'var(--danger)',
+    icon: UserX,
+    description: '>61 days since last pickup',
+    days: [61, Infinity],
+  },
+]
+
+// ── Derive segment from lastPickup date ───────────────────────────────────────
+function getSegment(donor) {
+  if (donor.status === 'Lost')      return 'Lost'
+  if (donor.status === 'Postponed') return 'Postponed'
+  if (!donor.lastPickup)            return 'Active'   // new donor, no pickup yet
+  const days = differenceInDays(new Date(), parseISO(donor.lastPickup))
+  if (days <= 30)  return 'Active'
+  if (days <= 45)  return 'Pickup Due'
+  if (days <= 60)  return 'At Risk'
+  return 'Churned'
+}
+
+function daysSince(dateStr) {
+  if (!dateStr) return null
+  return differenceInDays(new Date(), parseISO(dateStr))
+}
 
 const EMPTY_FORM = {
   name: '', mobile: '', house: '', society: '',
@@ -16,36 +88,33 @@ const EMPTY_FORM = {
   lostReason: '', notes: '',
 }
 
-// ── Segmentation config ───────────────────────────────────────────────────────
-const SEGMENTS = [
-  { id: 'All',         label: 'All',         color: 'var(--text-secondary)' },
-  { id: 'Active',      label: 'Active',      color: 'var(--secondary)' },
-  { id: 'Pickup Due',  label: 'Pickup Due',  color: 'var(--info)' },
-  { id: 'At Risk',     label: 'At Risk',     color: 'var(--warning)' },
-  { id: 'Churned',     label: 'Churned',     color: 'var(--text-muted)' },
-  { id: 'Postponed',   label: 'Postponed',   color: '#92400E' },
-  { id: 'Lost',        label: 'Lost',        color: 'var(--danger)' },
-]
-
-function getHealthLabel(donor) {
-  if (donor.status === 'Lost')      return 'Lost'
-  if (donor.status === 'Postponed') return 'Postponed'
-  return getDonorHealthStatus(donor.lastPickup).label
+// ── Segment badge chip ────────────────────────────────────────────────────────
+function SegmentChip({ segId }) {
+  const seg = SEGMENTS.find(s => s.id === segId)
+  if (!seg || segId === 'all') return null
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 4,
+      padding: '2px 9px', borderRadius: 20, fontSize: 11, fontWeight: 700,
+      background: seg.bg, color: seg.color,
+      border: `1px solid ${seg.borderColor}22`,
+    }}>
+      {seg.label}
+    </span>
+  )
 }
 
 // ── Days since badge ──────────────────────────────────────────────────────────
 function DaysSinceBadge({ lastPickup }) {
   const days = daysSince(lastPickup)
-  if (days === null) return <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Never picked up</span>
+  if (days === null) return <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>No pickup yet</span>
   const color =
     days <= 30 ? 'var(--secondary)' :
     days <= 45 ? 'var(--info)' :
-    days <= 60 ? 'var(--warning)' :
-    'var(--danger)'
+    days <= 60 ? 'var(--warning)' : 'var(--danger)'
   return (
     <span style={{ fontSize: 11, color, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 3 }}>
-      <Clock size={10} />
-      {days}d ago
+      <Clock size={10} />{days}d ago
     </span>
   )
 }
@@ -62,10 +131,9 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
   const [search, setSearch]               = useState('')
   const [filterCity, setFilterCity]       = useState('')
   const [filterSector, setFilterSector]   = useState('')
-  const [filterStatus, setFilterStatus]   = useState('')
   const [filterSociety, setFilterSociety] = useState('')
   const [showFilters, setShowFilters]     = useState(false)
-  const [activeSeg, setActiveSeg]         = useState('All')
+  const [activeSeg, setActiveSeg]         = useState('all')
 
   const sectorOptions = filterCity ? (CITY_SECTORS[filterCity] || []) : []
   const formSectors   = CITY_SECTORS[form.city] || []
@@ -75,18 +143,39 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
     ...donors.map(d => d.society).filter(Boolean),
   ])].sort(), [donors])
 
-  useEffect(() => {
-    if (triggerAddDonor) { openModal(); onAddDonorDone?.() }
-  }, [triggerAddDonor])
+  // ── Segment counts ────────────────────────────────────────────────────────
+  const segCounts = useMemo(() => {
+    const counts = { all: donors.length }
+    donors.forEach(d => {
+      const seg = getSegment(d)
+      counts[seg] = (counts[seg] || 0) + 1
+    })
+    return counts
+  }, [donors])
 
+  // ── Filtered donors ───────────────────────────────────────────────────────
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase()
+    return donors.filter(d => {
+      const seg = getSegment(d)
+      const matchSeg    = activeSeg === 'all' || seg === activeSeg
+      const matchQ      = !q || d.name.toLowerCase().includes(q) || d.mobile.includes(q) || d.society?.toLowerCase().includes(q)
+      const matchCity   = !filterCity   || d.city === filterCity
+      const matchSector = !filterSector || d.sector === filterSector
+      const matchSoc    = !filterSociety || d.society === filterSociety
+      return matchSeg && matchQ && matchCity && matchSector && matchSoc
+    })
+  }, [donors, activeSeg, search, filterCity, filterSector, filterSociety])
+
+  const hasFilters = filterCity || filterSector || filterSociety
+
+  // ── Modal helpers ─────────────────────────────────────────────────────────
   const openModal = (donor = null) => {
     setEditing(donor)
     setForm(donor ? { ...EMPTY_FORM, ...donor } : EMPTY_FORM)
     setModal(true)
   }
-
   const closeModal = () => { setModal(false); setEditing(null) }
-
   const setField = (key, val) => setForm(f => {
     const next = { ...f, [key]: val }
     if (key === 'city') next.sector = ''
@@ -98,7 +187,7 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
     if (form.status === 'Lost' && !form.lostReason) return
     setSaving(true)
     try {
-      editing ? updateDonor(editing.id, form) : addDonor(form)
+      editing ? await updateDonor(editing.id, form) : await addDonor(form)
       closeModal()
     } finally { setSaving(false) }
   }
@@ -108,75 +197,65 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
     deleteDonor(id)
   }
 
-  // ── Segment counts ────────────────────────────────────────────────────────
-  const segCounts = useMemo(() => {
-    const counts = { All: donors.length }
-    donors.forEach(d => {
-      const label = getHealthLabel(d)
-      counts[label] = (counts[label] || 0) + 1
-    })
-    return counts
-  }, [donors])
-
-  // ── Filtered donors (segment + search + filters) ──────────────────────────
-  const filtered = useMemo(() => {
-    const q = search.toLowerCase()
-    return donors.filter(d => {
-      const segLabel = getHealthLabel(d)
-      const matchSeg    = activeSeg === 'All' || segLabel === activeSeg
-      const matchQ      = !q || d.name.toLowerCase().includes(q) || d.mobile.includes(q) || d.society?.toLowerCase().includes(q)
-      const matchCity   = !filterCity   || d.city === filterCity
-      const matchSector = !filterSector || d.sector === filterSector
-      const matchStatus = !filterStatus || d.status === filterStatus
-      const matchSoc    = !filterSociety || d.society === filterSociety
-      return matchSeg && matchQ && matchCity && matchSector && matchStatus && matchSoc
-    })
-  }, [donors, activeSeg, search, filterCity, filterSector, filterStatus, filterSociety])
-
-  const hasFilters = filterCity || filterSector || filterStatus || filterSociety
+  // ── Segment advisory text ─────────────────────────────────────────────────
+  const getAdvisory = (seg) => ({
+    'Pickup Due': { text: 'Schedule a pickup soon', bg: 'var(--info-bg)', color: 'var(--info)' },
+    'At Risk':    { text: 'Overdue — reach out now', bg: 'var(--warning-bg)', color: '#92400E' },
+    'Churned':    { text: 'Urgent follow-up needed', bg: 'var(--danger-bg)', color: 'var(--danger)' },
+  }[seg] || null)
 
   return (
     <div className="page-body">
 
-      {/* ── Segmentation Tab Bar ── */}
-      <div style={{ marginBottom: 16, overflowX: 'auto' }}>
-        <div style={{ display: 'flex', gap: 6, minWidth: 'max-content', paddingBottom: 2 }}>
-          {SEGMENTS.map(seg => {
-            const count   = segCounts[seg.id] || 0
-            const isActive = activeSeg === seg.id
-            return (
-              <button
-                key={seg.id}
-                onClick={() => setActiveSeg(seg.id)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 6,
-                  padding: '7px 14px', borderRadius: 'var(--radius-sm)',
-                  border: `1.5px solid ${isActive ? seg.color : 'var(--border)'}`,
-                  background: isActive ? 'var(--surface)' : 'transparent',
-                  cursor: 'pointer', fontSize: 12.5, fontWeight: isActive ? 700 : 500,
+      {/* ── Segment KPI cards ── */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+        gap: 12, marginBottom: 20,
+      }}>
+        {SEGMENTS.filter(s => s.id !== 'all').map(seg => {
+          const Icon = seg.icon
+          const count = segCounts[seg.id] || 0
+          const isActive = activeSeg === seg.id
+          return (
+            <button
+              key={seg.id}
+              onClick={() => setActiveSeg(isActive ? 'all' : seg.id)}
+              style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
+                padding: '14px 16px', borderRadius: 'var(--radius)',
+                border: `2px solid ${isActive ? seg.borderColor : 'var(--border-light)'}`,
+                background: isActive ? seg.bg : 'var(--surface)',
+                cursor: 'pointer', transition: 'all 0.15s', textAlign: 'left',
+                boxShadow: isActive ? `0 0 0 3px ${seg.borderColor}22` : 'var(--shadow)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
+                {Icon && <Icon size={14} color={isActive ? seg.color : 'var(--text-muted)'} />}
+                <span style={{
+                  fontSize: 11, fontWeight: 700, textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
                   color: isActive ? seg.color : 'var(--text-muted)',
-                  transition: 'all 0.15s',
-                  boxShadow: isActive ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
-                }}
-              >
-                {seg.label}
-                {count > 0 && (
-                  <span style={{
-                    background: isActive ? seg.color : 'var(--border)',
-                    color: isActive ? 'white' : 'var(--text-muted)',
-                    fontSize: 10.5, fontWeight: 700,
-                    padding: '1px 6px', borderRadius: 20, minWidth: 18, textAlign: 'center',
-                  }}>
-                    {count}
-                  </span>
-                )}
-              </button>
-            )
-          })}
-        </div>
+                }}>
+                  {seg.label}
+                </span>
+              </div>
+              <div style={{
+                fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 700,
+                color: isActive ? seg.color : 'var(--text-primary)', lineHeight: 1,
+                marginBottom: 4,
+              }}>
+                {count}
+              </div>
+              <div style={{ fontSize: 10.5, color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                {seg.description}
+              </div>
+            </button>
+          )
+        })}
       </div>
 
-      {/* ── Filter Bar ── */}
+      {/* ── Search + filter bar ── */}
       <div style={{ marginBottom: 12 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'nowrap', marginBottom: 8 }}>
           <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
@@ -196,7 +275,7 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
             <SlidersHorizontal size={13} />
             {hasFilters
               ? <span style={{ background: 'var(--primary)', color: '#fff', borderRadius: '50%', width: 16, height: 16, fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', marginLeft: 2 }}>
-                  {[filterCity, filterSector, filterStatus, filterSociety].filter(Boolean).length}
+                  {[filterCity, filterSector, filterSociety].filter(Boolean).length}
                 </span>
               : 'Filter'}
           </button>
@@ -219,20 +298,13 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
               <option value="">{filterCity ? 'All Sectors' : 'City First'}</option>
               {sectorOptions.map(s => <option key={s}>{s}</option>)}
             </select>
-            <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ fontSize: 12 }}>
-              <option value="">All Status</option>
-              {DONOR_STATUSES.map(s => <option key={s}>{s}</option>)}
-            </select>
             <select value={filterSociety} onChange={e => setFilterSociety(e.target.value)} style={{ fontSize: 12 }}>
               <option value="">All Societies</option>
               {allSocieties.map(s => <option key={s}>{s}</option>)}
             </select>
             {hasFilters && (
-              <button
-                className="btn btn-ghost btn-sm"
-                style={{ fontSize: 11, height: 34 }}
-                onClick={() => { setFilterCity(''); setFilterSector(''); setFilterStatus(''); setFilterSociety('') }}
-              >
+              <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, height: 34 }}
+                onClick={() => { setFilterCity(''); setFilterSector(''); setFilterSociety('') }}>
                 <X size={11} /> Clear All
               </button>
             )}
@@ -240,46 +312,77 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
         )}
       </div>
 
+      {/* ── Active segment banner ── */}
+      {activeSeg !== 'all' && (() => {
+        const seg = SEGMENTS.find(s => s.id === activeSeg)
+        const Icon = seg?.icon
+        return seg ? (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14,
+            padding: '10px 16px', borderRadius: 10,
+            background: seg.bg, border: `1px solid ${seg.borderColor}33`,
+          }}>
+            {Icon && <Icon size={15} color={seg.color} />}
+            <span style={{ fontSize: 13, fontWeight: 700, color: seg.color }}>
+              {seg.label}
+            </span>
+            <span style={{ fontSize: 12.5, color: seg.color, opacity: 0.8 }}>
+              — {seg.description}
+            </span>
+            <button
+              onClick={() => setActiveSeg('all')}
+              style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: seg.color, display: 'flex', padding: 2 }}
+            >
+              <X size={14} />
+            </button>
+          </div>
+        ) : null
+      })()}
+
       <div style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 12px' }}>
         Showing <strong>{filtered.length}</strong> of <strong>{donors.length}</strong> donors
-        {activeSeg !== 'All' && <> in <strong>{activeSeg}</strong></>}
       </div>
 
+      {/* ── Donor cards ── */}
       {filtered.length === 0 ? (
         <div className="empty-state">
           <div className="empty-icon"><Search size={24} /></div>
           <h3>No donors found</h3>
-          <p>Try adjusting your search, filters, or segment tab.</p>
+          <p>Try adjusting your search or filters.</p>
         </div>
       ) : (
         <div style={{ display: 'grid', gap: 10 }}>
           {filtered.map(d => {
-            const health  = getDonorHealthStatus(d.lastPickup)
+            const seg = getSegment(d)
+            const advisory = getAdvisory(seg)
+            const segDef = SEGMENTS.find(s => s.id === seg)
             const overdue = d.nextPickup && new Date(d.nextPickup) < new Date() && d.status === 'Active'
-            const days    = daysSince(d.lastPickup)
+            const days = daysSince(d.lastPickup)
 
             return (
               <div key={d.id} className="card" style={{
-                borderLeft: `3px solid ${
-                  d.status === 'Lost'      ? 'var(--danger)' :
-                  health.label === 'At Risk' ? 'var(--warning)' :
-                  health.label === 'Pickup Due' ? 'var(--info)' :
-                  health.label === 'Churned'  ? 'var(--text-muted)' :
-                  'transparent'
-                }`,
+                borderLeft: `3px solid ${segDef?.borderColor || 'var(--border-light)'}`,
               }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 14px', flexWrap: 'nowrap' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 14px' }}>
                   {/* Avatar */}
-                  <div style={{ width: 40, height: 40, borderRadius: 10, flexShrink: 0, background: 'var(--primary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 700, color: 'var(--primary)' }}>
+                  <div style={{
+                    width: 40, height: 40, borderRadius: 10, flexShrink: 0,
+                    background: segDef?.bg || 'var(--primary-light)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 700,
+                    color: segDef?.color || 'var(--primary)',
+                  }}>
                     {d.name[0]}
                   </div>
+
                   {/* Info */}
                   <div style={{ flex: '1 1 0', minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                       <div style={{ fontWeight: 700, fontSize: 14 }} className="truncate">{d.name}</div>
+                      <SegmentChip segId={seg} />
                       <DaysSinceBadge lastPickup={d.lastPickup} />
                     </div>
-                    <div style={{ fontSize: 11.5, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', marginTop: 2 }}>
+                    <div style={{ fontSize: 11.5, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
                       <Phone size={10} style={{ flexShrink: 0 }} /> {d.mobile}
                     </div>
                     <div style={{ fontSize: 11.5, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4, marginTop: 1 }} className="truncate">
@@ -287,6 +390,7 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
                       <span className="truncate">{d.society}{d.sector && `, ${d.sector}`}, {d.city}</span>
                     </div>
                   </div>
+
                   {/* Actions */}
                   <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
                     <button className="btn btn-ghost btn-icon btn-sm" title="Edit" onClick={() => openModal(d)}>
@@ -301,30 +405,54 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
                 {/* Stats strip */}
                 <div style={{ display: 'flex', gap: 0, borderTop: '1px solid var(--border-light)', background: 'var(--bg)' }}>
                   {[
-                    { label: 'Status',  value: <span className={`badge ${donorStatusColor(d.status)}`} style={{ fontSize: 10 }}>{d.status}</span> },
-                    { label: 'Health',  value: <span className={`badge ${health.color}`} style={{ fontSize: 10 }}>{health.label}</span> },
-                    { label: 'RST',     value: <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--secondary)' }}>{fmtCurrency(d.totalRST)}</span> },
-                    { label: overdue ? '⚠ Overdue' : 'Next', value: <span style={{ fontWeight: 600, fontSize: 11.5, color: overdue ? 'var(--danger)' : 'inherit' }}>{d.status === 'Lost' ? '—' : fmtDate(d.nextPickup)}</span> },
+                    {
+                      label: 'Health',
+                      value: <SegmentChip segId={seg} />,
+                    },
+                    {
+                      label: 'RST',
+                      value: <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--secondary)' }}>{fmtCurrency(d.totalRST)}</span>,
+                    },
+                    {
+                      label: 'Last Pickup',
+                      value: <span style={{ fontWeight: 600, fontSize: 11.5 }}>{d.lastPickup ? fmtDate(d.lastPickup) : '—'}</span>,
+                    },
+                    {
+                      label: overdue ? '⚠ Overdue' : 'Next Pickup',
+                      value: <span style={{ fontWeight: 600, fontSize: 11.5, color: overdue ? 'var(--danger)' : 'inherit' }}>
+                        {d.status === 'Lost' ? '—' : fmtDate(d.nextPickup)}
+                      </span>,
+                    },
                   ].map((item, i) => (
-                    <div key={i} style={{ flex: 1, padding: '8px 4px', textAlign: 'center', borderRight: i < 3 ? '1px solid var(--border-light)' : 'none', minWidth: 0 }}>
+                    <div key={i} style={{
+                      flex: 1, padding: '8px 4px', textAlign: 'center',
+                      borderRight: i < 3 ? '1px solid var(--border-light)' : 'none',
+                      minWidth: 0,
+                    }}>
                       <div style={{ marginBottom: 2 }}>{item.value}</div>
-                      <div style={{ fontSize: 9.5, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.03em' }} className="truncate">{item.label}</div>
+                      <div style={{ fontSize: 9.5, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.03em' }} className="truncate">
+                        {item.label}
+                      </div>
                     </div>
                   ))}
                 </div>
+
+                {/* Advisory banner */}
+                {advisory && d.status === 'Active' && (
+                  <div style={{
+                    padding: '6px 14px', fontSize: 11.5,
+                    background: advisory.bg, color: advisory.color,
+                    display: 'flex', alignItems: 'center', gap: 6,
+                  }}>
+                    <Clock size={11} />
+                    {days !== null ? `${days} days since last pickup — ` : ''}{advisory.text}
+                  </div>
+                )}
 
                 {d.status === 'Lost' && d.lostReason && (
                   <div style={{ padding: '6px 14px', background: 'var(--danger-bg)', fontSize: 11.5, color: 'var(--danger)' }}>
                     <AlertTriangle size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />
                     Lost: <strong>{d.lostReason}</strong>
-                  </div>
-                )}
-
-                {/* At Risk / Churned advisory */}
-                {(health.label === 'At Risk' || health.label === 'Churned') && d.status === 'Active' && days !== null && (
-                  <div style={{ padding: '6px 14px', background: health.label === 'Churned' ? 'var(--border-light)' : 'var(--warning-bg)', fontSize: 11.5, color: health.label === 'Churned' ? 'var(--text-muted)' : '#92400E', display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <Clock size={11} />
-                    {days} days since last pickup — {health.label === 'Churned' ? 'urgent follow-up needed' : 'schedule soon'}
                   </div>
                 )}
               </div>
@@ -333,7 +461,7 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
         </div>
       )}
 
-      {/* Add / Edit Modal */}
+      {/* ── Add / Edit Modal ── */}
       {modal && (
         <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && closeModal()}>
           <div className="modal" style={{ maxWidth: 600, width: '95vw' }}>
