@@ -1,18 +1,15 @@
-// Frontend/src/App.jsx
 import { useState, useEffect } from 'react'
-import { AppProvider } from './context/AppContext'
-import Sidebar           from './component/Layout/Sidebar'
-import Header            from './component/Layout/Header'
-import Dashboard         from './pages/Dashboard'
-import Donors            from './pages/Donors'
-import Pickups           from './pages/Pickups'
-import Kabadiwala        from './pages/Kabadiwala'
-import Payments          from './pages/Payments'
-import PickupScheduler   from './pages/PickupScheduler'
-// import KabadiPickups     from './pages/KabadiPickups'
-// import CustomerPickups   from './pages/CustomerPickups'
-import Reports           from './pages/Reports'
-// import RaddiMaster       from './pages/RaddiMaster'
+import { AppProvider }    from './context/AppContext'
+import Sidebar            from './component/Layout/Sidebar'
+import Header             from './component/Layout/Header'
+import Dashboard          from './pages/Dashboard'
+import Donors             from './pages/Donors'
+import Pickups            from './pages/Pickups'
+import Kabadiwala         from './pages/Kabadiwala'
+import Payments           from './pages/Payments'
+import PickupScheduler    from './pages/PickupScheduler'
+import Reports            from './pages/Reports'
+import RaddiMaster        from './pages/RaddiMaster'
 
 const PAGES = {
   dashboard:       Dashboard,
@@ -21,10 +18,8 @@ const PAGES = {
   kabadiwala:      Kabadiwala,
   payments:        Payments,
   pickupscheduler: PickupScheduler,
-  // kabadipickups:   KabadiPickups,
-  // customerpickups: CustomerPickups,
   reports:         Reports,
-  // raddimaster:     RaddiMaster,
+  raddimaster:     RaddiMaster,
 }
 
 function getPageFromHash() {

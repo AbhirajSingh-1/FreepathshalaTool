@@ -3,7 +3,7 @@ import { useState, useMemo } from 'react'
 import {
   Search, Plus, Edit2, Trash2, X, Phone, MapPin,
   AlertTriangle, SlidersHorizontal, Clock, CheckCircle,
-  AlertCircle, UserX, Hash,
+  AlertCircle, UserX,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import {
@@ -12,57 +12,12 @@ import {
 import { fmtDate, fmtCurrency, donorStatusColor } from '../utils/helpers'
 import { differenceInDays, parseISO } from 'date-fns'
 
-// ── Segment config ────────────────────────────────────────────────────────────
 const SEGMENTS = [
-  {
-    id: 'all',
-    label: 'All',
-    color: 'var(--text-secondary)',
-    bg: 'var(--border-light)',
-    borderColor: 'var(--border)',
-    icon: null,
-    description: '',
-  },
-  {
-    id: 'Active',
-    label: 'Active',
-    color: 'var(--secondary)',
-    bg: 'var(--secondary-light)',
-    borderColor: 'var(--secondary)',
-    icon: CheckCircle,
-    description: '1–30 days since last pickup',
-    days: [1, 30],
-  },
-  {
-    id: 'Pickup Due',
-    label: 'Pickup Due',
-    color: 'var(--info)',
-    bg: 'var(--info-bg)',
-    borderColor: 'var(--info)',
-    icon: Clock,
-    description: '31–45 days since last pickup',
-    days: [31, 45],
-  },
-  {
-    id: 'At Risk',
-    label: 'At Risk',
-    color: 'var(--warning)',
-    bg: 'var(--warning-bg)',
-    borderColor: 'var(--warning)',
-    icon: AlertCircle,
-    description: '46–60 days since last pickup',
-    days: [46, 60],
-  },
-  {
-    id: 'Churned',
-    label: 'Churned',
-    color: 'var(--danger)',
-    bg: 'var(--danger-bg)',
-    borderColor: 'var(--danger)',
-    icon: UserX,
-    description: '>61 days since last pickup',
-    days: [61, Infinity],
-  },
+  { id: 'all',        label: 'All',        color: 'var(--text-secondary)', bg: 'var(--border-light)', borderColor: 'var(--border)', icon: null, description: '' },
+  { id: 'Active',     label: 'Active',     color: 'var(--secondary)',      bg: 'var(--secondary-light)', borderColor: 'var(--secondary)', icon: CheckCircle, description: '1–30 days since last pickup', days: [1, 30] },
+  { id: 'Pickup Due', label: 'Pickup Due', color: 'var(--info)',           bg: 'var(--info-bg)',         borderColor: 'var(--info)',      icon: Clock,        description: '31–45 days since last pickup', days: [31, 45] },
+  { id: 'At Risk',    label: 'At Risk',    color: 'var(--warning)',        bg: 'var(--warning-bg)',      borderColor: 'var(--warning)',   icon: AlertCircle,  description: '46–60 days since last pickup', days: [46, 60] },
+  { id: 'Churned',    label: 'Churned',    color: 'var(--danger)',         bg: 'var(--danger-bg)',       borderColor: 'var(--danger)',    icon: UserX,        description: '>61 days since last pickup',  days: [61, Infinity] },
 ]
 
 function getSegment(donor) {
@@ -105,10 +60,7 @@ function SegmentChip({ segId }) {
 function DaysSinceBadge({ lastPickup }) {
   const days = daysSince(lastPickup)
   if (days === null) return <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>No pickup yet</span>
-  const color =
-    days <= 30 ? 'var(--secondary)' :
-    days <= 45 ? 'var(--info)' :
-    days <= 60 ? 'var(--warning)' : 'var(--danger)'
+  const color = days <= 30 ? 'var(--secondary)' : days <= 45 ? 'var(--info)' : days <= 60 ? 'var(--warning)' : 'var(--danger)'
   return (
     <span style={{ fontSize: 11, color, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 3 }}>
       <Clock size={10} />{days}d ago
@@ -116,22 +68,29 @@ function DaysSinceBadge({ lastPickup }) {
   )
 }
 
-// ── Donor ID badge ────────────────────────────────────────────────────────────
+// ── FEATURE 2: Prominent Donor ID Badge ──────────────────────────────────────
 function DonorIdBadge({ id }) {
   return (
     <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 3,
-      fontSize: 10, fontFamily: 'monospace', fontWeight: 600,
-      color: 'var(--text-muted)', background: 'var(--border-light)',
-      padding: '1px 6px', borderRadius: 4,
-      border: '1px solid var(--border)',
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 4,
+      fontSize: 12,
+      fontFamily: 'monospace',
+      fontWeight: 800,
+      color: 'white',
+      background: 'var(--primary)',
+      padding: '3px 10px',
+      borderRadius: 6,
+      letterSpacing: '0.04em',
+      boxShadow: '0 1px 3px rgba(232,82,26,0.3)',
+      flexShrink: 0,
     }}>
-      <Hash size={9} />{id}
+      {id}
     </span>
   )
 }
 
-// ════════════════════════════════════════════════════════════════════════════
 export default function Donors({ triggerAddDonor, onAddDonorDone }) {
   const { donors, addDonor, updateDonor, deleteDonor } = useApp()
 
@@ -207,9 +166,9 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
   }
 
   const getAdvisory = (seg) => ({
-    'Pickup Due': { text: 'Schedule a pickup soon', bg: 'var(--info-bg)', color: 'var(--info)' },
-    'At Risk':    { text: 'Overdue — reach out now', bg: 'var(--warning-bg)', color: '#92400E' },
-    'Churned':    { text: 'Urgent follow-up needed', bg: 'var(--danger-bg)', color: 'var(--danger)' },
+    'Pickup Due': { text: 'Schedule a pickup soon',    bg: 'var(--info-bg)',    color: 'var(--info)' },
+    'At Risk':    { text: 'Overdue — reach out now',   bg: 'var(--warning-bg)', color: '#92400E' },
+    'Churned':    { text: 'Urgent follow-up needed',   bg: 'var(--danger-bg)',  color: 'var(--danger)' },
   }[seg] || null)
 
   return (
@@ -222,8 +181,8 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
         gap: 12, marginBottom: 20,
       }}>
         {SEGMENTS.filter(s => s.id !== 'all').map(seg => {
-          const Icon = seg.icon
-          const count = segCounts[seg.id] || 0
+          const Icon    = seg.icon
+          const count   = segCounts[seg.id] || 0
           const isActive = activeSeg === seg.id
           return (
             <button
@@ -241,8 +200,7 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
               <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
                 {Icon && <Icon size={14} color={isActive ? seg.color : 'var(--text-muted)'} />}
                 <span style={{
-                  fontSize: 11, fontWeight: 700, textTransform: 'uppercase',
-                  letterSpacing: '0.05em',
+                  fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em',
                   color: isActive ? seg.color : 'var(--text-muted)',
                 }}>
                   {seg.label}
@@ -250,8 +208,7 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
               </div>
               <div style={{
                 fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 700,
-                color: isActive ? seg.color : 'var(--text-primary)', lineHeight: 1,
-                marginBottom: 4,
+                color: isActive ? seg.color : 'var(--text-primary)', lineHeight: 1, marginBottom: 4,
               }}>
                 {count}
               </div>
@@ -269,7 +226,7 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
           <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
             <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
             <input
-              placeholder="Search name, mobile, society, donor ID…"
+              placeholder="Search name, mobile, society, ID (D-001)…"
               value={search}
               onChange={e => setSearch(e.target.value)}
               style={{ paddingLeft: 32, fontSize: 13, width: '100%' }}
@@ -325,16 +282,11 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
         const seg = SEGMENTS.find(s => s.id === activeSeg)
         const Icon = seg?.icon
         return seg ? (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14,
-            padding: '10px 16px', borderRadius: 10,
-            background: seg.bg, border: `1px solid ${seg.borderColor}33`,
-          }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, padding: '10px 16px', borderRadius: 10, background: seg.bg, border: `1px solid ${seg.borderColor}33` }}>
             {Icon && <Icon size={15} color={seg.color} />}
             <span style={{ fontSize: 13, fontWeight: 700, color: seg.color }}>{seg.label}</span>
             <span style={{ fontSize: 12.5, color: seg.color, opacity: 0.8 }}>— {seg.description}</span>
-            <button onClick={() => setActiveSeg('all')}
-              style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: seg.color, display: 'flex', padding: 2 }}>
+            <button onClick={() => setActiveSeg('all')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: seg.color, display: 'flex', padding: 2 }}>
               <X size={14} />
             </button>
           </div>
@@ -355,16 +307,14 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
       ) : (
         <div style={{ display: 'grid', gap: 10 }}>
           {filtered.map(d => {
-            const seg = getSegment(d)
+            const seg      = getSegment(d)
             const advisory = getAdvisory(seg)
-            const segDef = SEGMENTS.find(s => s.id === seg)
-            const overdue = d.nextPickup && new Date(d.nextPickup) < new Date() && d.status === 'Active'
-            const days = daysSince(d.lastPickup)
+            const segDef   = SEGMENTS.find(s => s.id === seg)
+            const overdue  = d.nextPickup && new Date(d.nextPickup) < new Date() && d.status === 'Active'
+            const days     = daysSince(d.lastPickup)
 
             return (
-              <div key={d.id} className="card" style={{
-                borderLeft: `3px solid ${segDef?.borderColor || 'var(--border-light)'}`,
-              }}>
+              <div key={d.id} className="card" style={{ borderLeft: `3px solid ${segDef?.borderColor || 'var(--border-light)'}` }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 14px' }}>
                   {/* Avatar */}
                   <div style={{
@@ -379,9 +329,10 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
 
                   {/* Info */}
                   <div style={{ flex: '1 1 0', minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                      <div style={{ fontWeight: 700, fontSize: 14 }} className="truncate">{d.name}</div>
+                    {/* ── FEATURE 2: ID badge prominently before name ── */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
                       <DonorIdBadge id={d.id} />
+                      <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>{d.name}</div>
                       <SegmentChip segId={seg} />
                       <DaysSinceBadge lastPickup={d.lastPickup} />
                     </div>
@@ -408,18 +359,8 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
                 {/* Stats strip */}
                 <div style={{ display: 'flex', gap: 0, borderTop: '1px solid var(--border-light)', background: 'var(--bg)' }}>
                   {[
-                    {
-                      label: 'Donor ID',
-                      value: <span style={{ fontFamily: 'monospace', fontSize: 10.5, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 2 }}><Hash size={9} />{d.id}</span>,
-                    },
-                    {
-                      label: 'RST',
-                      value: <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--secondary)' }}>{fmtCurrency(d.totalRST)}</span>,
-                    },
-                    {
-                      label: 'Last Pickup',
-                      value: <span style={{ fontWeight: 600, fontSize: 11.5 }}>{d.lastPickup ? fmtDate(d.lastPickup) : '—'}</span>,
-                    },
+                    { label: 'RST Donated', value: <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--secondary)' }}>{fmtCurrency(d.totalRST)}</span> },
+                    { label: 'Last Pickup',  value: <span style={{ fontWeight: 600, fontSize: 11.5 }}>{d.lastPickup ? fmtDate(d.lastPickup) : '—'}</span> },
                     {
                       label: overdue ? '⚠ Overdue' : 'Next Pickup',
                       value: <span style={{ fontWeight: 600, fontSize: 11.5, color: overdue ? 'var(--danger)' : 'inherit' }}>
@@ -429,7 +370,7 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
                   ].map((item, i) => (
                     <div key={i} style={{
                       flex: 1, padding: '8px 4px', textAlign: 'center',
-                      borderRight: i < 3 ? '1px solid var(--border-light)' : 'none',
+                      borderRight: i < 2 ? '1px solid var(--border-light)' : 'none',
                       minWidth: 0,
                     }}>
                       <div style={{ marginBottom: 2 }}>{item.value}</div>
@@ -442,11 +383,7 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
 
                 {/* Advisory banner */}
                 {advisory && d.status === 'Active' && (
-                  <div style={{
-                    padding: '6px 14px', fontSize: 11.5,
-                    background: advisory.bg, color: advisory.color,
-                    display: 'flex', alignItems: 'center', gap: 6,
-                  }}>
+                  <div style={{ padding: '6px 14px', fontSize: 11.5, background: advisory.bg, color: advisory.color, display: 'flex', alignItems: 'center', gap: 6 }}>
                     <Clock size={11} />
                     {days !== null ? `${days} days since last pickup — ` : ''}{advisory.text}
                   </div>
@@ -471,8 +408,8 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
             <div className="modal-header">
               <div className="modal-title">{editing ? 'Edit Donor' : 'Add New Donor'}</div>
               {editing && (
-                <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--text-muted)', background: 'var(--border-light)', padding: '2px 8px', borderRadius: 4, display: 'flex', alignItems: 'center', gap: 3 }}>
-                  <Hash size={10} />{editing.id}
+                <span style={{ fontSize: 12, fontFamily: 'monospace', fontWeight: 800, color: 'white', background: 'var(--primary)', padding: '2px 10px', borderRadius: 5 }}>
+                  {editing.id}
                 </span>
               )}
               <button className="btn btn-ghost btn-icon btn-sm" onClick={closeModal}><X size={16} /></button>

@@ -21,13 +21,13 @@ export const DEFAULT_RATE_CHART = {
   'Iron': 25, 'E-Waste': 15, 'Wood': 3, 'Others': 5,
 }
 
-export const DONOR_STATUSES = ['Active', 'Postponed', 'Lost']
-export const PICKUP_STATUSES = ['Completed', 'Postponed', 'Pending', 'Did Not Open Door']
-export const PAYMENT_STATUSES = ['Paid', 'Not Paid', 'Partially Paid', 'Write Off']
-export const POSTPONE_REASONS = ['Donor unavailable', 'Rescheduled', 'Kabadiwala unavailable', 'Other']
-export const LOST_REASONS = ['Not interested', 'Shifted', 'Society restriction', 'No Raddi', 'Other']
-export const PICKUP_MODES = ['Individual', 'Drive']
-export const CITIES = ['Delhi', 'Noida', 'Gurgaon', 'Faridabad', 'Ghaziabad']
+export const DONOR_STATUSES    = ['Active', 'Postponed', 'Lost']
+export const PICKUP_STATUSES   = ['Completed', 'Postponed', 'Pending', 'Did Not Open Door']
+export const PAYMENT_STATUSES  = ['Paid', 'Not Paid', 'Partially Paid', 'Write Off']
+export const POSTPONE_REASONS  = ['Donor unavailable', 'Rescheduled', 'Kabadiwala unavailable', 'Other']
+export const LOST_REASONS      = ['Not interested', 'Shifted', 'Society restriction', 'No Raddi', 'Other']
+export const PICKUP_MODES      = ['Individual', 'Drive']
+export const CITIES            = ['Delhi', 'Noida', 'Gurgaon', 'Faridabad', 'Ghaziabad']
 
 export const GURGAON_SOCIETIES = {
   'Sector 1':  ['Sector 1 Apartments', 'Green Fields Colony', 'Surya Vihar'],
@@ -187,8 +187,7 @@ export const CITY_SECTORS = {
   ],
 }
 
-export const SECTORS = CITY_SECTORS.Gurgaon.slice(0, 30)
-
+export const SECTORS   = CITY_SECTORS.Gurgaon.slice(0, 30)
 export const SOCIETIES = [
   'Green Park Residency', 'Shanti Nagar', 'Patel Enclave', 'Sunder Vihar',
   'Vasant Kunj Apartments', 'Adarsh Colony', 'DLF City', 'Hamilton Court',
@@ -198,72 +197,74 @@ export const SOCIETIES = [
   'Emaar Palm Drive', 'Tulip Violet', 'M3M Golf Estate', 'Hero Homes',
 ]
 
+// ── Donors — D-001 format IDs ─────────────────────────────────────────────────
 export const donors = [
   {
-    id: 'D001', mobile: '9876543210', name: 'Anjali Sharma', house: 'A-101',
+    id: 'D-001', mobile: '9876543210', name: 'Anjali Sharma', house: 'A-101',
     society: 'Green Park Residency', sector: 'Sector 22', city: 'Gurgaon',
     status: 'Active', lastPickup: '2026-03-10', nextPickup: '2026-04-08',
     totalRST: 2400, totalSKS: 5, createdAt: '2025-06-01',
   },
   {
-    id: 'D002', mobile: '9123456780', name: 'Ramesh Gupta', house: 'B-45',
+    id: 'D-002', mobile: '9123456780', name: 'Ramesh Gupta', house: 'B-45',
     society: 'Patel Enclave', sector: 'Sector 5', city: 'Noida',
     status: 'Active', lastPickup: '2026-03-01', nextPickup: '2026-04-02',
     totalRST: 1850, totalSKS: 2, createdAt: '2025-07-15',
   },
   {
-    id: 'D003', mobile: '9988776655', name: 'Sunita Verma', house: 'C-12',
+    id: 'D-003', mobile: '9988776655', name: 'Sunita Verma', house: 'C-12',
     society: 'Sunder Vihar', sector: 'Sector 10', city: 'Delhi',
     status: 'Postponed', lastPickup: '2026-02-10', nextPickup: '2026-04-15',
     totalRST: 3100, totalSKS: 8, createdAt: '2025-05-20',
   },
   {
-    id: 'D004', mobile: '9012345678', name: 'Vikas Mehra', house: '204',
+    id: 'D-004', mobile: '9012345678', name: 'Vikas Mehra', house: '204',
     society: 'Vasant Kunj Apartments', sector: 'Phase 1', city: 'Delhi',
     status: 'Lost', lastPickup: '2025-12-05', nextPickup: null,
     totalRST: 700, totalSKS: 0, createdAt: '2025-04-10', lostReason: 'Shifted',
   },
   {
-    id: 'D005', mobile: '9345678901', name: 'Pooja Kapoor', house: '3B',
+    id: 'D-005', mobile: '9345678901', name: 'Pooja Kapoor', house: '3B',
     society: 'Adarsh Colony', sector: 'Sector 44', city: 'Gurgaon',
     status: 'Active', lastPickup: '2026-03-20', nextPickup: '2026-04-18',
     totalRST: 980, totalSKS: 3, createdAt: '2025-09-11',
   },
   {
-    id: 'D006', mobile: '9456789012', name: 'Manoj Singh', house: 'D-77',
+    id: 'D-006', mobile: '9456789012', name: 'Manoj Singh', house: 'D-77',
     society: 'Shanti Nagar', sector: 'Sector 15', city: 'Gurgaon',
     status: 'Active', lastPickup: '2026-02-28', nextPickup: '2026-03-30',
     totalRST: 4200, totalSKS: 12, createdAt: '2025-03-08',
   },
   {
-    id: 'D007', mobile: '9567890123', name: 'Priya Nair', house: 'F-204',
+    id: 'D-007', mobile: '9567890123', name: 'Priya Nair', house: 'F-204',
     society: 'Beverly Park I', sector: 'DLF Phase 2', city: 'Gurgaon',
     status: 'Active', lastPickup: '2025-11-15', nextPickup: '2026-04-09',
     totalRST: 1200, totalSKS: 4, createdAt: '2025-08-20',
   },
   {
-    id: 'D008', mobile: '9678901234', name: 'Rohit Saxena', house: '12A',
+    id: 'D-008', mobile: '9678901234', name: 'Rohit Saxena', house: '12A',
     society: 'Magnolias', sector: 'DLF Phase 3', city: 'Gurgaon',
     status: 'Active', lastPickup: '2025-10-20', nextPickup: '2026-04-09',
     totalRST: 560, totalSKS: 1, createdAt: '2025-10-01',
   },
   {
-    id: 'D009', mobile: '9789012345', name: 'Kavita Reddy', house: 'B-302',
+    id: 'D-009', mobile: '9789012345', name: 'Kavita Reddy', house: 'B-302',
     society: 'Tulip Violet', sector: 'Sector 57', city: 'Gurgaon',
     status: 'Active', lastPickup: '2025-09-05', nextPickup: '2026-04-10',
     totalRST: 890, totalSKS: 2, createdAt: '2025-07-12',
   },
   {
-    id: 'D010', mobile: '9890123456', name: 'Suresh Pillai', house: 'G-101',
+    id: 'D-010', mobile: '9890123456', name: 'Suresh Pillai', house: 'G-101',
     society: 'Vatika City', sector: 'Nirvana Country', city: 'Gurgaon',
     status: 'Active', lastPickup: '2025-08-10', nextPickup: '2026-04-12',
     totalRST: 2100, totalSKS: 6, createdAt: '2025-06-15',
   },
 ]
 
+// ── Kabadiwalas — K-001 format IDs ────────────────────────────────────────────
 export const kabadiwalas = [
   {
-    id: 'K001', name: 'Suresh Bhai', mobile: '9765432100',
+    id: 'K-001', name: 'Suresh Bhai', mobile: '9765432100',
     area: 'Sector 22, DLF Phase 1-2, Gurgaon', rating: 4.5, totalPickups: 34,
     totalValue: 8900, amountReceived: 7200, pendingAmount: 1700,
     rateChart: {
@@ -272,14 +273,14 @@ export const kabadiwalas = [
       'Iron': 28, 'E-Waste': 16, 'Wood': 3, 'Others': 5,
     },
     transactions: [
-      { date: '2026-03-10', pickupId: 'P001', donor: 'Anjali Sharma', value: 250, paid: 250, status: 'Paid' },
-      { date: '2026-02-28', pickupId: 'P003', donor: 'Manoj Singh', value: 0, paid: 0, status: 'Paid' },
-      { date: '2026-01-15', pickupId: 'PX01', donor: 'Ravi Kumar', value: 320, paid: 320, status: 'Paid' },
-      { date: '2025-12-20', pickupId: 'PX02', donor: 'Sunita Joshi', value: 180, paid: 0, status: 'Not Paid' },
+      { date: '2026-03-10', pickupId: 'P-001', donor: 'Anjali Sharma',  value: 250, paid: 250, status: 'Paid' },
+      { date: '2026-02-28', pickupId: 'P-003', donor: 'Manoj Singh',    value: 0,   paid: 0,   status: 'Paid' },
+      { date: '2026-01-15', pickupId: 'PX-01', donor: 'Ravi Kumar',     value: 320, paid: 320, status: 'Paid' },
+      { date: '2025-12-20', pickupId: 'PX-02', donor: 'Sunita Joshi',   value: 180, paid: 0,   status: 'Not Paid' },
     ],
   },
   {
-    id: 'K002', name: 'Raju Kabadiwalah', mobile: '9654321009',
+    id: 'K-002', name: 'Raju Kabadiwalah', mobile: '9654321009',
     area: 'Noida, Sector 5-20', rating: 4.2, totalPickups: 22,
     totalValue: 5400, amountReceived: 4300, pendingAmount: 1100,
     rateChart: {
@@ -288,12 +289,12 @@ export const kabadiwalas = [
       'Iron': 24, 'E-Waste': 14, 'Wood': 2.5, 'Others': 4,
     },
     transactions: [
-      { date: '2026-03-01', pickupId: 'P002', donor: 'Ramesh Gupta', value: 180, paid: 100, status: 'Partially Paid' },
-      { date: '2026-02-10', pickupId: 'PX03', donor: 'Asha Mehta', value: 210, paid: 210, status: 'Paid' },
+      { date: '2026-03-01', pickupId: 'P-002', donor: 'Ramesh Gupta', value: 180, paid: 100, status: 'Partially Paid' },
+      { date: '2026-02-10', pickupId: 'PX-03', donor: 'Asha Mehta',   value: 210, paid: 210, status: 'Paid' },
     ],
   },
   {
-    id: 'K003', name: 'Pappu Ji', mobile: '9543210098',
+    id: 'K-003', name: 'Pappu Ji', mobile: '9543210098',
     area: 'Gurgaon Sector 44-57, DLF Phase 3-5', rating: 3.9, totalPickups: 15,
     totalValue: 3200, amountReceived: 2800, pendingAmount: 400,
     rateChart: {
@@ -302,91 +303,73 @@ export const kabadiwalas = [
       'Iron': 22, 'E-Waste': 13, 'Wood': 2, 'Others': 4,
     },
     transactions: [
-      { date: '2026-04-18', pickupId: 'P005', donor: 'Pooja Kapoor', value: 0, paid: 0, status: 'Not Paid' },
-      { date: '2026-03-05', pickupId: 'PX04', donor: 'Deepak Nair', value: 400, paid: 400, status: 'Paid' },
+      { date: '2026-04-18', pickupId: 'P-005', donor: 'Pooja Kapoor', value: 0,   paid: 0,   status: 'Not Paid' },
+      { date: '2026-03-05', pickupId: 'PX-04', donor: 'Deepak Nair',  value: 400, paid: 400, status: 'Paid' },
     ],
   },
 ]
 
+// ── Pickups — P-001 format IDs ────────────────────────────────────────────────
 export const pickups = [
   {
-    id: 'P001', donorId: 'D001', donorName: 'Anjali Sharma', society: 'Green Park Residency',
-    sector: 'Sector 22', city: 'Gurgaon',
-    date: '2026-03-10', status: 'Completed', type: 'RST',
-    pickupMode: 'Individual',
-    rstItems: ['Paper', 'Cardboard Box', 'Plastic Bottle / Box'],
-    sksItems: [],
-    totalKgs: 12.5,
-    totalValue: 250, amountPaid: 250, paymentStatus: 'Paid',
+    id: 'P-001', orderId: 'P-001', donorId: 'D-001', donorName: 'Anjali Sharma',
+    society: 'Green Park Residency', sector: 'Sector 22', city: 'Gurgaon',
+    date: '2026-03-10', status: 'Completed', type: 'RST', pickupMode: 'Individual',
+    rstItems: ['Paper', 'Cardboard Box', 'Plastic Bottle / Box'], sksItems: [],
+    totalKgs: 12.5, totalValue: 250, amountPaid: 250, paymentStatus: 'Paid',
     kabadiwala: 'Suresh Bhai', kabadiMobile: '9765432100',
-    nextDate: '2026-04-08',
-    notes: '',
+    nextDate: '2026-04-08', notes: '',
   },
   {
-    id: 'P002', donorId: 'D002', donorName: 'Ramesh Gupta', society: 'Patel Enclave',
-    sector: 'Sector 5', city: 'Noida',
-    date: '2026-03-01', status: 'Completed', type: 'RST+SKS',
-    pickupMode: 'Individual',
-    rstItems: ['Iron', 'E-Waste'],
-    sksItems: ['Kids Clothes', 'Toys'],
+    id: 'P-002', orderId: 'P-002', donorId: 'D-002', donorName: 'Ramesh Gupta',
+    society: 'Patel Enclave', sector: 'Sector 5', city: 'Noida',
+    date: '2026-03-01', status: 'Completed', type: 'RST+SKS', pickupMode: 'Individual',
+    rstItems: ['Iron', 'E-Waste'], sksItems: ['Kids Clothes', 'Toys'],
     totalKgs: 8.0, totalValue: 180, amountPaid: 100, paymentStatus: 'Partially Paid',
     kabadiwala: 'Raju Kabadiwalah', kabadiMobile: '9654321009',
-    nextDate: '2026-04-02',
-    notes: '',
+    nextDate: '2026-04-02', notes: '',
   },
   {
-    id: 'P003', donorId: 'D006', donorName: 'Manoj Singh', society: 'Shanti Nagar',
-    sector: 'Sector 15', city: 'Gurgaon',
-    date: '2026-02-28', status: 'Completed', type: 'SKS',
-    pickupMode: 'Drive',
-    rstItems: [],
-    sksItems: ['Adult Clothes', 'Adult Shoes', 'Utensils', 'Furniture'],
+    id: 'P-003', orderId: 'P-003', donorId: 'D-006', donorName: 'Manoj Singh',
+    society: 'Shanti Nagar', sector: 'Sector 15', city: 'Gurgaon',
+    date: '2026-02-28', status: 'Completed', type: 'SKS', pickupMode: 'Drive',
+    rstItems: [], sksItems: ['Adult Clothes', 'Adult Shoes', 'Utensils', 'Furniture'],
     totalKgs: 0, totalValue: 0, amountPaid: 0, paymentStatus: 'Paid',
     kabadiwala: 'Suresh Bhai', kabadiMobile: '9765432100',
-    nextDate: '2026-03-30',
-    notes: 'Drive organized by society RWA',
+    nextDate: '2026-03-30', notes: 'Drive organized by society RWA',
   },
   {
-    id: 'P004', donorId: 'D003', donorName: 'Sunita Verma', society: 'Sunder Vihar',
-    sector: 'Sector 10', city: 'Delhi',
-    date: '2026-04-15', status: 'Postponed', type: 'RST',
-    pickupMode: 'Individual',
-    rstItems: ['Paper', 'Glass Bottle'],
-    sksItems: [],
+    id: 'P-004', orderId: 'P-004', donorId: 'D-003', donorName: 'Sunita Verma',
+    society: 'Sunder Vihar', sector: 'Sector 10', city: 'Delhi',
+    date: '2026-04-15', status: 'Postponed', type: 'RST', pickupMode: 'Individual',
+    rstItems: ['Paper', 'Glass Bottle'], sksItems: [],
     totalKgs: 0, totalValue: 0, amountPaid: 0, paymentStatus: 'Not Paid',
     kabadiwala: '', kabadiMobile: '',
-    nextDate: '2026-04-15', postponeReason: 'Donor unavailable',
-    notes: '',
+    nextDate: '2026-04-15', postponeReason: 'Donor unavailable', notes: '',
   },
   {
-    id: 'P005', donorId: 'D005', donorName: 'Pooja Kapoor', society: 'Adarsh Colony',
-    sector: 'Sector 44', city: 'Gurgaon',
-    date: '2026-04-18', status: 'Pending', type: 'RST',
-    pickupMode: 'Individual',
+    id: 'P-005', orderId: 'P-005', donorId: 'D-005', donorName: 'Pooja Kapoor',
+    society: 'Adarsh Colony', sector: 'Sector 44', city: 'Gurgaon',
+    date: '2026-04-18', status: 'Pending', type: 'RST', pickupMode: 'Individual',
     rstItems: ['Cardboard Box', 'Plastic Bottle / Box'],
     sksItems: ['Kids Shoes', 'New Stationery'],
     totalKgs: 0, totalValue: 0, amountPaid: 0, paymentStatus: 'Not Paid',
     kabadiwala: 'Pappu Ji', kabadiMobile: '9543210098',
-    nextDate: '2026-04-18',
-    notes: '',
+    nextDate: '2026-04-18', notes: '',
   },
   {
-    id: 'P006', donorId: 'D006', donorName: 'Manoj Singh', society: 'Shanti Nagar',
-    sector: 'Sector 15', city: 'Gurgaon',
-    date: '2026-03-30', status: 'Pending', type: 'RST+SKS',
-    pickupMode: 'Drive',
-    rstItems: ['Paper', 'Iron', 'Wood'],
-    sksItems: ['Adult Clothes'],
+    id: 'P-006', orderId: 'P-006', donorId: 'D-006', donorName: 'Manoj Singh',
+    society: 'Shanti Nagar', sector: 'Sector 15', city: 'Gurgaon',
+    date: '2026-03-30', status: 'Pending', type: 'RST+SKS', pickupMode: 'Drive',
+    rstItems: ['Paper', 'Iron', 'Wood'], sksItems: ['Adult Clothes'],
     totalKgs: 0, totalValue: 0, amountPaid: 0, paymentStatus: 'Not Paid',
     kabadiwala: 'Suresh Bhai', kabadiMobile: '9765432100',
-    nextDate: '2026-03-30',
-    notes: 'Community drive — Shanti Nagar block B',
+    nextDate: '2026-03-30', notes: 'Community drive — Shanti Nagar block B',
   },
   {
-    id: 'P007', donorId: 'D007', donorName: 'Priya Nair', society: 'Beverly Park I',
-    sector: 'DLF Phase 2', city: 'Gurgaon',
-    date: '2026-04-09', status: 'Pending', type: 'RST',
-    pickupMode: 'Individual',
+    id: 'P-007', orderId: 'P-007', donorId: 'D-007', donorName: 'Priya Nair',
+    society: 'Beverly Park I', sector: 'DLF Phase 2', city: 'Gurgaon',
+    date: '2026-04-09', status: 'Pending', type: 'RST', pickupMode: 'Individual',
     rstItems: [], sksItems: [],
     totalKgs: 0, totalValue: 0, amountPaid: 0, paymentStatus: 'Not Paid',
     kabadiwala: 'Suresh Bhai', kabadiMobile: '9765432100',
@@ -396,25 +379,25 @@ export const pickups = [
 
 export const waTemplates = [
   {
-    id: 'T001',
+    id: 'T-001',
     name: 'Pickup Confirmation',
     trigger: 'After Completed Pickup',
     message: `🙏 Thank you {Donor Name}!\n\nYour Raddi donation has been successfully collected by our team.\n\n♻️ RST Scrap Value: ₹{Amount} (paid by Kabadiwala to FreePathshala)\n📅 Next Pickup: {Next Pickup Date}\n\nYour donation helps educate a child for {Days} more days!\n\n— Team FreePathshala`,
   },
   {
-    id: 'T002',
+    id: 'T-002',
     name: 'Pickup Reminder (26 days)',
     trigger: '26 days after last pickup',
     message: `🌟 Hello {Donor Name}!\n\nTime to collect your Raddi! It's been a while since our last pickup.\n\n📅 Scheduled Pickup: {Pickup Date}\n\nYour Raddi = A child's future 🎓\n\n— Team FreePathshala`,
   },
   {
-    id: 'T003',
+    id: 'T-003',
     name: 'At Risk Reminder (35 days)',
     trigger: '35 days after last pickup',
     message: `💛 Hi {Donor Name},\n\nWe miss your contributions! It's been 35 days since your last Raddi pickup.\n\n📅 Please schedule at your convenience.\n📞 Call us: 9XXXXXXXXX\n\n— Team FreePathshala`,
   },
   {
-    id: 'T004',
+    id: 'T-004',
     name: 'Final Reminder (50 days)',
     trigger: '50 days after last pickup',
     message: `❤️ Dear {Donor Name},\n\nThis is our last reminder. 50 days since your last Raddi pickup.\n\nYour support truly matters for the children of FreePathshala.\n\nReach us anytime!\n— Team FreePathshala`,
@@ -430,11 +413,11 @@ export const getDashboardStats = () => ({
   totalRSTValue:  pickups.reduce((s, p) => s + (p.totalValue || 0), 0),
   pendingPayments: pickups.filter(p => p.paymentStatus === 'Not Paid' || p.paymentStatus === 'Partially Paid').length,
   upcomingPickups: pickups.filter(p => p.status === 'Pending').length,
-  overduePickups:  donors.filter(d => {
+  overduePickups: donors.filter(d => {
     if (!d.nextPickup) return false
     return new Date(d.nextPickup) < new Date() && d.status === 'Active'
   }).length,
-  drivePickups: pickups.filter(p => p.pickupMode === 'Drive').length,
+  drivePickups:      pickups.filter(p => p.pickupMode === 'Drive').length,
   individualPickups: pickups.filter(p => p.pickupMode === 'Individual').length,
 })
 
@@ -448,40 +431,31 @@ export const monthlyData = [
 ]
 
 export const itemBreakdown = [
-  { name: 'Paper', value: 35 },
+  { name: 'Paper',     value: 35 },
   { name: 'Cardboard', value: 22 },
-  { name: 'Plastic', value: 18 },
-  { name: 'Iron', value: 12 },
-  { name: 'E-Waste', value: 8 },
-  { name: 'Others', value: 5 },
+  { name: 'Plastic',   value: 18 },
+  { name: 'Iron',      value: 12 },
+  { name: 'E-Waste',   value: 8 },
+  { name: 'Others',    value: 5 },
 ]
 
 export const locations = {
-  Gurgaon: {
-    sectors: GURGAON_SOCIETIES,
-  },
+  Gurgaon: { sectors: GURGAON_SOCIETIES },
 }
 
 export const schedulerTimeSlots = [
-  '08:00 AM - 10:00 AM',
-  '10:00 AM - 12:00 PM',
-  '12:00 PM - 02:00 PM',
-  '02:00 PM - 04:00 PM',
-  '04:00 PM - 06:00 PM',
-  '06:00 PM - 08:00 PM',
+  '08:00 AM - 10:00 AM', '10:00 AM - 12:00 PM',
+  '12:00 PM - 02:00 PM', '02:00 PM - 04:00 PM',
+  '04:00 PM - 06:00 PM', '06:00 PM - 08:00 PM',
 ]
 
 export function getSectorsForCity(city) {
-  if (locations[city]?.sectors) {
-    return Object.keys(locations[city].sectors)
-  }
+  if (locations[city]?.sectors) return Object.keys(locations[city].sectors)
   return CITY_SECTORS[city] || []
 }
 
 export function getSocietiesForSector(city, sector) {
   if (!city || !sector) return []
-  if (locations[city]?.sectors?.[sector]) {
-    return locations[city].sectors[sector]
-  }
+  if (locations[city]?.sectors?.[sector]) return locations[city].sectors[sector]
   return GURGAON_SOCIETIES[sector] || []
 }
