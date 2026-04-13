@@ -17,7 +17,7 @@ import {
   RADDI_ORDER_STATUSES,
   RADDI_DONOR_STATUSES,
   UNIQUE_SECTORS,
-} from '../data/raddiMockData'
+} from '../data/raddimockData'
 import { fmtDate, exportToExcel } from '../utils/helpers'
 
 const PAGE_SIZE = 10

@@ -11,7 +11,7 @@ import {
   kabadiwalas as _initKabs,
 } from '../data/mockData'
 
-import { raddiMasterData as _initRaddi } from '../data/raddiMockData'
+import { raddiMasterData as _initRaddi } from '../data/raddimockData';
 
 const AppContext = createContext(null)
 
@@ -42,7 +42,6 @@ function deriveDonorStatus(lastPickup) {
   return 'Churned'
 }
 
-// ── Readable ID generators ────────────────────────────────────────────────────
 function nextDonorId(existing) {
   return `D-${String(existing.length + 1).padStart(3, '0')}`
 }
@@ -91,7 +90,6 @@ export function AppProvider({ children }) {
   const [kabadiwalas,  setKabs]    = useState(() => _initKabs)
   const [raddiRecords, setRaddi]   = useState(() => _initRaddi)
 
-  // Initialise order sequence counter based on existing pickups
   useEffect(() => {
     initOrderSeq(_initPickups.length + _initRaddi.length + 10)
   }, [])
@@ -113,7 +111,7 @@ export function AppProvider({ children }) {
       }
       return [newDonor, ...prev]
     })
-    await delay(50) // give state time to propagate
+    await delay(50)
     return newDonor
   }, [])
 
@@ -141,7 +139,6 @@ export function AppProvider({ children }) {
       sksItemDetails: data.sksItemDetails || {},
       createdAt:      today(),
     }
-    // Ensure id and orderId are the same readable value
     pickup.id = pickup.orderId
 
     setPickups(prev => [pickup, ...prev])
@@ -262,28 +259,40 @@ export function AppProvider({ children }) {
     setRaddi(prev => prev.filter(r => r.pickupId !== id && r.orderId !== id))
   }, [])
 
-  // ── KABADIWALA CRUD ───────────────────────────────────────────────────────
+  // ── PICKUP PARTNERS (formerly Kabadiwala) CRUD ────────────────────────────
   const addKabadiwala = useCallback(async (data) => {
     await delay()
     let newK
     setKabs(prev => {
       const id = nextKabId(prev)
-      newK = { ...data, id, rating: 4.0, totalPickups: 0, totalValue: 0, amountReceived: 0, pendingAmount: 0, transactions: [] }
+      newK = {
+        ...data, id, rating: 4.0,
+        totalPickups: 0, totalValue: 0,
+        amountReceived: 0, pendingAmount: 0,
+        transactions: [],
+        sectors:  data.sectors  || [],
+        societies: data.societies || [],
+        email:    data.email    || '',
+      }
       return [...prev, newK]
     })
     await delay(50)
     return newK
   }, [])
 
-  const updateKabadiwala = useCallback(async (id, data) => {
+  // Alias for "Pickup Partners" naming
+  const addPartner       = addKabadiwala
+  const updatePartner    = useCallback(async (id, data) => {
     await delay()
     setKabs(prev => prev.map(k => k.id === id ? { ...k, ...data } : k))
   }, [])
-
-  const deleteKabadiwala = useCallback(async (id) => {
+  const deletePartner    = useCallback(async (id) => {
     await delay()
     setKabs(prev => prev.filter(k => k.id !== id))
   }, [])
+
+  const updateKabadiwala = updatePartner
+  const deleteKabadiwala = deletePartner
 
   const recordKabadiwalaPayment = useCallback(async (kabId, { pickupId, amount, refMode, refValue, notes, date }) => {
     await delay()
@@ -376,16 +385,22 @@ export function AppProvider({ children }) {
   }, [donors, pickups, raddiRecords, kabadiwalas])
 
   const value = useMemo(() => ({
-    donors, pickups, kabadiwalas, raddiRecords,
+    donors, pickups,
+    // Both names for compatibility
+    kabadiwalas, partners: kabadiwalas,
+    raddiRecords,
     dashboardStats, schedulerTabData,
     addDonor, updateDonor, deleteDonor,
     createPickup, schedulePickup, recordPickup, updatePickup, deletePickup,
+    // Both names for pickup partners
     addKabadiwala, updateKabadiwala, deleteKabadiwala, recordKabadiwalaPayment,
+    addPartner,    updatePartner,    deletePartner,
   }), [
     donors, pickups, kabadiwalas, raddiRecords, dashboardStats, schedulerTabData,
     addDonor, updateDonor, deleteDonor,
     createPickup, schedulePickup, recordPickup, updatePickup, deletePickup,
     addKabadiwala, updateKabadiwala, deleteKabadiwala, recordKabadiwalaPayment,
+    addPartner, updatePartner, deletePartner,
   ])
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>

@@ -6,9 +6,22 @@ export const RST_ITEMS = [
 ]
 
 export const SKS_ITEMS = [
-  'Kids Clothes', 'Kids Shoes', 'Toys', 'Sports Items', 'Adult Clothes',
-  'Adult Shoes', 'Utensils', 'Furniture', 'New Stationery', 'Others',
+  'Kids Clothes',
+  'Kids Shoes',
+  'Toys',
+  'Sports Items',
+  'Adult Clothes',
+  'Adult Shoes',
+  'Utensils',
+  'Furniture',
+  'New Stationery',
+  'TV',
+  'Purifier',
+  'Laptop / PC',
+  'Microwave / OTG',
+  'Others',
 ]
+ 
 
 export const RATE_CHART_ITEMS = [
   'Glass Bottle', 'Glass Other', 'Plastic Bottle / Box', 'Other Plastic',
@@ -265,7 +278,11 @@ export const donors = [
 export const kabadiwalas = [
   {
     id: 'K-001', name: 'Suresh Bhai', mobile: '9765432100',
-    area: 'Sector 22, DLF Phase 1-2, Gurgaon', rating: 4.5, totalPickups: 34,
+    email: 'suresh@example.com',
+    sectors: ['Sector 22', 'DLF Phase 1'],
+    societies: ['Green Park Residency', 'Hamilton Court', 'Beverly Park I'],
+    area: 'Sector 22, DLF Phase 1-2, Gurgaon',
+    rating: 4.5, totalPickups: 34,
     totalValue: 8900, amountReceived: 7200, pendingAmount: 1700,
     rateChart: {
       'Glass Bottle': 2, 'Glass Other': 1, 'Plastic Bottle / Box': 8,
@@ -281,7 +298,11 @@ export const kabadiwalas = [
   },
   {
     id: 'K-002', name: 'Raju Kabadiwalah', mobile: '9654321009',
-    area: 'Noida, Sector 5-20', rating: 4.2, totalPickups: 22,
+    email: '',
+    sectors: ['Sector 5', 'Sector 15'],
+    societies: ['Patel Enclave', 'Shanti Nagar'],
+    area: 'Noida, Sector 5-20',
+    rating: 4.2, totalPickups: 22,
     totalValue: 5400, amountReceived: 4300, pendingAmount: 1100,
     rateChart: {
       'Glass Bottle': 1.5, 'Glass Other': 1, 'Plastic Bottle / Box': 7,
@@ -295,7 +316,11 @@ export const kabadiwalas = [
   },
   {
     id: 'K-003', name: 'Pappu Ji', mobile: '9543210098',
-    area: 'Gurgaon Sector 44-57, DLF Phase 3-5', rating: 3.9, totalPickups: 15,
+    email: '',
+    sectors: ['Sector 44', 'Sector 57'],
+    societies: ['Adarsh Colony', 'Tulip Violet', 'Vipul Greens'],
+    area: 'Gurgaon Sector 44-57, DLF Phase 3-5',
+    rating: 3.9, totalPickups: 15,
     totalValue: 3200, amountReceived: 2800, pendingAmount: 400,
     rateChart: {
       'Glass Bottle': 1.5, 'Glass Other': 1, 'Plastic Bottle / Box': 6,

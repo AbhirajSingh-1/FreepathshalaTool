@@ -1,25 +1,37 @@
+// Frontend/src/component/Layout/Sidebar.jsx
 import {
   LayoutDashboard, Users, Truck, UserCheck, BarChart3,
-  IndianRupee, CalendarDays, Table2,
+  IndianRupee, CalendarDays, Table2, Eye,
 } from 'lucide-react'
 
-const NAV = [
+// Note: Import useRole conditionally to avoid circular deps if needed
+// For simplicity we accept a `role` prop or read from localStorage
+const getRole = () => localStorage.getItem('fp_role') || 'admin'
+
+const buildNav = (role) => [
   { section: 'Main' },
-  { id: 'dashboard',        label: 'Dashboard',        icon: LayoutDashboard },
+  { id: 'dashboard',       label: 'Dashboard',        icon: LayoutDashboard },
   { section: 'Management' },
-  { id: 'donors',           label: 'Donors',           icon: Users },
-  { id: 'pickups',          label: 'Pickups',          icon: Truck },
-  { id: 'kabadiwala',       label: 'Kabadiwala',       icon: UserCheck },
+  { id: 'donors',          label: 'Donors',            icon: Users },
+  { id: 'pickups',         label: 'Pickups',           icon: Truck },
+  { id: 'pickuppartners',  label: 'Pickup Partners',   icon: UserCheck },
   { section: 'Finance' },
-  { id: 'payments',         label: 'Payment Tracking', icon: IndianRupee },
+  { id: 'payments',        label: 'Payment Tracking',  icon: IndianRupee },
   { section: 'Scheduling' },
-  { id: 'pickupscheduler',  label: 'Pickup Scheduler', icon: CalendarDays },
+  { id: 'pickupscheduler', label: 'Pickup Scheduler',  icon: CalendarDays },
+  // Pickup Overview only for admin/manager
+  ...(role === 'admin' || role === 'manager'
+    ? [{ id: 'pickupoverview',  label: 'Pickup Overview',   icon: Eye }]
+    : []
+  ),
   { section: 'Insights' },
-  { id: 'reports',          label: 'Reports',          icon: BarChart3 },
-  { id: 'raddimaster',      label: 'Raddi Master',     icon: Table2 },
+  { id: 'raddimaster',     label: 'Raddi Master',      icon: Table2 },
 ]
 
 export default function Sidebar({ active, onNav, open, onClose, overdueCount, onLogoClick }) {
+  const role = getRole()
+  const NAV  = buildNav(role)
+
   return (
     <>
       {open && (
@@ -29,12 +41,7 @@ export default function Sidebar({ active, onNav, open, onClose, overdueCount, on
         />
       )}
       <aside className={`sidebar ${open ? 'open' : ''}`}>
-        <div
-          className="sidebar-brand"
-          onClick={onLogoClick}
-          style={{ cursor: 'pointer' }}
-          title="Go to Dashboard"
-        >
+        <div className="sidebar-brand" onClick={onLogoClick} style={{ cursor: 'pointer' }} title="Go to Dashboard">
           <div className="sidebar-logo">
             <div className="logo-icon">F</div>
             <div>
@@ -56,7 +63,7 @@ export default function Sidebar({ active, onNav, open, onClose, overdueCount, on
               <button
                 key={item.id}
                 className={`nav-item ${active === item.id ? 'active' : ''}`}
-                onClick={() => { onNav(item.id); onClose() }}
+                onClick={() => { onNav(item.id); onClose?.() }}
               >
                 <Icon className="nav-icon" />
                 {item.label}
@@ -70,7 +77,7 @@ export default function Sidebar({ active, onNav, open, onClose, overdueCount, on
           <div className="sidebar-footer-info">
             <div style={{ fontWeight: 600, color: 'rgba(255,255,255,0.4)', fontSize: 11 }}>FreePathshala NGO</div>
             <div>12A &amp; 80G Certified</div>
-            <div style={{ marginTop: 2 }}>v1.5.0</div>
+            <div style={{ marginTop: 2 }}>v2.0.0</div>
           </div>
         </div>
       </aside>

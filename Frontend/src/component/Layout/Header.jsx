@@ -1,17 +1,20 @@
+// Frontend/src/component/Layout/Header.jsx
 import { Menu, Bell } from 'lucide-react'
 
 const PAGE_META = {
   dashboard:       { title: 'Dashboard',              sub: 'Overview & quick stats' },
   donors:          { title: 'Donors',                 sub: 'Manage donor profiles' },
-  pickups:         { title: 'Pickups',                sub: 'RST & SKS pickup management' },
-  kabadiwala:      { title: 'Kabadiwala',             sub: 'Scrap dealer directory & financials' },
-  payments:        { title: 'Payment Tracking',       sub: 'Track & update kabadiwala payments' },
+  pickups:         { title: 'Pickups',                sub: 'RST & SKS pickup recording' },
+  pickuppartners:  { title: 'Pickup Partners',        sub: 'Scrap dealer directory & financials' },
+  payments:        { title: 'Payment Tracking',       sub: 'Track & update pickup partner payments' },
   pickupscheduler: { title: 'Pickup Scheduler',       sub: 'Schedule pickups for donors' },
-  kabadipickups:   { title: 'Kabadi Pickup List',     sub: 'Date-wise pickup schedule' },
+  pickupoverview:  { title: 'Pickup Overview',        sub: 'Individual & drive analytics — admin view' },
+  kabadipickups:   { title: 'Pickup Partner List',    sub: 'Date-wise pickup schedule' },
   customerpickups: { title: 'Donor Pickup History',   sub: 'Date-wise donor pickup tracker' },
   whatsapp:        { title: 'WhatsApp',               sub: 'Communication templates' },
   reports:         { title: 'Reports',                sub: 'Analytics & insights' },
   raddimaster:     { title: 'Raddi Master',           sub: 'Complete pickup data — all orders in one view' },
+  lostpostponed:   { title: 'Lost & Postponed',       sub: 'Inactive donor management' },
 }
 
 export default function Header({ page, onMenuClick, onAddDonor }) {
