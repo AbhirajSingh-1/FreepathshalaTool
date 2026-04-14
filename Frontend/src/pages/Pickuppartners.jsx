@@ -4,12 +4,12 @@ import {
   Phone, Plus, Edit2, Trash2, X, Star, Mail,
   IndianRupee, TrendingUp, Clock, CheckCircle,
   BarChart3, ChevronDown, ChevronUp, Package, AlertCircle,
-  MapPin, Eye, Search, Users, ChevronRight,
+  MapPin, Eye, Search, Users, Building2, Layers,
 } from 'lucide-react'
 import { useApp }  from '../context/AppContext'
 import { useRole } from '../context/RoleContext'
 import { fmtDate, fmtCurrency } from '../utils/helpers'
-import { CITY_SECTORS, GURGAON_SOCIETIES } from '../data/mockData'
+import { CITIES, CITY_SECTORS, GURGAON_SOCIETIES } from '../data/mockData'
 
 const RATE_CHART_ITEMS = [
   'Glass Bottle', 'Glass Other', 'Plastic Bottle / Box', 'Other Plastic',
@@ -60,7 +60,7 @@ function RateChartMini({ rateChart, expanded, onToggle }) {
           <div style={{ display:'grid', gridTemplateColumns:'1fr 80px', padding:'5px 10px', background:'var(--secondary-light)', fontSize:10.5, fontWeight:700, color:'var(--secondary)', textTransform:'uppercase' }}>
             <span>Item</span><span style={{ textAlign:'right' }}>₹/kg</span>
           </div>
-          {entries.map(([item, rate], i) => (
+          {entries.map(([ item, rate], i) => (
             <div key={item} style={{ display:'grid', gridTemplateColumns:'1fr 80px', padding:'5px 10px', fontSize:12, borderTop: i > 0 ? '1px solid var(--border-light)' : 'none', background: i % 2 === 0 ? 'transparent' : 'var(--bg)' }}>
               <span style={{ color:'var(--text-secondary)' }}>{item}</span>
               <span style={{ textAlign:'right', fontWeight:700, color:'var(--secondary)' }}>₹{rate}</span>
@@ -180,112 +180,191 @@ function CoverageSelector({ sectors, societies, onSectors, onSocieties }) {
   )
 }
 
-// ── Executive sector search view ──────────────────────────────────────────────
+// ── Executive view: City → Sector → Society cascade (clean, no chip wall) ─────
 function ExecutiveSectorSearch({ partners, onAddNew }) {
-  const [selectedSector, setSelectedSector] = useState('')
-  const [query, setQuery]                   = useState('')
+  const [city,    setCity]    = useState('Gurgaon')
+  const [sector,  setSector]  = useState('')
+  const [society, setSociety] = useState('')
 
-  const filteredSectors = useMemo(() => {
-    if (!query) return GURGAON_SECTORS
-    return GURGAON_SECTORS.filter(s => s.toLowerCase().includes(query.toLowerCase()))
-  }, [query])
+  const sectorOptions = CITY_SECTORS[city] || []
+  const societyOptions = useMemo(() => {
+    if (city === 'Gurgaon' && sector && GURGAON_SOCIETIES[sector]) {
+      return GURGAON_SOCIETIES[sector]
+    }
+    return []
+  }, [city, sector])
 
-  const partnersInSector = useMemo(() => {
-    if (!selectedSector) return []
-    return (partners || []).filter(p =>
-      (p.sectors || []).includes(selectedSector) ||
-      (p.societies || []).some(soc => (GURGAON_SOCIETIES[selectedSector] || []).includes(soc))
-    )
-  }, [partners, selectedSector])
+  const handleCityChange = (val) => { setCity(val); setSector(''); setSociety('') }
+  const handleSectorChange = (val) => { setSector(val); setSociety('') }
+
+  // Find partners that cover the selected sector or society
+  const matchingPartners = useMemo(() => {
+    if (!sector) return []
+    return (partners || []).filter(p => {
+      const secs = Array.isArray(p.sectors) ? p.sectors : []
+      const socs = Array.isArray(p.societies) ? p.societies : []
+      const matchSector = secs.some(s =>
+        s === sector || sector.startsWith(s.replace(/\s+\d+.*$/, ''))
+      )
+      if (society) {
+        return matchSector || socs.includes(society)
+      }
+      return matchSector
+    })
+  }, [partners, sector, society])
 
   return (
     <div>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20, flexWrap:'wrap', gap:10 }}>
         <div>
-          <div style={{ fontFamily:'var(--font-display)', fontSize:16, fontWeight:600 }}>Find Pickup Partner</div>
-          <div style={{ fontSize:12, color:'var(--text-muted)', marginTop:2 }}>Search by sector to find your assigned pickup partner</div>
+          <div style={{ fontFamily:'var(--font-display)', fontSize:16, fontWeight:600 }}>Find Your Pickup Partner</div>
+          <div style={{ fontSize:12, color:'var(--text-muted)', marginTop:2 }}>Select your area to find the assigned pickup partner</div>
         </div>
         <button className="btn btn-primary btn-sm" onClick={onAddNew}>
           <Plus size={14} /> Add Partner
         </button>
       </div>
 
-      <div className="card" style={{ marginBottom:20 }}>
-        <div className="card-header">
-          <Search size={16} color="var(--primary)" />
-          <div className="card-title">Search by Sector</div>
+      {/* Step-by-step cascade */}
+      <div className="card" style={{ marginBottom: 20 }}>
+        <div className="card-header" style={{ background:'var(--primary-light)' }}>
+          <MapPin size={16} color="var(--primary)" />
+          <div className="card-title" style={{ color:'var(--primary)' }}>Search by Area</div>
         </div>
         <div className="card-body">
-          <div style={{ position:'relative', marginBottom:14 }}>
-            <Search size={14} style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', color:'var(--text-muted)', pointerEvents:'none' }} />
-            <input placeholder="Type sector name…" value={query} onChange={e => setQuery(e.target.value)} style={{ paddingLeft:32, width:'100%', fontSize:13 }} />
-          </div>
-          <div style={{ display:'flex', flexWrap:'wrap', gap:6, maxHeight:200, overflowY:'auto' }}>
-            {filteredSectors.map(s => (
-              <button key={s} onClick={() => setSelectedSector(s === selectedSector ? '' : s)}
-                style={{ padding:'5px 12px', borderRadius:20, fontSize:12, cursor:'pointer', border:`1.5px solid ${selectedSector === s ? 'var(--primary)' : 'var(--border)'}`, background: selectedSector === s ? 'var(--primary-light)' : 'transparent', color: selectedSector === s ? 'var(--primary)' : 'var(--text-secondary)', fontWeight: selectedSector === s ? 700 : 400 }}>
-                {s}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(180px, 1fr))', gap:14 }}>
 
-      {selectedSector && (
-        <div>
-          <div style={{ fontSize:13, fontWeight:700, color:'var(--text-secondary)', marginBottom:12, display:'flex', alignItems:'center', gap:8 }}>
-            <MapPin size={14} color="var(--primary)" />
-            Partner{partnersInSector.length !== 1 ? 's' : ''} covering <span style={{ color:'var(--primary)' }}>{selectedSector}</span>
-          </div>
-          {partnersInSector.length === 0 ? (
-            <div className="empty-state" style={{ padding:32 }}>
-              <div className="empty-icon"><Users size={22} /></div>
-              <h3>No partner assigned</h3>
-              <p>No pickup partner covers {selectedSector} yet.</p>
+            {/* Step 1 — City */}
+            <div>
+              <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:8 }}>
+                <div style={{ width:20, height:20, borderRadius:'50%', background:'var(--primary)', color:'#fff', fontSize:11, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>1</div>
+                <label style={{ margin:0, fontSize:12.5, fontWeight:700, color:'var(--text-secondary)' }}>City</label>
+              </div>
+              <select value={city} onChange={e => handleCityChange(e.target.value)} style={{ width:'100%', fontSize:13 }}>
+                {CITIES.map(c => <option key={c}>{c}</option>)}
+              </select>
             </div>
-          ) : (
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))', gap:14 }}>
-              {partnersInSector.map(k => (
-                <div key={k.id} className="card">
-                  <div className="card-body">
-                    <div style={{ display:'flex', alignItems:'flex-start', gap:14, marginBottom:12 }}>
-                      <div style={{ width:44, height:44, background:'var(--secondary-light)', borderRadius:12, display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'var(--font-display)', fontSize:20, fontWeight:700, color:'var(--secondary)', flexShrink:0 }}>
-                        {(k.name || '?')[0].toUpperCase()}
-                      </div>
-                      <div style={{ flex:1, minWidth:0 }}>
-                        <div style={{ fontWeight:700, fontSize:15 }}>{k.name}</div>
-                        <div style={{ fontSize:12.5, color:'var(--text-muted)', display:'flex', alignItems:'center', gap:4, marginTop:3 }}>
-                          <Phone size={11} /> {k.mobile || '—'}
-                        </div>
-                        <div style={{ display:'flex', alignItems:'center', gap:4, marginTop:4 }}>
-                          <Star size={11} fill="var(--accent)" color="var(--accent)" />
-                          <span style={{ fontSize:12, fontWeight:600 }}>{k.rating ?? 4.0}</span>
-                        </div>
-                      </div>
-                    </div>
-                    {(k.sectors || []).length > 0 && (
-                      <div style={{ display:'flex', flexWrap:'wrap', gap:4, marginBottom:10 }}>
-                        {(k.sectors || []).map(s => (
-                          <span key={s} style={{ background: s === selectedSector ? 'var(--primary)' : 'var(--secondary-light)', color: s === selectedSector ? '#fff' : 'var(--secondary)', borderRadius:20, padding:'2px 10px', fontSize:11, fontWeight:600 }}>{s}</span>
-                        ))}
-                      </div>
-                    )}
-                    <div style={{ background:'var(--secondary-light)', borderRadius:8, padding:'10px 12px', fontSize:12, color:'var(--secondary)' }}>
-                      <div style={{ fontWeight:700, marginBottom:2 }}>Call for Pickup</div>
-                      <div style={{ fontSize:15, fontWeight:800, letterSpacing:'0.03em' }}>{k.mobile}</div>
-                    </div>
-                  </div>
-                </div>
-              ))}
+
+            {/* Step 2 — Sector */}
+            <div>
+              <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:8 }}>
+                <div style={{ width:20, height:20, borderRadius:'50%', background: city ? 'var(--primary)' : 'var(--border)', color:'#fff', fontSize:11, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>2</div>
+                <label style={{ margin:0, fontSize:12.5, fontWeight:700, color:'var(--text-secondary)' }}>Sector / Area</label>
+              </div>
+              <select value={sector} onChange={e => handleSectorChange(e.target.value)} disabled={!city} style={{ width:'100%', fontSize:13 }}>
+                <option value="">— Select Sector —</option>
+                {sectorOptions.map(s => <option key={s}>{s}</option>)}
+              </select>
+            </div>
+
+            {/* Step 3 — Society (optional) */}
+            <div>
+              <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:8 }}>
+                <div style={{ width:20, height:20, borderRadius:'50%', background: sector ? 'var(--primary)' : 'var(--border)', color:'#fff', fontSize:11, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>3</div>
+                <label style={{ margin:0, fontSize:12.5, fontWeight:700, color:'var(--text-secondary)' }}>
+                  Society <span style={{ fontWeight:400, color:'var(--text-muted)', fontSize:11 }}>(optional)</span>
+                </label>
+              </div>
+              {societyOptions.length > 0 ? (
+                <select value={society} onChange={e => setSociety(e.target.value)} disabled={!sector} style={{ width:'100%', fontSize:13 }}>
+                  <option value="">— All societies in {sector} —</option>
+                  {societyOptions.map(s => <option key={s}>{s}</option>)}
+                </select>
+              ) : (
+                <input
+                  value={society}
+                  onChange={e => setSociety(e.target.value)}
+                  placeholder={sector ? 'Type society name…' : 'Select sector first'}
+                  disabled={!sector}
+                  style={{ width:'100%', fontSize:13 }}
+                />
+              )}
+            </div>
+          </div>
+
+          {/* Active filter breadcrumb */}
+          {sector && (
+            <div style={{ marginTop:16, display:'flex', alignItems:'center', gap:8, padding:'8px 12px', background:'var(--bg)', borderRadius:8, fontSize:12, flexWrap:'wrap' }}>
+              <MapPin size={12} color="var(--primary)" />
+              <span style={{ fontWeight:700, color:'var(--primary)' }}>{city}</span>
+              <span style={{ color:'var(--text-muted)' }}>›</span>
+              <span style={{ fontWeight:700, color:'var(--secondary)' }}>{sector}</span>
+              {society && <>
+                <span style={{ color:'var(--text-muted)' }}>›</span>
+                <span style={{ fontWeight:700, color:'var(--info)' }}>{society}</span>
+              </>}
+              <button onClick={() => { setSector(''); setSociety('') }} style={{ marginLeft:'auto', border:'none', background:'none', cursor:'pointer', color:'var(--text-muted)', display:'flex', alignItems:'center', gap:3, fontSize:11 }}>
+                <X size={11} /> Clear
+              </button>
             </div>
           )}
         </div>
-      )}
+      </div>
 
-      {!selectedSector && (
-        <div style={{ padding:'40px 24px', textAlign:'center', color:'var(--text-muted)', fontSize:13 }}>
-          <MapPin size={32} color="var(--border)" style={{ display:'block', margin:'0 auto 12px' }} />
-          Select a sector above to see which pickup partner is assigned.
+      {/* Results */}
+      {!sector ? (
+        <div style={{ padding:'48px 24px', textAlign:'center', color:'var(--text-muted)', fontSize:13 }}>
+          <MapPin size={36} color="var(--border)" style={{ display:'block', margin:'0 auto 12px' }} />
+          <div style={{ fontWeight:600, fontSize:14, marginBottom:4, color:'var(--text-secondary)' }}>Select your sector to continue</div>
+          <div>Your assigned pickup partner's contact will appear here.</div>
+        </div>
+      ) : matchingPartners.length === 0 ? (
+        <div className="empty-state" style={{ padding:40 }}>
+          <div className="empty-icon"><Users size={22} /></div>
+          <h3>No partner assigned yet</h3>
+          <p>No pickup partner covers {sector}{society ? ` / ${society}` : ''} yet. Contact your manager or add one.</p>
+        </div>
+      ) : (
+        <div>
+          <div style={{ fontSize:13, fontWeight:700, color:'var(--text-secondary)', marginBottom:14, display:'flex', alignItems:'center', gap:8 }}>
+            <CheckCircle size={14} color="var(--secondary)" />
+            {matchingPartners.length} partner{matchingPartners.length !== 1 ? 's' : ''} cover{matchingPartners.length === 1 ? 's' : ''} <span style={{ color:'var(--primary)' }}>{sector}</span>
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(280px, 1fr))', gap:14 }}>
+            {matchingPartners.map(k => (
+              <div key={k.id} className="card" style={{ borderLeft:'3px solid var(--secondary)' }}>
+                <div className="card-body">
+                  <div style={{ display:'flex', alignItems:'flex-start', gap:14, marginBottom:12 }}>
+                    <div style={{ width:48, height:48, background:'var(--secondary-light)', borderRadius:12, display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'var(--font-display)', fontSize:20, fontWeight:700, color:'var(--secondary)', flexShrink:0 }}>
+                      {(k.name || '?')[0].toUpperCase()}
+                    </div>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontWeight:700, fontSize:15, marginBottom:3 }}>{k.name}</div>
+                      <div style={{ fontSize:12.5, color:'var(--text-muted)', display:'flex', alignItems:'center', gap:4 }}>
+                        <Phone size={11} /> {k.mobile || '—'}
+                      </div>
+                      <div style={{ display:'flex', alignItems:'center', gap:4, marginTop:4 }}>
+                        <Star size={11} fill="var(--accent)" color="var(--accent)" />
+                        <span style={{ fontSize:12, fontWeight:600 }}>{k.rating ?? 4.0}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Sector chips */}
+                  {(k.sectors || []).length > 0 && (
+                    <div style={{ display:'flex', flexWrap:'wrap', gap:4, marginBottom:12 }}>
+                      {(k.sectors || []).map(s => (
+                        <span key={s} style={{ background: s === sector ? 'var(--secondary)' : 'var(--secondary-light)', color: s === sector ? '#fff' : 'var(--secondary)', borderRadius:20, padding:'2px 10px', fontSize:11, fontWeight:600 }}>{s}</span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Call to action */}
+                  <div style={{ background:'var(--secondary-light)', borderRadius:10, padding:'12px 14px' }}>
+                    <div style={{ fontSize:11, fontWeight:700, color:'var(--secondary)', textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:4 }}>
+                      Call for Pickup
+                    </div>
+                    <div style={{ fontSize:18, fontWeight:800, color:'var(--secondary)', letterSpacing:'0.04em', fontFamily:'var(--font-display)' }}>
+                      {k.mobile}
+                    </div>
+                    {k.email && (
+                      <div style={{ fontSize:12, color:'var(--secondary)', opacity:0.7, marginTop:4 }}>{k.email}</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -317,7 +396,6 @@ function PartnerMonthlyReport({ partner, raddiRecords, pickups, monthFilter }) {
     return Object.values(m).sort((a, b) => b.month.localeCompare(a.month))
   }, [raddiRecords, partner?.name, monthFilter])
 
-  // Get pickups for a specific month key (YYYY-MM)
   const getMonthPickups = useCallback((monthKey) => {
     if (!partner?.name || !Array.isArray(pickups)) return []
     const { from, to } = getMonthRange(monthKey)
@@ -333,29 +411,16 @@ function PartnerMonthlyReport({ partner, raddiRecords, pickups, monthFilter }) {
 
   return (
     <div>
-      {/* Header row */}
       <div style={{ display:'grid', gridTemplateColumns:'1fr 70px 80px 90px 90px 80px 32px', padding:'7px 16px', background:'var(--secondary-light)', fontSize:10.5, fontWeight:700, color:'var(--secondary)', textTransform:'uppercase', letterSpacing:'0.04em', borderTop:'1px solid var(--border-light)' }}>
         <span>Month</span><span>Pickups</span><span>Kg</span><span>Total (₹)</span><span>Received</span><span>Pending</span><span></span>
       </div>
-
       {monthly.map(m => {
         const isExpanded = expandedMonth === m.month
         const monthPickups = isExpanded ? getMonthPickups(m.month) : []
         const pending = m.amount - m.received
-
         return (
           <div key={m.month}>
-            {/* Month row — clickable */}
-            <div
-              onClick={() => setExpandedMonth(isExpanded ? null : m.month)}
-              style={{
-                display:'grid', gridTemplateColumns:'1fr 70px 80px 90px 90px 80px 32px',
-                padding:'10px 16px', cursor:'pointer', borderTop:'1px solid var(--border-light)',
-                background: isExpanded ? 'var(--secondary-light)' : 'var(--surface)',
-                transition:'background 0.15s',
-                alignItems: 'center',
-              }}
-            >
+            <div onClick={() => setExpandedMonth(isExpanded ? null : m.month)} style={{ display:'grid', gridTemplateColumns:'1fr 70px 80px 90px 90px 80px 32px', padding:'10px 16px', cursor:'pointer', borderTop:'1px solid var(--border-light)', background: isExpanded ? 'var(--secondary-light)' : 'var(--surface)', alignItems:'center' }}>
               <span style={{ fontFamily:'monospace', fontWeight:700, fontSize:13, color: isExpanded ? 'var(--secondary)' : 'var(--text-primary)' }}>{m.month}</span>
               <span style={{ fontWeight:600, fontSize:13 }}>{m.pickups}</span>
               <span style={{ fontSize:12.5 }}>{m.kg.toFixed(1)} kg</span>
@@ -366,46 +431,22 @@ function PartnerMonthlyReport({ partner, raddiRecords, pickups, monthFilter }) {
                 {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
               </span>
             </div>
-
-            {/* Expanded pickup detail */}
             {isExpanded && (
               <div style={{ background:'var(--bg)', borderTop:'1px solid var(--border-light)', borderBottom:'1px solid var(--border-light)' }}>
                 {monthPickups.length === 0 ? (
-                  <div style={{ padding:'16px', textAlign:'center', color:'var(--text-muted)', fontSize:12.5 }}>No completed pickups found for this month.</div>
-                ) : (
-                  <div>
-                    {/* Detail header */}
-                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 80px 100px', padding:'6px 20px', background:'rgba(27,94,53,0.06)', fontSize:10, fontWeight:700, color:'var(--secondary)', textTransform:'uppercase', letterSpacing:'0.04em' }}>
-                      <span>Donor</span><span>Society</span><span>Sector</span><span>Type</span><span>Payment</span>
+                  <div style={{ padding:'16px', textAlign:'center', color:'var(--text-muted)', fontSize:12.5 }}>No completed pickups found.</div>
+                ) : monthPickups.map((p, i) => (
+                  <div key={p.id} style={{ display:'grid', gridTemplateColumns:'1fr 1fr 80px 100px', padding:'10px 20px', borderTop: i > 0 ? '1px solid var(--border-light)' : 'none', alignItems:'center', background: i % 2 === 0 ? 'var(--surface)' : 'var(--bg)' }}>
+                    <div>
+                      <div style={{ fontWeight:600, fontSize:13 }}>{p.donorName}</div>
+                      <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:1 }}>{fmtDate(p.date)}</div>
+                      {p.totalValue > 0 && <div style={{ fontSize:11.5, fontWeight:700, color:'var(--primary)', marginTop:2 }}>{fmtCurrency(p.totalValue)}</div>}
                     </div>
-                    {monthPickups.map((p, i) => (
-                      <div key={p.id} style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 80px 100px', padding:'10px 20px', borderTop: i > 0 ? '1px solid var(--border-light)' : 'none', alignItems:'center', background: i % 2 === 0 ? 'var(--surface)' : 'var(--bg)' }}>
-                        <div>
-                          <div style={{ fontWeight:600, fontSize:13 }}>{p.donorName}</div>
-                          <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:1 }}>{fmtDate(p.date)}</div>
-                          {p.totalValue > 0 && <div style={{ fontSize:11.5, fontWeight:700, color:'var(--primary)', marginTop:2 }}>{fmtCurrency(p.totalValue)}</div>}
-                        </div>
-                        <div style={{ fontSize:12.5, color:'var(--text-secondary)' }}>{p.society || '—'}</div>
-                        <div style={{ fontSize:12.5, color:'var(--text-muted)' }}>{p.sector || '—'}</div>
-                        <div>
-                          <span className={`badge ${p.type === 'RST' ? 'badge-success' : p.type === 'SKS' ? 'badge-info' : 'badge-warning'}`} style={{ fontSize:10 }}>
-                            {p.type || 'RST'}
-                          </span>
-                        </div>
-                        <div>
-                          <span className={`badge ${p.paymentStatus === 'Paid' ? 'badge-success' : p.paymentStatus === 'Partially Paid' ? 'badge-warning' : 'badge-danger'}`} style={{ fontSize:10 }}>
-                            {p.paymentStatus}
-                          </span>
-                          {p.amountPaid > 0 && p.totalValue > 0 && (
-                            <div style={{ fontSize:10.5, color:'var(--secondary)', marginTop:3, fontWeight:600 }}>
-                              {fmtCurrency(p.amountPaid)} paid
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
+                    <div style={{ fontSize:12.5, color:'var(--text-secondary)' }}>{p.society || '—'}, {p.sector || '—'}</div>
+                    <span className={`badge ${p.type === 'RST' ? 'badge-success' : p.type === 'SKS' ? 'badge-info' : 'badge-warning'}`} style={{ fontSize:10 }}>{p.type || 'RST'}</span>
+                    <span className={`badge ${p.paymentStatus === 'Paid' ? 'badge-success' : p.paymentStatus === 'Partially Paid' ? 'badge-warning' : 'badge-danger'}`} style={{ fontSize:10 }}>{p.paymentStatus}</span>
                   </div>
-                )}
+                ))}
               </div>
             )}
           </div>
@@ -451,14 +492,7 @@ function PartnerPaymentSummaryCards({ partner, raddiRecords, monthFilter }) {
 
 // ════════════════════════════════════════════════════════════════════════════
 export default function PickupPartners() {
-  const {
-    kabadiwalas: rawPartners,
-    pickups,
-    raddiRecords,
-    addPartner,
-    updatePartner,
-    deletePartner,
-  } = useApp()
+  const { kabadiwalas: rawPartners, pickups, raddiRecords, addPartner, updatePartner, deletePartner } = useApp()
   const { can, role } = useRole()
 
   const partners = useMemo(() => Array.isArray(rawPartners) ? rawPartners : [], [rawPartners])
@@ -500,7 +534,7 @@ export default function PickupPartners() {
       const area = [...(form.sectors||[]), ...(form.societies||[])].filter(Boolean).join(', ') || form.area || ''
       editing?.id ? await updatePartner(editing.id, { ...form, area }) : await addPartner({ ...form, area })
       close()
-    } catch (err) { setError('Failed to save. Please try again.') }
+    } catch { setError('Failed to save. Please try again.') }
     finally { setSaving(false) }
   }, [form, editing, addPartner, updatePartner, close])
 
@@ -513,16 +547,12 @@ export default function PickupPartners() {
 
   const toggleRate = useCallback((id) => setExpandedRates(prev => ({ ...prev, [id]: !prev[id] })), [])
 
-  // FIXED: totals now filter by selectedK when one is set
   const totals = useMemo(() => {
     if (!Array.isArray(raddiRecords)) return { earnings:0, pending:0, pickups:0, scrapValue:0 }
     let records = monthFilter
       ? raddiRecords.filter(r => { const { from, to } = getMonthRange(monthFilter); return (r.pickupDate||'') >= from && (r.pickupDate||'') <= to })
       : raddiRecords
-    // Filter by selected partner if one is chosen
-    if (selectedK) {
-      records = records.filter(r => r.kabadiwalaName === selectedK.name)
-    }
+    if (selectedK) records = records.filter(r => r.kabadiwalaName === selectedK.name)
     return {
       earnings:   records.filter(r => r.paymentStatus === 'Received').reduce((s, r) => s + (r.totalAmount||0), 0),
       pending:    records.filter(r => r.paymentStatus !== 'Received').reduce((s, r) => s + (r.totalAmount||0), 0),
@@ -566,13 +596,11 @@ export default function PickupPartners() {
                 <input type="email" value={form.email||''} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="partner@example.com" />
               </div>
             </div>
-
             <div style={{ marginBottom:16, padding:14, background:'var(--bg)', borderRadius:10, border:'1px solid var(--border-light)' }}>
               <div style={{ fontWeight:700, fontSize:14, color:'var(--text-primary)', marginBottom:4 }}>Coverage Area</div>
               <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:12 }}>Select up to 2 sectors and 5 societies this partner covers.</div>
               <CoverageSelector sectors={form.sectors||[]} societies={form.societies||[]} onSectors={s => setForm(f => ({ ...f, sectors: s }))} onSocieties={s => setForm(f => ({ ...f, societies: s }))} />
             </div>
-
             <div style={{ marginBottom:8 }}>
               <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
                 <div>
@@ -646,7 +674,7 @@ export default function PickupPartners() {
         </div>
       )}
 
-      {/* ── DIRECTORY VIEW ── */}
+      {/* DIRECTORY */}
       {view === 'directory' && (
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))', gap:16 }}>
           {partners.length === 0 ? (
@@ -704,18 +732,16 @@ export default function PickupPartners() {
         </div>
       )}
 
-      {/* ── REPORTS VIEW ── */}
+      {/* REPORTS */}
       {view === 'reports' && can.viewPartnerReports && (
         <div>
-          {/* FIXED: Stats now show totals for selected partner only */}
           <div className="stat-grid" style={{ marginBottom:24 }}>
-            <div className="stat-card green"><div className="stat-icon"><IndianRupee size={18}/></div><div className="stat-value">{fmtCurrency(totals.earnings)}</div><div className="stat-label">Total Received{selectedK ? ` — ${selectedK.name}` : ''}</div></div>
-            <div className="stat-card red"><div className="stat-icon"><Clock size={18}/></div><div className="stat-value">{fmtCurrency(totals.pending)}</div><div className="stat-label">Total Pending{selectedK ? ` — ${selectedK.name}` : ''}</div></div>
-            <div className="stat-card orange"><div className="stat-icon"><TrendingUp size={18}/></div><div className="stat-value">{fmtCurrency(totals.scrapValue)}</div><div className="stat-label">Total Scrap Value{selectedK ? ` — ${selectedK.name}` : ''}</div></div>
-            <div className="stat-card blue"><div className="stat-icon"><CheckCircle size={18}/></div><div className="stat-value">{totals.pickups}</div><div className="stat-label">Total Pickups{selectedK ? ` — ${selectedK.name}` : ''}</div></div>
+            <div className="stat-card green"><div className="stat-icon"><IndianRupee size={18}/></div><div className="stat-value">{fmtCurrency(totals.earnings)}</div><div className="stat-label">Received{selectedK ? ` — ${selectedK.name}` : ''}</div></div>
+            <div className="stat-card red"><div className="stat-icon"><Clock size={18}/></div><div className="stat-value">{fmtCurrency(totals.pending)}</div><div className="stat-label">Pending{selectedK ? ` — ${selectedK.name}` : ''}</div></div>
+            <div className="stat-card orange"><div className="stat-icon"><TrendingUp size={18}/></div><div className="stat-value">{fmtCurrency(totals.scrapValue)}</div><div className="stat-label">Scrap Value{selectedK ? ` — ${selectedK.name}` : ''}</div></div>
+            <div className="stat-card blue"><div className="stat-icon"><CheckCircle size={18}/></div><div className="stat-value">{totals.pickups}</div><div className="stat-label">Pickups{selectedK ? ` — ${selectedK.name}` : ''}</div></div>
           </div>
 
-          {/* Partner selector tabs */}
           <div style={{ display:'flex', gap:10, flexWrap:'wrap', marginBottom:20, alignItems:'center' }}>
             <button className={`btn btn-sm ${!selectedK ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setSelectedK(null)}>All Partners</button>
             {partners.filter(Boolean).map(k => (
@@ -725,9 +751,7 @@ export default function PickupPartners() {
 
           {(selectedK ? [selectedK] : partners).filter(Boolean).map(k => {
             const liveRecords  = (raddiRecords||[]).filter(r => r.kabadiwalaName === k.name)
-            const liveFiltered = monthFilter
-              ? liveRecords.filter(r => { const { from, to } = getMonthRange(monthFilter); return (r.pickupDate||'') >= from && (r.pickupDate||'') <= to })
-              : liveRecords
+            const liveFiltered = monthFilter ? liveRecords.filter(r => { const { from, to } = getMonthRange(monthFilter); return (r.pickupDate||'') >= from && (r.pickupDate||'') <= to }) : liveRecords
             const liveTotal    = liveFiltered.reduce((s, r) => s + (r.totalAmount||0), 0)
             const liveReceived = liveFiltered.filter(r => r.paymentStatus === 'Received').reduce((s, r) => s + (r.totalAmount||0), 0)
             const livePending  = liveTotal - liveReceived
@@ -750,25 +774,15 @@ export default function PickupPartners() {
                     <div><div style={{ fontSize:18, fontWeight:700, color:'var(--danger)', fontFamily:'var(--font-display)' }}>{fmtCurrency(livePending)}</div><div style={{ fontSize:11, color:'var(--text-muted)' }}>Pending</div></div>
                     <div><div style={{ fontSize:18, fontWeight:700, fontFamily:'var(--font-display)' }}>{liveFiltered.length}</div><div style={{ fontSize:11, color:'var(--text-muted)' }}>Pickups</div></div>
                   </div>
-                  <div style={{ display:'flex', gap:8 }}>
-                    {can.editPartner && <button className="btn btn-ghost btn-sm" onClick={() => open(k)}><Edit2 size={12}/> Edit</button>}
-                  </div>
+                  {can.editPartner && <button className="btn btn-ghost btn-sm" onClick={() => open(k)}><Edit2 size={12}/> Edit</button>}
                 </div>
-
-                {/* Monthly breakdown — now expandable with pickup detail */}
                 <div>
                   <div style={{ padding:'10px 20px 6px', fontSize:12, fontWeight:700, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.04em' }}>
                     Monthly Breakdown
-                    <span style={{ fontSize:10.5, fontWeight:400, marginLeft:8, color:'var(--info)' }}>↓ Click a row to see pickup details</span>
+                    <span style={{ fontSize:10.5, fontWeight:400, marginLeft:8, color:'var(--info)' }}>↓ Click row to see details</span>
                   </div>
-                  <PartnerMonthlyReport
-                    partner={k}
-                    raddiRecords={raddiRecords||[]}
-                    pickups={pickups||[]}
-                    monthFilter={monthFilter}
-                  />
+                  <PartnerMonthlyReport partner={k} raddiRecords={raddiRecords||[]} pickups={pickups||[]} monthFilter={monthFilter} />
                 </div>
-
                 {k.rateChart && (
                   <div style={{ padding:'8px 20px 0' }}>
                     <RateChartMini rateChart={k.rateChart} expanded={!!expandedRates[`report-${k.id}`]} onToggle={() => setExpandedRates(prev => ({ ...prev, [`report-${k.id}`]: !prev[`report-${k.id}`] }))} />

@@ -1,7 +1,8 @@
+// Frontend/src/components/DonorModal.jsx
 import { useState } from 'react'
-import { X, User, Phone, MapPin } from 'lucide-react'
-import { CITIES, CITY_SECTORS } from '../data/mockData'
-import { GURGAON_LOCATIONS } from '../data/schedulerData'
+import { X, User, MapPin } from 'lucide-react'
+import { CITIES, CITY_SECTORS, GURGAON_SOCIETIES } from '../data/mockData'
+import SocietyInput from './SocietyInput'
 
 const EMPTY = {
   name: '', mobile: '', city: 'Gurgaon', sector: '', society: '', address: '',
@@ -13,11 +14,6 @@ export default function DonorModal({ onClose, onAdd }) {
   const [errors, setErrors] = useState({})
 
   const sectors = CITY_SECTORS[form.city] || []
-
-  // Society list: cascading from Gurgaon data if available, else empty
-  const societies = form.city === 'Gurgaon' && form.sector
-    ? (GURGAON_LOCATIONS[form.sector] || [])
-    : []
 
   const setField = (key, val) => {
     setForm(f => {
@@ -41,7 +37,6 @@ export default function DonorModal({ onClose, onAdd }) {
     const e = validate()
     if (Object.keys(e).length) { setErrors(e); return }
     setSaving(true)
-    // Simulate API delay
     await new Promise(r => setTimeout(r, 800))
     const newDonor = {
       ...form,
@@ -118,21 +113,16 @@ export default function DonorModal({ onClose, onAdd }) {
               </select>
             </div>
 
-            {/* Society – cascading from Gurgaon data or free text */}
-            <div className="form-group">
+            {/* Society — always allows custom via datalist */}
+            <div className="form-group full">
               <label>Society / Colony</label>
-              {societies.length > 0 ? (
-                <select value={form.society} onChange={e => setField('society', e.target.value)}>
-                  <option value="">Select Society</option>
-                  {societies.map(s => <option key={s}>{s}</option>)}
-                </select>
-              ) : (
-                <input
-                  value={form.society}
-                  onChange={e => setField('society', e.target.value)}
-                  placeholder="e.g. Green Park Residency"
-                />
-              )}
+              <SocietyInput
+                city={form.city}
+                sector={form.sector}
+                value={form.society}
+                onChange={val => setField('society', val)}
+                id="donor-modal"
+              />
             </div>
 
             {/* Address */}

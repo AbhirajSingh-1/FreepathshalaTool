@@ -11,7 +11,8 @@ import {
   kabadiwalas as _initKabs,
 } from '../data/mockData'
 
-import { raddiMasterData as _initRaddi } from '../data/temp'
+// NOTE: raddiMasterData (temp.js) intentionally NOT used as initial state.
+// raddiRecords are derived from completed pickups to avoid duplicates.
 
 const AppContext = createContext(null)
 
@@ -54,7 +55,7 @@ function buildRaddiRow({ pickup, donor = {}, kabObj = {}, data = {} }) {
   const totalValue = Number(data.totalValue ?? pickup.totalValue) || 0
   const amountPaid = Number(data.amountPaid ?? pickup.amountPaid) || 0
   const ps         = derivePaymentStatus(totalValue, amountPaid)
-  const raddiPS    = ps === 'Paid' ? 'Received' : 'Yet to Receive'
+  const raddiPS    = ps === 'Paid' ? 'Received' : ps === 'Write Off' ? 'Write-off' : 'Yet to Receive'
 
   return {
     orderId:         pickup.orderId || pickup.id,
@@ -70,17 +71,30 @@ function buildRaddiRow({ pickup, donor = {}, kabObj = {}, data = {} }) {
     kabadiwalaName:  data.kabadiwala   || pickup.kabadiwala   || '',
     kabadiwalaPhone: kabObj.mobile     || data.kabadiMobile   || pickup.kabadiMobile || '',
     donorStatus:     deriveDonorStatus(data.date || pickup.date),
-    items:           data.items    || Array(9).fill(0),
-    totalKg:         Number(data.totalKg)   || 0,
+    rstItems:        data.rstItems || pickup.rstItems || [],
+    sksItems:        data.sksItems || pickup.sksItems || [],
+    totalKg:         Number(data.totalKg || pickup.totalKgs || pickup.totalKg)   || 0,
     totalAmount:     totalValue,
+    amountPaid:      amountPaid,
     paymentStatus:   raddiPS,
-    orderStatus:     data.orderStatus || 'Completed',
+    orderStatus:     data.orderStatus || pickup.status || 'Completed',
     type:
       (data.rstItems?.length && data.sksItems?.length) ? 'RST+SKS'
       : data.rstItems?.length                          ? 'RST'
       : data.sksItems?.length                          ? 'SKS'
-      : 'RST',
+      : pickup.type || 'RST',
   }
+}
+
+// Derive initial raddi records from completed pickups — avoids seed-data divergence
+function initRaddiFromPickups(pickups, donors, kabs) {
+  return pickups
+    .filter(p => p.status === 'Completed')
+    .map(p => {
+      const donor  = donors.find(d => d.id === p.donorId) || {}
+      const kabObj = kabs.find(k => k.name === p.kabadiwala) || {}
+      return buildRaddiRow({ pickup: p, donor, kabObj, data: p })
+    })
 }
 
 export function AppProvider({ children }) {
@@ -88,10 +102,12 @@ export function AppProvider({ children }) {
   const [donors,       setDonors]  = useState(() => _initDonors)
   const [pickups,      setPickups] = useState(() => _initPickups)
   const [kabadiwalas,  setKabs]    = useState(() => _initKabs)
-  const [raddiRecords, setRaddi]   = useState(() => _initRaddi)
+  const [raddiRecords, setRaddi]   = useState(() =>
+    initRaddiFromPickups(_initPickups, _initDonors, _initKabs)
+  )
 
   useEffect(() => {
-    initOrderSeq(_initPickups.length + _initRaddi.length + 10)
+    initOrderSeq(_initPickups.length + 10)
   }, [])
 
   // ── DONORS ────────────────────────────────────────────────────────────────
@@ -130,7 +146,9 @@ export function AppProvider({ children }) {
   // ── PICKUPS ───────────────────────────────────────────────────────────────
   const createPickup = useCallback(async (data) => {
     await delay()
-    const paymentStatus = derivePaymentStatus(data.totalValue, data.amountPaid)
+    const paymentStatus = data.paymentStatus === 'Write Off'
+      ? 'Write Off'
+      : derivePaymentStatus(data.totalValue, data.amountPaid)
     const pickup = {
       ...data,
       id:             data.orderId || generateOrderId(),
@@ -150,7 +168,16 @@ export function AppProvider({ children }) {
         setKabs(prevK => {
           const donor  = prevD.find(d => d.id === pickup.donorId) || {}
           const kabObj = prevK.find(k => k.name === pickup.kabadiwala) || {}
-          setRaddi(prev => [buildRaddiRow({ pickup, donor, kabObj, data: pickup }), ...prev])
+          setRaddi(prev => {
+            // Check for existing record with same orderId to avoid duplicates
+            const exists = prev.some(r => r.orderId === pickup.orderId || r.pickupId === pickup.id)
+            if (exists) return prev.map(r =>
+              (r.orderId === pickup.orderId || r.pickupId === pickup.id)
+                ? buildRaddiRow({ pickup, donor, kabObj, data: pickup })
+                : r
+            )
+            return [buildRaddiRow({ pickup, donor, kabObj, data: pickup }), ...prev]
+          })
           return prevK
         })
         return prevD
@@ -188,7 +215,9 @@ export function AppProvider({ children }) {
 
   const recordPickup = useCallback(async (id, data) => {
     await delay()
-    const paymentStatus = derivePaymentStatus(data.totalValue, data.amountPaid)
+    const paymentStatus = data.paymentStatus === 'Write Off'
+      ? 'Write Off'
+      : derivePaymentStatus(data.totalValue, data.amountPaid)
     setPickups(prev => prev.map(p =>
       p.id === id ? { ...p, ...data, status: 'Completed', paymentStatus } : p
     ))
@@ -241,7 +270,7 @@ export function AppProvider({ children }) {
     await delay()
     const paymentStatus =
       (data.totalValue !== undefined || data.amountPaid !== undefined)
-        ? derivePaymentStatus(data.totalValue, data.amountPaid)
+        ? (data.paymentStatus === 'Write Off' ? 'Write Off' : derivePaymentStatus(data.totalValue, data.amountPaid))
         : undefined
 
     setPickups(prevPickups => {
@@ -269,10 +298,17 @@ export function AppProvider({ children }) {
     })
 
     if (paymentStatus) {
-      const raddiPS = paymentStatus === 'Paid' ? 'Received' : 'Yet to Receive'
+      const raddiPS = paymentStatus === 'Paid' ? 'Received'
+        : paymentStatus === 'Write Off' ? 'Write-off'
+        : 'Yet to Receive'
       setRaddi(prev => prev.map(r =>
         r.pickupId === id || r.orderId === id
-          ? { ...r, paymentStatus: raddiPS, totalAmount: Number(data.totalValue) ?? r.totalAmount }
+          ? {
+              ...r,
+              paymentStatus: raddiPS,
+              totalAmount: Number(data.totalValue) ?? r.totalAmount,
+              amountPaid:  Number(data.amountPaid)  ?? r.amountPaid,
+            }
           : r
       ))
     }
@@ -329,6 +365,14 @@ export function AppProvider({ children }) {
         const np     = (p.amountPaid || 0) + additional
         const status = derivePaymentStatus(p.totalValue, np)
         return { ...p, amountPaid: np, paymentStatus: status, payHistory: [...(p.payHistory || []), { date: date || today(), amount: additional, refMode, refValue, notes: notes || '' }] }
+      }))
+      // sync raddiRecords
+      setRaddi(prev => prev.map(r => {
+        if (r.pickupId !== pickupId && r.orderId !== pickupId) return r
+        const np = (r.amountPaid || 0) + additional
+        const newTotal = r.totalAmount || 0
+        const raddiPS = np >= newTotal ? 'Received' : 'Yet to Receive'
+        return { ...r, amountPaid: np, paymentStatus: raddiPS }
       }))
     }
   }, [])
@@ -399,12 +443,12 @@ export function AppProvider({ children }) {
 
   const value = useMemo(() => ({
     donors, pickups, kabadiwalas, raddiRecords,
-    partners: kabadiwalas,           // alias used by Pickups.jsx, Pickuppartners.jsx
+    partners: kabadiwalas,
     dashboardStats, schedulerTabData,
     addDonor, updateDonor, deleteDonor,
     createPickup, schedulePickup, recordPickup, updatePickup, deletePickup,
     addKabadiwala, updateKabadiwala, deleteKabadiwala, recordKabadiwalaPayment,
-    addPartner:    addKabadiwala,    // aliases used by Pickuppartners.jsx
+    addPartner:    addKabadiwala,
     updatePartner: updateKabadiwala,
     deletePartner: deleteKabadiwala,
   }), [

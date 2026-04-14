@@ -11,7 +11,7 @@ import {
 } from '../data/mockData'
 import { fmtDate, fmtCurrency, donorStatusColor } from '../utils/helpers'
 import { differenceInDays, parseISO } from 'date-fns'
-
+import SocietyInput from '../components/SocietyInput'
 // ── Operational health segments (derived from lastPickup) ─────────────────────
 const SEGMENTS = [
   { id: 'all',        label: 'All',        color: 'var(--text-secondary)', bg: 'var(--border-light)', borderColor: 'var(--border)', icon: null },
@@ -462,7 +462,7 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
         <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && closeModal()}>
           <div className="modal" style={{ maxWidth:600, width:'95vw' }}>
             <div className="modal-header">
-              <div className="modal-title">{editing ? 'Edit Donor' : 'Add New Donor'}</div>
+              <div className="modal-title">{editing ? 'Edit Donor' : 'Add New'}</div>
               {editing && (
                 <span style={{ fontSize:12, fontFamily:'monospace', fontWeight:800, color:'white', background:'var(--primary)', padding:'2px 10px', borderRadius:5 }}>
                   {editing.id}
@@ -502,33 +502,11 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
                   </select>
                 </div>
 
-                {/* Society — cascades from city + sector */}
-                <div className="form-group">
-                  <label>Society / Colony</label>
-                  {formSocieties.length > 0 ? (
-                    <select value={form.society} onChange={e => setField('society', e.target.value)}>
-                      <option value="">Select Society</option>
-                      {formSocieties.map(s => <option key={s}>{s}</option>)}
-                    </select>
-                  ) : (
-                    <>
-                      <input
-                        list="society-list"
-                        value={form.society}
-                        onChange={e => setField('society', e.target.value)}
-                        placeholder={form.sector ? 'Type society name…' : 'Select sector first or type society'}
-                      />
-                      <datalist id="society-list">
-                        {allSocieties.map(s => <option key={s} value={s} />)}
-                      </datalist>
-                    </>
-                  )}
-                  {formSocieties.length > 0 && (
-                    <div style={{ marginTop: 4, fontSize: 11, color: 'var(--text-muted)' }}>
-                      Not listed? <button type="button" onClick={() => setField('society', '')} style={{ border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer', fontSize: 11, fontWeight: 600, padding: 0 }}>Type a custom name</button>
-                    </div>
-                  )}
-                </div>
+                 <div className="form-group full">
+  <label>Society / Colony</label>
+  <SocietyInput city={form.city} sector={form.sector} value={form.society}
+    onChange={val => setField('society', val)} id="donors-modal" />
+</div>
 
                 {/* ── Donor Type Radio ── */}
                 <div className="form-group full">
