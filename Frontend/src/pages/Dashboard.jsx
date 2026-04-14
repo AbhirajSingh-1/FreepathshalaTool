@@ -33,8 +33,8 @@ function getPeriodRange(type, customFrom, customTo) {
     return { from: `${ly}-${padM(lm + 1)}-01`, to: `${ly}-${padM(lm + 1)}-${padM(last)}` }
   }
   if (type === 'last_quarter') {
-    // current quarter start month (0-indexed)
-    const curQStart = Math.floor(m / 3) * 3
+    // Calendar quarters: Q1=Jan-Mar, Q2=Apr-Jun, Q3=Jul-Sep, Q4=Oct-Dec
+    const curQStart = Math.floor(m / 3) * 3          // 0-indexed start of current quarter
     let lqStart = curQStart - 3
     let lqYear  = y
     if (lqStart < 0) { lqStart += 12; lqYear = y - 1 }
@@ -51,18 +51,33 @@ function getPeriodRange(type, customFrom, customTo) {
   return { from: '', to: '' }
 }
 
+// ── FIXED: Pre-populate every month in range so empty months still render ────
 function buildMonthlyChart(pickups, from, to) {
   const map = {}
+
+  if (from && to) {
+    let [y, m] = from.slice(0, 7).split('-').map(Number)
+    const [ey, em] = to.slice(0, 7).split('-').map(Number)
+    while (y < ey || (y === ey && m <= em)) {
+      const key   = `${y}-${padM(m)}`
+      const label = new Date(y, m - 1, 1).toLocaleString('default', { month: 'short' })
+      map[key]    = { month: label, value: 0, pickups: 0 }
+      m++
+      if (m > 12) { m = 1; y++ }
+    }
+  }
+
   pickups
     .filter(p => p.status === 'Completed' && p.date >= (from || '') && p.date <= (to || '9999'))
     .forEach(p => {
       const key   = (p.date || '').slice(0, 7)
       if (!key) return
       const label = new Date(key + '-01').toLocaleString('default', { month: 'short' })
-      map[key] = map[key] || { month: label, value: 0, pickups: 0 }
+      map[key]         = map[key] || { month: label, value: 0, pickups: 0 }
       map[key].value   += p.totalValue || 0
       map[key].pickups += 1
     })
+
   return Object.entries(map)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([, v]) => v)
@@ -145,7 +160,14 @@ export default function Dashboard({ onNav }) {
   const periodLabel = useMemo(() => {
     if (period === 'current_month') return 'Current Month'
     if (period === 'last_month')    return 'Last Month'
-    if (period === 'last_quarter')  return 'Last Quarter'
+    if (period === 'last_quarter') {
+      // Show actual months e.g. "Jan – Mar 2026"
+      if (pFrom && pTo) {
+        const fmt = d => new Date(d).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })
+        return `${fmt(pFrom)} – ${fmt(pTo)}`
+      }
+      return 'Last Quarter'
+    }
     if (period === 'custom' && pFrom && pTo) {
       const fmt = d => new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
       return `${fmt(pFrom)} – ${fmt(pTo)}`

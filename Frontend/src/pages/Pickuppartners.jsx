@@ -4,7 +4,7 @@ import {
   Phone, Plus, Edit2, Trash2, X, Star, Mail,
   IndianRupee, TrendingUp, Clock, CheckCircle,
   BarChart3, ChevronDown, ChevronUp, Package, AlertCircle,
-  MapPin, Eye, Search, Users,
+  MapPin, Eye, Search, Users, ChevronRight,
 } from 'lucide-react'
 import { useApp }  from '../context/AppContext'
 import { useRole } from '../context/RoleContext'
@@ -210,7 +210,6 @@ function ExecutiveSectorSearch({ partners, onAddNew }) {
         </button>
       </div>
 
-      {/* Sector search */}
       <div className="card" style={{ marginBottom:20 }}>
         <div className="card-header">
           <Search size={16} color="var(--primary)" />
@@ -219,21 +218,12 @@ function ExecutiveSectorSearch({ partners, onAddNew }) {
         <div className="card-body">
           <div style={{ position:'relative', marginBottom:14 }}>
             <Search size={14} style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', color:'var(--text-muted)', pointerEvents:'none' }} />
-            <input
-              placeholder="Type sector name…"
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              style={{ paddingLeft:32, width:'100%', fontSize:13 }}
-            />
+            <input placeholder="Type sector name…" value={query} onChange={e => setQuery(e.target.value)} style={{ paddingLeft:32, width:'100%', fontSize:13 }} />
           </div>
-
           <div style={{ display:'flex', flexWrap:'wrap', gap:6, maxHeight:200, overflowY:'auto' }}>
             {filteredSectors.map(s => (
-              <button
-                key={s}
-                onClick={() => setSelectedSector(s === selectedSector ? '' : s)}
-                style={{ padding:'5px 12px', borderRadius:20, fontSize:12, cursor:'pointer', border:`1.5px solid ${selectedSector === s ? 'var(--primary)' : 'var(--border)'}`, background: selectedSector === s ? 'var(--primary-light)' : 'transparent', color: selectedSector === s ? 'var(--primary)' : 'var(--text-secondary)', fontWeight: selectedSector === s ? 700 : 400, transition:'all 0.12s' }}
-              >
+              <button key={s} onClick={() => setSelectedSector(s === selectedSector ? '' : s)}
+                style={{ padding:'5px 12px', borderRadius:20, fontSize:12, cursor:'pointer', border:`1.5px solid ${selectedSector === s ? 'var(--primary)' : 'var(--border)'}`, background: selectedSector === s ? 'var(--primary-light)' : 'transparent', color: selectedSector === s ? 'var(--primary)' : 'var(--text-secondary)', fontWeight: selectedSector === s ? 700 : 400 }}>
                 {s}
               </button>
             ))}
@@ -241,19 +231,17 @@ function ExecutiveSectorSearch({ partners, onAddNew }) {
         </div>
       </div>
 
-      {/* Partners for selected sector */}
       {selectedSector && (
         <div>
           <div style={{ fontSize:13, fontWeight:700, color:'var(--text-secondary)', marginBottom:12, display:'flex', alignItems:'center', gap:8 }}>
             <MapPin size={14} color="var(--primary)" />
-            Pickup partner{partnersInSector.length !== 1 ? 's' : ''} covering <span style={{ color:'var(--primary)' }}>{selectedSector}</span>
+            Partner{partnersInSector.length !== 1 ? 's' : ''} covering <span style={{ color:'var(--primary)' }}>{selectedSector}</span>
           </div>
-
           {partnersInSector.length === 0 ? (
             <div className="empty-state" style={{ padding:32 }}>
               <div className="empty-icon"><Users size={22} /></div>
               <h3>No partner assigned</h3>
-              <p>No pickup partner covers {selectedSector} yet. Contact your manager to get one assigned.</p>
+              <p>No pickup partner covers {selectedSector} yet.</p>
             </div>
           ) : (
             <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))', gap:14 }}>
@@ -275,7 +263,6 @@ function ExecutiveSectorSearch({ partners, onAddNew }) {
                         </div>
                       </div>
                     </div>
-
                     {(k.sectors || []).length > 0 && (
                       <div style={{ display:'flex', flexWrap:'wrap', gap:4, marginBottom:10 }}>
                         {(k.sectors || []).map(s => (
@@ -283,7 +270,6 @@ function ExecutiveSectorSearch({ partners, onAddNew }) {
                         ))}
                       </div>
                     )}
-
                     <div style={{ background:'var(--secondary-light)', borderRadius:8, padding:'10px 12px', fontSize:12, color:'var(--secondary)' }}>
                       <div style={{ fontWeight:700, marginBottom:2 }}>Call for Pickup</div>
                       <div style={{ fontSize:15, fontWeight:800, letterSpacing:'0.03em' }}>{k.mobile}</div>
@@ -299,15 +285,17 @@ function ExecutiveSectorSearch({ partners, onAddNew }) {
       {!selectedSector && (
         <div style={{ padding:'40px 24px', textAlign:'center', color:'var(--text-muted)', fontSize:13 }}>
           <MapPin size={32} color="var(--border)" style={{ display:'block', margin:'0 auto 12px' }} />
-          Select a sector above to see which pickup partner is assigned to it.
+          Select a sector above to see which pickup partner is assigned.
         </div>
       )}
     </div>
   )
 }
 
-// ── Monthly performance ───────────────────────────────────────────────────────
-function PartnerMonthlyReport({ partner, raddiRecords, monthFilter }) {
+// ── Monthly performance with expandable pickup detail ─────────────────────────
+function PartnerMonthlyReport({ partner, raddiRecords, pickups, monthFilter }) {
+  const [expandedMonth, setExpandedMonth] = useState(null)
+
   const monthly = useMemo(() => {
     if (!partner?.name || !Array.isArray(raddiRecords)) return []
     const records = raddiRecords.filter(r => {
@@ -329,82 +317,100 @@ function PartnerMonthlyReport({ partner, raddiRecords, monthFilter }) {
     return Object.values(m).sort((a, b) => b.month.localeCompare(a.month))
   }, [raddiRecords, partner?.name, monthFilter])
 
-  if (!monthly.length) return <div style={{ padding:'20px 16px', textAlign:'center', color:'var(--text-muted)', fontSize:13 }}>No data for selected period</div>
-
-  return (
-    <div className="table-wrap" style={{ border:'none', boxShadow:'none', borderRadius:0 }}>
-      <table>
-        <thead><tr><th>Month</th><th>Pickups</th><th>Kg</th><th>Total (₹)</th><th>Received</th><th>Pending</th></tr></thead>
-        <tbody>
-          {monthly.map(m => (
-            <tr key={m.month}>
-              <td style={{ fontFamily:'monospace', fontWeight:600 }}>{m.month}</td>
-              <td style={{ fontWeight:600 }}>{m.pickups}</td>
-              <td>{m.kg.toFixed(1)} kg</td>
-              <td style={{ fontWeight:700 }}>{fmtCurrency(m.amount)}</td>
-              <td style={{ color:'var(--secondary)', fontWeight:600 }}>{fmtCurrency(m.received)}</td>
-              <td style={{ color: m.amount - m.received > 0 ? 'var(--danger)' : 'var(--text-muted)', fontWeight:600 }}>{fmtCurrency(m.amount - m.received)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-// ── Partner transaction list with donor + society details ────────────────────
-function PartnerTransactions({ partner, pickups }) {
-  const txns = useMemo(() => {
-    if (!partner?.name) return []
-    return (pickups || [])
-      .filter(p => p.kabadiwala === partner.name && p.status === 'Completed')
+  // Get pickups for a specific month key (YYYY-MM)
+  const getMonthPickups = useCallback((monthKey) => {
+    if (!partner?.name || !Array.isArray(pickups)) return []
+    const { from, to } = getMonthRange(monthKey)
+    return pickups
+      .filter(p => p.kabadiwala === partner.name && p.status === 'Completed' &&
+        (p.date || '') >= from && (p.date || '') <= to)
       .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
-      .slice(0, 30) // last 30
   }, [pickups, partner?.name])
 
-  if (!txns.length) return (
-    <div style={{ padding:'16px', textAlign:'center', color:'var(--text-muted)', fontSize:13 }}>No completed pickups yet</div>
+  if (!monthly.length) return (
+    <div style={{ padding:'20px 16px', textAlign:'center', color:'var(--text-muted)', fontSize:13 }}>No data for selected period</div>
   )
 
   return (
-    <div className="table-wrap" style={{ border:'none', boxShadow:'none', borderRadius:0 }}>
-      <table>
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Donor</th>
-            <th>Society</th>
-            <th>Sector</th>
-            <th>Type</th>
-            <th>Total (₹)</th>
-            <th>Paid (₹)</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {txns.map(p => (
-            <tr key={p.id}>
-              <td style={{ whiteSpace:'nowrap', fontSize:12.5 }}>{fmtDate(p.date)}</td>
-              <td>
-                <div style={{ fontWeight:600, fontSize:13 }}>{p.donorName}</div>
-                {p.mobile && <div style={{ fontSize:11.5, color:'var(--text-muted)' }}>{p.mobile}</div>}
-              </td>
-              <td style={{ fontSize:12.5 }}>{p.society || '—'}</td>
-              <td style={{ fontSize:12.5, color:'var(--text-muted)' }}>{p.sector || '—'}</td>
-              <td>
-                <span className={`badge ${p.type === 'RST' ? 'badge-success' : p.type === 'SKS' ? 'badge-info' : 'badge-warning'}`} style={{ fontSize:10 }}>{p.type || '—'}</span>
-              </td>
-              <td style={{ fontWeight:700 }}>{p.totalValue > 0 ? fmtCurrency(p.totalValue) : '—'}</td>
-              <td style={{ fontWeight:700, color:'var(--secondary)' }}>{p.amountPaid > 0 ? fmtCurrency(p.amountPaid) : '—'}</td>
-              <td>
-                <span className={`badge ${p.paymentStatus === 'Paid' ? 'badge-success' : p.paymentStatus === 'Partially Paid' ? 'badge-warning' : 'badge-danger'}`} style={{ fontSize:10 }}>
-                  {p.paymentStatus}
-                </span>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div>
+      {/* Header row */}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 70px 80px 90px 90px 80px 32px', padding:'7px 16px', background:'var(--secondary-light)', fontSize:10.5, fontWeight:700, color:'var(--secondary)', textTransform:'uppercase', letterSpacing:'0.04em', borderTop:'1px solid var(--border-light)' }}>
+        <span>Month</span><span>Pickups</span><span>Kg</span><span>Total (₹)</span><span>Received</span><span>Pending</span><span></span>
+      </div>
+
+      {monthly.map(m => {
+        const isExpanded = expandedMonth === m.month
+        const monthPickups = isExpanded ? getMonthPickups(m.month) : []
+        const pending = m.amount - m.received
+
+        return (
+          <div key={m.month}>
+            {/* Month row — clickable */}
+            <div
+              onClick={() => setExpandedMonth(isExpanded ? null : m.month)}
+              style={{
+                display:'grid', gridTemplateColumns:'1fr 70px 80px 90px 90px 80px 32px',
+                padding:'10px 16px', cursor:'pointer', borderTop:'1px solid var(--border-light)',
+                background: isExpanded ? 'var(--secondary-light)' : 'var(--surface)',
+                transition:'background 0.15s',
+                alignItems: 'center',
+              }}
+            >
+              <span style={{ fontFamily:'monospace', fontWeight:700, fontSize:13, color: isExpanded ? 'var(--secondary)' : 'var(--text-primary)' }}>{m.month}</span>
+              <span style={{ fontWeight:600, fontSize:13 }}>{m.pickups}</span>
+              <span style={{ fontSize:12.5 }}>{m.kg.toFixed(1)} kg</span>
+              <span style={{ fontWeight:700, fontSize:13 }}>{fmtCurrency(m.amount)}</span>
+              <span style={{ color:'var(--secondary)', fontWeight:700, fontSize:13 }}>{fmtCurrency(m.received)}</span>
+              <span style={{ color: pending > 0 ? 'var(--danger)' : 'var(--text-muted)', fontWeight:700, fontSize:13 }}>{fmtCurrency(pending)}</span>
+              <span style={{ color:'var(--text-muted)', display:'flex', justifyContent:'center' }}>
+                {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              </span>
+            </div>
+
+            {/* Expanded pickup detail */}
+            {isExpanded && (
+              <div style={{ background:'var(--bg)', borderTop:'1px solid var(--border-light)', borderBottom:'1px solid var(--border-light)' }}>
+                {monthPickups.length === 0 ? (
+                  <div style={{ padding:'16px', textAlign:'center', color:'var(--text-muted)', fontSize:12.5 }}>No completed pickups found for this month.</div>
+                ) : (
+                  <div>
+                    {/* Detail header */}
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 80px 100px', padding:'6px 20px', background:'rgba(27,94,53,0.06)', fontSize:10, fontWeight:700, color:'var(--secondary)', textTransform:'uppercase', letterSpacing:'0.04em' }}>
+                      <span>Donor</span><span>Society</span><span>Sector</span><span>Type</span><span>Payment</span>
+                    </div>
+                    {monthPickups.map((p, i) => (
+                      <div key={p.id} style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 80px 100px', padding:'10px 20px', borderTop: i > 0 ? '1px solid var(--border-light)' : 'none', alignItems:'center', background: i % 2 === 0 ? 'var(--surface)' : 'var(--bg)' }}>
+                        <div>
+                          <div style={{ fontWeight:600, fontSize:13 }}>{p.donorName}</div>
+                          <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:1 }}>{fmtDate(p.date)}</div>
+                          {p.totalValue > 0 && <div style={{ fontSize:11.5, fontWeight:700, color:'var(--primary)', marginTop:2 }}>{fmtCurrency(p.totalValue)}</div>}
+                        </div>
+                        <div style={{ fontSize:12.5, color:'var(--text-secondary)' }}>{p.society || '—'}</div>
+                        <div style={{ fontSize:12.5, color:'var(--text-muted)' }}>{p.sector || '—'}</div>
+                        <div>
+                          <span className={`badge ${p.type === 'RST' ? 'badge-success' : p.type === 'SKS' ? 'badge-info' : 'badge-warning'}`} style={{ fontSize:10 }}>
+                            {p.type || 'RST'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className={`badge ${p.paymentStatus === 'Paid' ? 'badge-success' : p.paymentStatus === 'Partially Paid' ? 'badge-warning' : 'badge-danger'}`} style={{ fontSize:10 }}>
+                            {p.paymentStatus}
+                          </span>
+                          {p.amountPaid > 0 && p.totalValue > 0 && (
+                            <div style={{ fontSize:10.5, color:'var(--secondary)', marginTop:3, fontWeight:600 }}>
+                              {fmtCurrency(p.amountPaid)} paid
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -466,7 +472,6 @@ export default function PickupPartners() {
   const [expandedRates,  setExpandedRates]  = useState({})
   const [showRateEditor, setShowRateEditor] = useState(false)
   const [error,          setError]          = useState('')
-  const [txnPartner,     setTxnPartner]     = useState(null) // for transaction drill-down
 
   const last5Months  = getLast5Months()
   const [monthFilter, setMonthFilter] = useState('')
@@ -508,18 +513,23 @@ export default function PickupPartners() {
 
   const toggleRate = useCallback((id) => setExpandedRates(prev => ({ ...prev, [id]: !prev[id] })), [])
 
+  // FIXED: totals now filter by selectedK when one is set
   const totals = useMemo(() => {
     if (!Array.isArray(raddiRecords)) return { earnings:0, pending:0, pickups:0, scrapValue:0 }
-    const filtered = monthFilter
+    let records = monthFilter
       ? raddiRecords.filter(r => { const { from, to } = getMonthRange(monthFilter); return (r.pickupDate||'') >= from && (r.pickupDate||'') <= to })
       : raddiRecords
-    return {
-      earnings:   filtered.filter(r => r.paymentStatus === 'Received').reduce((s, r) => s + (r.totalAmount||0), 0),
-      pending:    filtered.filter(r => r.paymentStatus !== 'Received').reduce((s, r) => s + (r.totalAmount||0), 0),
-      pickups:    filtered.length,
-      scrapValue: filtered.reduce((s, r) => s + (r.totalAmount||0), 0),
+    // Filter by selected partner if one is chosen
+    if (selectedK) {
+      records = records.filter(r => r.kabadiwalaName === selectedK.name)
     }
-  }, [raddiRecords, monthFilter])
+    return {
+      earnings:   records.filter(r => r.paymentStatus === 'Received').reduce((s, r) => s + (r.totalAmount||0), 0),
+      pending:    records.filter(r => r.paymentStatus !== 'Received').reduce((s, r) => s + (r.totalAmount||0), 0),
+      pickups:    records.length,
+      scrapValue: records.reduce((s, r) => s + (r.totalAmount||0), 0),
+    }
+  }, [raddiRecords, monthFilter, selectedK])
 
   // ── EXECUTIVE VIEW ───────────────────────────────────────────────────────
   if (isExecutive) {
@@ -697,14 +707,16 @@ export default function PickupPartners() {
       {/* ── REPORTS VIEW ── */}
       {view === 'reports' && can.viewPartnerReports && (
         <div>
+          {/* FIXED: Stats now show totals for selected partner only */}
           <div className="stat-grid" style={{ marginBottom:24 }}>
-            <div className="stat-card green"><div className="stat-icon"><IndianRupee size={18}/></div><div className="stat-value">{fmtCurrency(totals.earnings)}</div><div className="stat-label">Total Received</div></div>
-            <div className="stat-card red"><div className="stat-icon"><Clock size={18}/></div><div className="stat-value">{fmtCurrency(totals.pending)}</div><div className="stat-label">Total Pending</div></div>
-            <div className="stat-card orange"><div className="stat-icon"><TrendingUp size={18}/></div><div className="stat-value">{fmtCurrency(totals.scrapValue)}</div><div className="stat-label">Total Scrap Value</div></div>
-            <div className="stat-card blue"><div className="stat-icon"><CheckCircle size={18}/></div><div className="stat-value">{totals.pickups}</div><div className="stat-label">Total Pickups</div></div>
+            <div className="stat-card green"><div className="stat-icon"><IndianRupee size={18}/></div><div className="stat-value">{fmtCurrency(totals.earnings)}</div><div className="stat-label">Total Received{selectedK ? ` — ${selectedK.name}` : ''}</div></div>
+            <div className="stat-card red"><div className="stat-icon"><Clock size={18}/></div><div className="stat-value">{fmtCurrency(totals.pending)}</div><div className="stat-label">Total Pending{selectedK ? ` — ${selectedK.name}` : ''}</div></div>
+            <div className="stat-card orange"><div className="stat-icon"><TrendingUp size={18}/></div><div className="stat-value">{fmtCurrency(totals.scrapValue)}</div><div className="stat-label">Total Scrap Value{selectedK ? ` — ${selectedK.name}` : ''}</div></div>
+            <div className="stat-card blue"><div className="stat-icon"><CheckCircle size={18}/></div><div className="stat-value">{totals.pickups}</div><div className="stat-label">Total Pickups{selectedK ? ` — ${selectedK.name}` : ''}</div></div>
           </div>
 
-          <div style={{ display:'flex', gap:10, flexWrap:'wrap', marginBottom:20 }}>
+          {/* Partner selector tabs */}
+          <div style={{ display:'flex', gap:10, flexWrap:'wrap', marginBottom:20, alignItems:'center' }}>
             <button className={`btn btn-sm ${!selectedK ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setSelectedK(null)}>All Partners</button>
             {partners.filter(Boolean).map(k => (
               <button key={k.id} className={`btn btn-sm ${selectedK?.id === k.id ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setSelectedK(k)}>{k.name}</button>
@@ -719,7 +731,6 @@ export default function PickupPartners() {
             const liveTotal    = liveFiltered.reduce((s, r) => s + (r.totalAmount||0), 0)
             const liveReceived = liveFiltered.filter(r => r.paymentStatus === 'Received').reduce((s, r) => s + (r.totalAmount||0), 0)
             const livePending  = liveTotal - liveReceived
-            const isExpanded   = txnPartner === k.id
 
             return (
               <div key={k.id||k.name} className="card" style={{ marginBottom:20 }}>
@@ -741,27 +752,22 @@ export default function PickupPartners() {
                   </div>
                   <div style={{ display:'flex', gap:8 }}>
                     {can.editPartner && <button className="btn btn-ghost btn-sm" onClick={() => open(k)}><Edit2 size={12}/> Edit</button>}
-                    <button className="btn btn-ghost btn-sm" onClick={() => setTxnPartner(isExpanded ? null : k.id)}>
-                      {isExpanded ? 'Hide Pickups' : 'View Pickups'}
-                    </button>
                   </div>
                 </div>
 
-                {/* Monthly breakdown */}
-                <div style={{ padding:'0' }}>
-                  <div style={{ padding:'10px 20px 6px', fontSize:12, fontWeight:700, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.04em' }}>Monthly Breakdown</div>
-                  <PartnerMonthlyReport partner={k} raddiRecords={raddiRecords||[]} monthFilter={monthFilter} />
-                </div>
-
-                {/* Pickup-level transaction list with donor & society */}
-                {isExpanded && (
-                  <div>
-                    <div style={{ padding:'10px 20px 6px', fontSize:12, fontWeight:700, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.04em', borderTop:'1px solid var(--border-light)' }}>
-                      Pickup Details (Donor + Society)
-                    </div>
-                    <PartnerTransactions partner={k} pickups={pickups||[]} />
+                {/* Monthly breakdown — now expandable with pickup detail */}
+                <div>
+                  <div style={{ padding:'10px 20px 6px', fontSize:12, fontWeight:700, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.04em' }}>
+                    Monthly Breakdown
+                    <span style={{ fontSize:10.5, fontWeight:400, marginLeft:8, color:'var(--info)' }}>↓ Click a row to see pickup details</span>
                   </div>
-                )}
+                  <PartnerMonthlyReport
+                    partner={k}
+                    raddiRecords={raddiRecords||[]}
+                    pickups={pickups||[]}
+                    monthFilter={monthFilter}
+                  />
+                </div>
 
                 {k.rateChart && (
                   <div style={{ padding:'8px 20px 0' }}>

@@ -7,7 +7,7 @@ import {
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import {
-  CITIES, CITY_SECTORS, SOCIETIES, LOST_REASONS,
+  CITIES, CITY_SECTORS, SOCIETIES, LOST_REASONS, GURGAON_SOCIETIES,
 } from '../data/mockData'
 import { fmtDate, fmtCurrency, donorStatusColor } from '../utils/helpers'
 import { differenceInDays, parseISO } from 'date-fns'
@@ -38,14 +38,11 @@ function daysSince(dateStr) {
   return differenceInDays(new Date(), parseISO(dateStr))
 }
 
-// ── Donor type: derived from donorType field (new) or fallback to old logic ───
 function getDonorCategory(donor, donorPickups) {
-  // Primary: use stored donorType
   if (donor.donorType === 'both')      return 'both'
   if (donor.donorType === 'supporter') return 'supporter'
   if (donor.donorType === 'donor')     return 'contributor'
 
-  // Fallback for older records without donorType
   const completed   = donorPickups.filter(p => p.status === 'Completed')
   const hasContrib  = completed.some(p =>
     (p.rstItems?.length > 0 && (p.type === 'RST' || p.type === 'RST+SKS')) ||
@@ -62,7 +59,6 @@ function getDonorCategory(donor, donorPickups) {
   return null
 }
 
-// ── Category badge ─────────────────────────────────────────────────────────────
 function CategoryBadge({ category }) {
   if (!category) return null
   const configs = {
@@ -78,7 +74,6 @@ function CategoryBadge({ category }) {
   )
 }
 
-// ── Donor type radio buttons ──────────────────────────────────────────────────
 function DonorTypeRadio({ value, onChange }) {
   const opts = [
     { id: 'donor',     label: '👍 Donor',     desc: 'Donates RST / SKS items' },
@@ -110,7 +105,7 @@ function DonorTypeRadio({ value, onChange }) {
 const EMPTY_FORM = {
   name: '', mobile: '', house: '', society: '',
   city: 'Gurgaon', sector: '',
-  donorType: 'donor',      // ← replaces old status dropdown
+  donorType: 'donor',
   lostReason: '', notes: '', supportContribution: '',
 }
 
@@ -186,6 +181,14 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
   const sectorOptions = filterCity ? (CITY_SECTORS[filterCity] || []) : []
   const formSectors   = CITY_SECTORS[form.city] || []
 
+  // Society options: cascade from city+sector for Gurgaon, else flat list
+  const formSocieties = useMemo(() => {
+    if (form.city === 'Gurgaon' && form.sector && GURGAON_SOCIETIES[form.sector]) {
+      return GURGAON_SOCIETIES[form.sector]
+    }
+    return []
+  }, [form.city, form.sector])
+
   const allSocieties = useMemo(() => [...new Set([
     ...SOCIETIES,
     ...donors.map(d => d.society).filter(Boolean),
@@ -196,7 +199,6 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
     donors.forEach(d => {
       const seg = getSegment(d)
       counts[seg] = (counts[seg] || 0) + 1
-      // count supporters
       const cat = getDonorCategory(d, pickupsByDonor[d.id] || [])
       if (cat === 'supporter' || cat === 'both') {
         counts['supporters'] = (counts['supporters'] || 0) + 1
@@ -239,7 +241,8 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
   const closeModal = () => { setModal(false); setEditing(null) }
   const setField   = (key, val) => setForm(f => {
     const next = { ...f, [key]: val }
-    if (key === 'city') next.sector = ''
+    if (key === 'city') { next.sector = ''; next.society = '' }
+    if (key === 'sector') { next.society = '' }
     if (key === 'donorType' && val === 'donor') next.supportContribution = ''
     return next
   })
@@ -481,25 +484,50 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
                   <label>House / Flat No.</label>
                   <input value={form.house} onChange={e => setField('house', e.target.value)} placeholder="e.g. A-101" />
                 </div>
-                <div className="form-group">
-                  <label>Society</label>
-                  <input list="society-list" value={form.society} onChange={e => setField('society', e.target.value)} placeholder="Type or select society" />
-                  <datalist id="society-list">
-                    {allSocieties.map(s => <option key={s} value={s} />)}
-                  </datalist>
-                </div>
+
+                {/* City — first */}
                 <div className="form-group">
                   <label>City <span className="required">*</span></label>
                   <select value={form.city} onChange={e => setField('city', e.target.value)}>
                     {CITIES.map(c => <option key={c}>{c}</option>)}
                   </select>
                 </div>
+
+                {/* Sector — cascades from city */}
                 <div className="form-group">
                   <label>Sector / Area</label>
-                  <select value={form.sector} onChange={e => setField('sector', e.target.value)}>
-                    <option value="">Select Sector</option>
+                  <select value={form.sector} onChange={e => setField('sector', e.target.value)} disabled={!form.city}>
+                    <option value="">{form.city ? 'Select Sector' : 'Select City First'}</option>
                     {formSectors.map(s => <option key={s}>{s}</option>)}
                   </select>
+                </div>
+
+                {/* Society — cascades from city + sector */}
+                <div className="form-group">
+                  <label>Society / Colony</label>
+                  {formSocieties.length > 0 ? (
+                    <select value={form.society} onChange={e => setField('society', e.target.value)}>
+                      <option value="">Select Society</option>
+                      {formSocieties.map(s => <option key={s}>{s}</option>)}
+                    </select>
+                  ) : (
+                    <>
+                      <input
+                        list="society-list"
+                        value={form.society}
+                        onChange={e => setField('society', e.target.value)}
+                        placeholder={form.sector ? 'Type society name…' : 'Select sector first or type society'}
+                      />
+                      <datalist id="society-list">
+                        {allSocieties.map(s => <option key={s} value={s} />)}
+                      </datalist>
+                    </>
+                  )}
+                  {formSocieties.length > 0 && (
+                    <div style={{ marginTop: 4, fontSize: 11, color: 'var(--text-muted)' }}>
+                      Not listed? <button type="button" onClick={() => setField('society', '')} style={{ border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer', fontSize: 11, fontWeight: 600, padding: 0 }}>Type a custom name</button>
+                    </div>
+                  )}
                 </div>
 
                 {/* ── Donor Type Radio ── */}
@@ -510,7 +538,7 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
                   <DonorTypeRadio value={form.donorType} onChange={val => setField('donorType', val)} />
                 </div>
 
-                {/* ── Support Contribution — only for supporter / both ── */}
+                {/* ── Support Contribution ── */}
                 {(form.donorType === 'supporter' || form.donorType === 'both') && (
                   <div className="form-group full">
                     <label style={{ display:'flex', alignItems:'center', gap:6 }}>

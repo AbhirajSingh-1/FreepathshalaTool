@@ -95,28 +95,7 @@ function PeriodBar({ dateFrom, dateTo, onRange, last5 }) {
         )
       })}
 
-      <div style={{ position: 'relative' }}>
-        <button className="btn btn-ghost btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11.5 }}
-          onClick={() => setFyOpen(o => !o)}>
-          Financial Year {fyOpen ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-        </button>
-        {fyOpen && (
-          <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 40, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: 'var(--shadow-md)', padding: 6, minWidth: 140 }}>
-            {fyOptions.map(fy => {
-              const r = getFYRange(fy)
-              const active = dateFrom === r.from && dateTo === r.to
-              return (
-                <button key={fy}
-                  className={`btn btn-sm ${active ? 'btn-primary' : 'btn-ghost'}`}
-                  style={{ width: '100%', justifyContent: 'flex-start', marginBottom: 3, fontSize: 11.5 }}
-                  onClick={() => { onRange(r.from, r.to); setFyOpen(false) }}>
-                  FY {fy}-{fy + 1}
-                </button>
-              )
-            })}
-          </div>
-        )}
-      </div>
+      
 
       <button className={`btn btn-sm ${!dateFrom && !dateTo ? 'btn-primary' : 'btn-ghost'}`}
         style={{ fontSize: 11.5 }} onClick={() => onRange('', '')}>All Time</button>

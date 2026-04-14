@@ -1,16 +1,17 @@
 // Frontend/src/pages/Payments.jsx
-// RST Revenue Analytics: Sector + Society mapping, Monthly default, Detailed/Summary views
+// RST Revenue Analytics: City + Sector + Society mapping, Monthly default, Detailed/Summary views
 // Payment Tracking: Global sync via AppContext, real-time kabadiwala stats
 import { useState, useMemo } from 'react'
 import {
   IndianRupee, X, Clock, CheckCircle, AlertCircle,
   Download, History, TrendingUp, Plus, Copy, Check,
   Hash, FileText, CreditCard, Smartphone, BarChart3,
-  MapPin, Layers, List,
+  MapPin, Layers, List, Building2, ChevronDown,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { fmtDate, fmtCurrency, paymentStatusColor, exportToExcel } from '../utils/helpers'
 import { RADDI_ITEM_LABELS } from '../data/temp'
+import { CITIES, CITY_SECTORS, GURGAON_SOCIETIES } from '../data/mockData'
 
 const REF_MODES = [
   { value: 'upi',    label: 'UPI',       icon: Smartphone,  placeholder: 'UPI transaction ID' },
@@ -30,7 +31,6 @@ const calcPayStatus = (total, paid) => {
   return 'Not Paid'
 }
 
-// ── Order ID chip ─────────────────────────────────────────────────────────────
 function OrderIdChip({ orderId, id }) {
   const display = orderId || id
   if (!display) return null
@@ -40,54 +40,83 @@ function OrderIdChip({ orderId, id }) {
       fontFamily: 'monospace', fontSize: 10.5, fontWeight: 700,
       color: 'var(--primary)', background: 'var(--primary-light)',
       padding: '2px 7px', borderRadius: 5,
-      border: '1px solid rgba(232,82,26,0.2)',
-      whiteSpace: 'nowrap',
+      border: '1px solid rgba(232,82,26,0.2)', whiteSpace: 'nowrap',
     }}>
       <Hash size={9} />{display}
     </span>
   )
 }
 
-// ── Society + Sector label helper ─────────────────────────────────────────────
-function SocietySectorLabel({ society, sector }) {
-  if (!society && !sector) return <span style={{ color: 'var(--text-muted)' }}>—</span>
+// ── Location filter breadcrumb ─────────────────────────────────────────────────
+function LocationBreadcrumb({ city, sector, society, onClearCity, onClearSector, onClearSociety }) {
+  if (!city && !sector && !society) return null
   return (
-    <div>
-      {society && <div style={{ fontWeight: 600, fontSize: 13 }}>{society}</div>}
-      {sector  && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>{sector}</div>}
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', padding: '8px 12px', background: 'var(--info-bg)', borderRadius: 8, border: '1px solid rgba(59,130,246,0.2)', fontSize: 12 }}>
+      <MapPin size={12} color="var(--info)" />
+      {city && (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--info)', color: '#fff', borderRadius: 20, padding: '2px 8px', fontWeight: 700 }}>
+          {city}
+          <button onClick={onClearCity} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#fff', padding: 0, display: 'flex' }}><X size={10} /></button>
+        </span>
+      )}
+      {sector && <>
+        <span style={{ color: 'var(--info)' }}>›</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(59,130,246,0.15)', color: 'var(--info)', borderRadius: 20, padding: '2px 8px', fontWeight: 600 }}>
+          {sector}
+          <button onClick={onClearSector} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--info)', padding: 0, display: 'flex' }}><X size={10} /></button>
+        </span>
+      </>}
+      {society && <>
+        <span style={{ color: 'var(--info)' }}>›</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(27,94,53,0.12)', color: 'var(--secondary)', borderRadius: 20, padding: '2px 8px', fontWeight: 600 }}>
+          {society}
+          <button onClick={onClearSociety} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--secondary)', padding: 0, display: 'flex' }}><X size={10} /></button>
+        </span>
+      </>}
     </div>
   )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// A) RST Revenue Analytics — Sector + Society Mapping
+// A) RST Revenue Analytics — City + Sector + Society Mapping
 // ─────────────────────────────────────────────────────────────────────────────
 function RSTAnalytics({ raddiRecords }) {
-  // Date filters
   const [datePreset, setDatePreset] = useState('month')
   const [dateFrom,   setDateFrom]   = useState('')
   const [dateTo,     setDateTo]     = useState('')
+  const [viewType, setViewType]     = useState('monthly')
+  const [groupMode, setGroupMode]   = useState('sector')
 
-  // Time grouping: monthly (default) | daily
-  const [viewType, setViewType] = useState('monthly')
-
-  // Location grouping: society (detailed) | sector (summary)
-  const [groupMode, setGroupMode] = useState('sector') // 'society' | 'sector'
-
-  // Filters
+  // Location filters — City → Sector → Society
+  const [filterCity,    setFilterCity]    = useState('')
   const [filterSector,  setFilterSector]  = useState('')
   const [filterSociety, setFilterSociety] = useState('')
 
-  // Derive unique sectors from records
-  const uniqueSectors = useMemo(() =>
-    [...new Set(raddiRecords.map(r => r.sector).filter(Boolean))].sort()
+  // Unique cities from records
+  const uniqueCities = useMemo(() =>
+    [...new Set(raddiRecords.map(r => r.city).filter(Boolean))].sort()
   , [raddiRecords])
 
-  // Societies cascade from selected sector (or all if none selected)
+  // Sectors: if city selected, use CITY_SECTORS; else derive from records
+  const uniqueSectors = useMemo(() => {
+    if (filterCity && CITY_SECTORS[filterCity]) return CITY_SECTORS[filterCity]
+    const base = filterCity
+      ? raddiRecords.filter(r => r.city === filterCity)
+      : raddiRecords
+    return [...new Set(base.map(r => r.sector).filter(Boolean))].sort()
+  }, [raddiRecords, filterCity])
+
+  // Societies: if Gurgaon + sector selected, use GURGAON_SOCIETIES; else derive from records
   const uniqueSocieties = useMemo(() => {
-    const base = raddiRecords.filter(r => !filterSector || r.sector === filterSector)
+    if (filterCity === 'Gurgaon' && filterSector && GURGAON_SOCIETIES[filterSector]) {
+      return GURGAON_SOCIETIES[filterSector]
+    }
+    const base = raddiRecords.filter(r =>
+      (!filterCity   || r.city === filterCity) &&
+      (!filterSector || r.sector === filterSector)
+    )
     return [...new Set(base.map(r => r.society).filter(Boolean))].sort()
-  }, [raddiRecords, filterSector])
+  }, [raddiRecords, filterCity, filterSector])
 
   const dateRange = useMemo(() => {
     const now = new Date()
@@ -97,15 +126,14 @@ function RSTAnalytics({ raddiRecords }) {
     return { from: dateFrom, to: dateTo }
   }, [datePreset, dateFrom, dateTo])
 
-  // Base filtered records
   const filtered = useMemo(() => raddiRecords.filter(r => {
     const matchDate    = (!dateRange.from || r.pickupDate >= dateRange.from) && (!dateRange.to || r.pickupDate <= dateRange.to)
+    const matchCity    = !filterCity    || r.city    === filterCity
     const matchSector  = !filterSector  || r.sector  === filterSector
     const matchSociety = !filterSociety || r.society === filterSociety
-    return matchDate && matchSector && matchSociety && r.orderStatus === 'Completed'
-  }), [raddiRecords, dateRange, filterSector, filterSociety])
+    return matchDate && matchCity && matchSector && matchSociety && r.orderStatus === 'Completed'
+  }), [raddiRecords, dateRange, filterCity, filterSector, filterSociety])
 
-  // ── Time-series grouping (monthly or daily) ──────────────────────────────
   const timeGrouped = useMemo(() => {
     const map = {}
     filtered.forEach(r => {
@@ -121,16 +149,10 @@ function RSTAnalytics({ raddiRecords }) {
       if (r.sector)  map[timeKey].sectors.add(r.sector)
     })
     return Object.values(map)
-      .map(g => ({
-        ...g,
-        societies: [...g.societies].join(', '),
-        sectors:   [...g.sectors].join(', '),
-      }))
+      .map(g => ({ ...g, societies: [...g.societies].join(', '), sectors: [...g.sectors].join(', ') }))
       .sort((a, b) => b.key.localeCompare(a.key))
   }, [filtered, viewType])
 
-  // ── Location grouping ────────────────────────────────────────────────────
-  // Detailed = by Society  |  Summary = by Sector
   const locationGrouped = useMemo(() => {
     const map = {}
     filtered.forEach(r => {
@@ -150,11 +172,10 @@ function RSTAnalytics({ raddiRecords }) {
   const totalOrders  = filtered.length
   const avgRate      = totalKg > 0 ? Math.round(totalRevenue / totalKg) : 0
 
-  // When sector filter changes, reset society filter
-  const handleSectorChange = (val) => {
-    setFilterSector(val)
-    setFilterSociety('')
-  }
+  const handleCityChange = (val) => { setFilterCity(val); setFilterSector(''); setFilterSociety('') }
+  const handleSectorChange = (val) => { setFilterSector(val); setFilterSociety('') }
+
+  const hasLocationFilter = filterCity || filterSector || filterSociety
 
   return (
     <div>
@@ -163,33 +184,31 @@ function RSTAnalytics({ raddiRecords }) {
         <div className="stat-card orange">
           <div className="stat-icon" style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}><TrendingUp size={18}/></div>
           <div className="stat-value">{fmtCurrency(totalRevenue)}</div>
-          <div className="stat-label">Total Revenue (filtered)</div>
+          <div className="stat-label">Total Revenue</div>
         </div>
         <div className="stat-card green">
-          <div className="stat-icon" style={{ background: 'var(--secondary-light)', color: 'var(--secondary)' }}>kg</div>
-          <div className="stat-value">{totalKg} kg</div>
-          <div className="stat-label">Total Raddi Collected</div>
+          <div className="stat-icon" style={{ background: 'var(--secondary-light)', color: 'var(--secondary)', fontSize: 11, fontWeight: 800 }}>kg</div>
+          <div className="stat-value">{totalKg.toFixed(1)} kg</div>
+          <div className="stat-label">Raddi Collected</div>
         </div>
         <div className="stat-card blue">
-          <div className="stat-icon" style={{ background: 'var(--info-bg)', color: 'var(--info)' }}>#</div>
+          <div className="stat-icon" style={{ background: 'var(--info-bg)', color: 'var(--info)', fontSize: 14, fontWeight: 800 }}>#</div>
           <div className="stat-value">{totalOrders}</div>
           <div className="stat-label">Completed Orders</div>
         </div>
         <div className="stat-card yellow">
-          <div className="stat-icon" style={{ background: 'var(--accent-light)', color: '#92400E' }}>₹/kg</div>
+          <div className="stat-icon" style={{ background: 'var(--accent-light)', color: '#92400E', fontSize: 10, fontWeight: 800 }}>₹/kg</div>
           <div className="stat-value">{avgRate}</div>
           <div className="stat-label">Avg Rate (₹/kg)</div>
         </div>
       </div>
 
-      {/* Controls row 1: Date presets */}
+      {/* Controls: Date presets */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {[['today','Today'],['week','Last 7 Days'],['month','This Month'],['custom','Custom']].map(([v, l]) => (
-            <button key={v} className={`btn btn-sm ${datePreset === v ? 'btn-primary' : 'btn-ghost'}`}
-              onClick={() => setDatePreset(v)}>{l}</button>
-          ))}
-        </div>
+        {[['today','Today'],['week','Last 7 Days'],['month','This Month'],['custom','Custom']].map(([v, l]) => (
+          <button key={v} className={`btn btn-sm ${datePreset === v ? 'btn-primary' : 'btn-ghost'}`}
+            onClick={() => setDatePreset(v)}>{l}</button>
+        ))}
         {datePreset === 'custom' && (
           <>
             <div className="form-group" style={{ margin: 0 }}>
@@ -204,44 +223,72 @@ function RSTAnalytics({ raddiRecords }) {
         )}
       </div>
 
-      {/* Controls row 2: Sector + Society filters + view toggles */}
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20, alignItems: 'flex-end', padding: '12px 16px', background: 'var(--bg)', borderRadius: 10, border: '1px solid var(--border-light)' }}>
+      {/* Location Filters — City → Sector → Society cascade */}
+      <div style={{ padding: '14px 16px', background: 'var(--surface)', borderRadius: 12, border: '1px solid var(--border-light)', boxShadow: 'var(--shadow)', marginBottom: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+          <MapPin size={14} color="var(--primary)" />
+          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Location Filter</span>
+          {hasLocationFilter && (
+            <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto', fontSize: 11 }}
+              onClick={() => { setFilterCity(''); setFilterSector(''); setFilterSociety('') }}>
+              <X size={10} /> Clear All
+            </button>
+          )}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
+          {/* City */}
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 5 }}>
+              <Building2 size={11} /> City
+            </label>
+            <select value={filterCity} onChange={e => handleCityChange(e.target.value)} style={{ fontSize: 13, width: '100%' }}>
+              <option value="">All Cities</option>
+              {(uniqueCities.length > 0 ? uniqueCities : CITIES).map(c => <option key={c}>{c}</option>)}
+            </select>
+          </div>
 
-        {/* Sector filter */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 5, flex: '1 1 160px' }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'flex', alignItems: 'center', gap: 4 }}>
-            <MapPin size={11} /> Sector
-          </label>
-          <select value={filterSector} onChange={e => handleSectorChange(e.target.value)} style={{ fontSize: 13 }}>
-            <option value="">All Sectors</option>
-            {uniqueSectors.map(s => <option key={s}>{s}</option>)}
-          </select>
+          {/* Sector — cascades from city */}
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 5 }}>
+              <MapPin size={11} /> Sector
+              {filterCity && <span style={{ fontSize: 10, color: 'var(--info)', marginLeft: 2 }}>in {filterCity}</span>}
+            </label>
+            <select value={filterSector} onChange={e => handleSectorChange(e.target.value)} style={{ fontSize: 13, width: '100%' }} disabled={!filterCity}>
+              <option value="">{filterCity ? `All sectors in ${filterCity}` : 'Select city first'}</option>
+              {uniqueSectors.map(s => <option key={s}>{s}</option>)}
+            </select>
+          </div>
+
+          {/* Society — cascades from city + sector */}
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 5 }}>
+              <MapPin size={11} /> Society
+              {filterSector && <span style={{ fontSize: 10, color: 'var(--secondary)', marginLeft: 2 }}>in {filterSector}</span>}
+            </label>
+            <select value={filterSociety} onChange={e => setFilterSociety(e.target.value)} style={{ fontSize: 13, width: '100%' }} disabled={!filterSector}>
+              <option value="">{filterSector ? `All societies in ${filterSector}` : 'Select sector first'}</option>
+              {uniqueSocieties.map(s => <option key={s}>{s}</option>)}
+            </select>
+          </div>
         </div>
 
-        {/* Society filter — cascades from sector */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 5, flex: '1 1 180px' }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'flex', alignItems: 'center', gap: 4 }}>
-            <MapPin size={11} /> Society
-            {filterSector && <span style={{ fontSize: 10, color: 'var(--info)', marginLeft: 2 }}>in {filterSector}</span>}
-          </label>
-          <select value={filterSociety} onChange={e => setFilterSociety(e.target.value)} style={{ fontSize: 13 }}>
-            <option value="">{filterSector ? `All societies in ${filterSector}` : 'All Societies'}</option>
-            {uniqueSocieties.map(s => <option key={s}>{s}</option>)}
-          </select>
-        </div>
-
-        {(filterSector || filterSociety) && (
-          <button className="btn btn-ghost btn-sm" onClick={() => { setFilterSector(''); setFilterSociety('') }} style={{ alignSelf: 'flex-end' }}>
-            <X size={11} /> Clear
-          </button>
+        {/* Breadcrumb */}
+        {hasLocationFilter && (
+          <div style={{ marginTop: 10 }}>
+            <LocationBreadcrumb
+              city={filterCity} sector={filterSector} society={filterSociety}
+              onClearCity={() => handleCityChange('')}
+              onClearSector={() => { setFilterSector(''); setFilterSociety('') }}
+              onClearSociety={() => setFilterSociety('')}
+            />
+          </div>
         )}
+      </div>
 
-        {/* Spacer */}
-        <div style={{ flex: 1 }} />
-
-        {/* Time grouping toggle */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Time View</label>
+      {/* View toggles */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20, alignItems: 'center', padding: '10px 14px', background: 'var(--bg)', borderRadius: 10, border: '1px solid var(--border-light)' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Time View</span>
           <div style={{ display: 'flex', gap: 4 }}>
             {[['monthly','Monthly'],['daily','Daily']].map(([v, l]) => (
               <button key={v} className={`btn btn-sm ${viewType === v ? 'btn-outline' : 'btn-ghost'}`}
@@ -249,71 +296,44 @@ function RSTAnalytics({ raddiRecords }) {
             ))}
           </div>
         </div>
-
-        {/* Location grouping toggle */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Group By</label>
+        <div style={{ width: 1, height: 36, background: 'var(--border)', flexShrink: 0 }} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Group By</span>
           <div style={{ display: 'flex', gap: 4 }}>
-            <button
-              className={`btn btn-sm ${groupMode === 'sector' ? 'btn-outline' : 'btn-ghost'}`}
-              onClick={() => setGroupMode('sector')}
-              style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}
-              title="Summary — grouped by Sector"
-            >
+            <button className={`btn btn-sm ${groupMode === 'sector' ? 'btn-outline' : 'btn-ghost'}`} onClick={() => setGroupMode('sector')} style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
               <Layers size={12} /> Sector
             </button>
-            <button
-              className={`btn btn-sm ${groupMode === 'society' ? 'btn-outline' : 'btn-ghost'}`}
-              onClick={() => setGroupMode('society')}
-              style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}
-              title="Detailed — grouped by Society"
-            >
+            <button className={`btn btn-sm ${groupMode === 'society' ? 'btn-outline' : 'btn-ghost'}`} onClick={() => setGroupMode('society')} style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
               <List size={12} /> Society
             </button>
           </div>
         </div>
+        <div style={{ marginLeft: 'auto' }}>
+          <button className="btn btn-ghost btn-sm" onClick={() => exportToExcel(
+            filtered.map(r => ({
+              'Pickup Date': r.pickupDate, 'City': r.city, 'Society': r.society, 'Sector': r.sector,
+              'Kabadiwala': r.kabadiwalaName, 'Total KG': r.totalKg, 'Revenue (₹)': r.totalAmount,
+              'Payment': r.paymentStatus, 'Order': r.orderStatus,
+            })), 'RST_Revenue_Analytics')}>
+            <Download size={13} /> Export
+          </button>
+        </div>
       </div>
 
-      {/* Active filter chips */}
-      {(filterSector || filterSociety) && (
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14, alignItems: 'center' }}>
-          <span style={{ fontSize: 11.5, color: 'var(--text-muted)', fontWeight: 600 }}>Showing:</span>
-          {filterSector && (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 20, background: 'var(--info-bg)', color: 'var(--info)', fontSize: 12, fontWeight: 600, border: '1px solid rgba(59,130,246,0.2)' }}>
-              Sector: {filterSector}
-              <button onClick={() => handleSectorChange('')} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 0, display: 'flex', color: 'inherit' }}><X size={10}/></button>
-            </span>
-          )}
-          {filterSociety && (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 20, background: 'var(--secondary-light)', color: 'var(--secondary)', fontSize: 12, fontWeight: 600, border: '1px solid rgba(27,94,53,0.2)' }}>
-              Society: {filterSociety}
-              <button onClick={() => setFilterSociety('')} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 0, display: 'flex', color: 'inherit' }}><X size={10}/></button>
-            </span>
-          )}
-        </div>
-      )}
-
       <div className="two-col" style={{ marginBottom: 20 }}>
-
         {/* Time-series table */}
         <div className="card">
           <div className="card-header">
-            <div className="card-title">
+            <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <BarChart3 size={15} color="var(--primary)" />
               {viewType === 'monthly' ? 'Monthly' : 'Daily'} Revenue
             </div>
-            <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 'auto' }}>
-              {timeGrouped.length} period{timeGrouped.length !== 1 ? 's' : ''}
-            </span>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 'auto' }}>{timeGrouped.length} period{timeGrouped.length !== 1 ? 's' : ''}</span>
           </div>
           <div className="table-wrap" style={{ border: 'none', boxShadow: 'none', borderRadius: 0 }}>
             <table>
               <thead>
-                <tr>
-                  <th>{viewType === 'monthly' ? 'Month' : 'Date'}</th>
-                  <th>Orders</th>
-                  <th>Kg</th>
-                  <th>Revenue</th>
-                </tr>
+                <tr><th>{viewType === 'monthly' ? 'Month' : 'Date'}</th><th>Orders</th><th>Kg</th><th>Revenue</th></tr>
               </thead>
               <tbody>
                 {timeGrouped.length === 0 ? (
@@ -342,34 +362,21 @@ function RSTAnalytics({ raddiRecords }) {
         {/* Location grouping table */}
         <div className="card">
           <div className="card-header">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
-              <div className="card-title">
-                {groupMode === 'society' ? (
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <List size={14} color="var(--secondary)" /> Detailed — by Society
-                  </span>
-                ) : (
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <Layers size={14} color="var(--primary)" /> Summary — by Sector
-                  </span>
-                )}
-              </div>
+            <div className="card-title">
+              {groupMode === 'society' ? (
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><List size={14} color="var(--secondary)" /> Detailed — by Society</span>
+              ) : (
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Layers size={14} color="var(--primary)" /> Summary — by Sector</span>
+              )}
             </div>
-            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-              {locationGrouped.length} {groupMode === 'society' ? 'societ' : 'sector'}{locationGrouped.length !== 1 ? (groupMode === 'society' ? 'ies' : 's') : (groupMode === 'society' ? 'y' : '')}
-            </span>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 'auto' }}>{locationGrouped.length} {groupMode === 'society' ? 'societies' : 'sectors'}</span>
           </div>
           <div className="table-wrap" style={{ border: 'none', boxShadow: 'none', borderRadius: 0 }}>
             <table>
               <thead>
                 <tr>
-                  {groupMode === 'society'
-                    ? <th>Society (Sector)</th>
-                    : <th>Sector</th>
-                  }
-                  <th>Orders</th>
-                  <th>Kg</th>
-                  <th>Revenue</th>
+                  {groupMode === 'society' ? <th>Society (Sector)</th> : <th>Sector</th>}
+                  <th>Orders</th><th>Kg</th><th>Revenue</th>
                 </tr>
               </thead>
               <tbody>
@@ -383,8 +390,7 @@ function RSTAnalytics({ raddiRecords }) {
                           <div style={{ fontWeight: 600, fontSize: 13 }}>{g.key}</div>
                           {g.sector !== '—' && (
                             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>
-                              <MapPin size={10} style={{ verticalAlign: 'middle', marginRight: 3 }} />
-                              {g.sector}
+                              <MapPin size={10} style={{ verticalAlign: 'middle', marginRight: 3 }} />{g.sector}
                             </div>
                           )}
                         </div>
@@ -401,26 +407,6 @@ function RSTAnalytics({ raddiRecords }) {
             </table>
           </div>
         </div>
-      </div>
-
-      {/* Export */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
-        <button className="btn btn-ghost btn-sm" onClick={() => exportToExcel(
-          filtered.map(r => ({
-            'Pickup Date': r.pickupDate,
-            'Society': r.society,
-            'Sector': r.sector,
-            'Society (Sector)': r.society && r.sector ? `${r.society} (${r.sector})` : (r.society || r.sector || '—'),
-            'Kabadiwala': r.kabadiwalaName,
-            'Total KG': r.totalKg,
-            'Revenue (₹)': r.totalAmount,
-            'Payment': r.paymentStatus,
-            'Order': r.orderStatus,
-          })),
-          'RST_Revenue_Analytics'
-        )}>
-          <Download size={13} /> Export Analytics
-        </button>
       </div>
     </div>
   )
@@ -456,7 +442,6 @@ function KabadiwalaTracking({ pickups, kabadiwalas, updatePickup }) {
   const totalPaid    = filtered.reduce((s, p) => s + (p.amountPaid  || 0), 0)
   const totalPending = totalValue - totalPaid
 
-  // Live kabadiwala summary derived from filtered pickups (always synced)
   const kabSummary = useMemo(() => {
     const map = {}
     filtered.forEach(p => {
@@ -485,7 +470,6 @@ function KabadiwalaTracking({ pickups, kabadiwalas, updatePickup }) {
     const newTotalPaid = Math.min((modal.amountPaid || 0) + additional, modal.totalValue || 0)
     const status       = calcPayStatus(modal.totalValue, newTotalPaid)
     const newEntry     = { date: editDate, amount: additional, cumulative: newTotalPaid, notes: editNotes.trim(), refMode: editRefMode, refValue: editRefVal.trim() }
-    // updatePickup handles sync to raddiRecords AND kabadiwalas via AppContext
     updatePickup(modal.id, {
       amountPaid:    newTotalPaid,
       paymentStatus: status,
@@ -512,7 +496,6 @@ function KabadiwalaTracking({ pickups, kabadiwalas, updatePickup }) {
         <div className="stat-card blue"><div className="stat-icon" style={{ background:'var(--info-bg)',color:'var(--info)' }}><AlertCircle size={18}/></div><div className="stat-value">{filtered.filter(p => p.paymentStatus !== 'Paid').length}</div><div className="stat-label">Unpaid Entries</div></div>
       </div>
 
-      {/* Kabadiwala quick summary — live from pickups state */}
       {kabSummary.length > 0 && (
         <div className="card" style={{ marginBottom: 20 }}>
           <div className="card-header">
@@ -521,27 +504,12 @@ function KabadiwalaTracking({ pickups, kabadiwalas, updatePickup }) {
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 0 }}>
             {kabSummary.map((k, i) => (
-              <div key={k.name} style={{
-                padding: '12px 16px',
-                borderRight: (i + 1) % 3 !== 0 ? '1px solid var(--border-light)' : 'none',
-                borderBottom: Math.floor(i / 3) < Math.floor((kabSummary.length - 1) / 3) ? '1px solid var(--border-light)' : 'none',
-              }}>
+              <div key={k.name} style={{ padding: '12px 16px', borderRight: (i + 1) % 3 !== 0 ? '1px solid var(--border-light)' : 'none', borderBottom: Math.floor(i / 3) < Math.floor((kabSummary.length - 1) / 3) ? '1px solid var(--border-light)' : 'none' }}>
                 <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>{k.name}</div>
                 <div style={{ display: 'flex', gap: 12, fontSize: 12 }}>
-                  <div>
-                    <div style={{ color: 'var(--text-muted)', fontSize: 10, textTransform: 'uppercase', fontWeight: 600 }}>Total</div>
-                    <div style={{ fontWeight: 700 }}>{fmtCurrency(k.total)}</div>
-                  </div>
-                  <div>
-                    <div style={{ color: 'var(--text-muted)', fontSize: 10, textTransform: 'uppercase', fontWeight: 600 }}>Paid</div>
-                    <div style={{ fontWeight: 700, color: 'var(--secondary)' }}>{fmtCurrency(k.paid)}</div>
-                  </div>
-                  <div>
-                    <div style={{ color: 'var(--text-muted)', fontSize: 10, textTransform: 'uppercase', fontWeight: 600 }}>Pending</div>
-                    <div style={{ fontWeight: 700, color: k.pending > 0 ? 'var(--danger)' : 'var(--text-muted)' }}>
-                      {k.pending > 0 ? fmtCurrency(k.pending) : '✓ Clear'}
-                    </div>
-                  </div>
+                  <div><div style={{ color: 'var(--text-muted)', fontSize: 10, textTransform: 'uppercase', fontWeight: 600 }}>Total</div><div style={{ fontWeight: 700 }}>{fmtCurrency(k.total)}</div></div>
+                  <div><div style={{ color: 'var(--text-muted)', fontSize: 10, textTransform: 'uppercase', fontWeight: 600 }}>Paid</div><div style={{ fontWeight: 700, color: 'var(--secondary)' }}>{fmtCurrency(k.paid)}</div></div>
+                  <div><div style={{ color: 'var(--text-muted)', fontSize: 10, textTransform: 'uppercase', fontWeight: 600 }}>Pending</div><div style={{ fontWeight: 700, color: k.pending > 0 ? 'var(--danger)' : 'var(--text-muted)' }}>{k.pending > 0 ? fmtCurrency(k.pending) : '✓ Clear'}</div></div>
                 </div>
               </div>
             ))}
@@ -560,15 +528,9 @@ function KabadiwalaTracking({ pickups, kabadiwalas, updatePickup }) {
           <option>Paid</option><option>Not Paid</option><option>Partially Paid</option>
         </select>
         <button className="btn btn-ghost btn-sm" onClick={() => exportToExcel(filtered.map(p => ({
-          'Order ID': p.orderId || p.id,
-          'Donor': p.donorName,
-          'Society': p.society,
-          'Sector': p.sector,
-          'Kabadiwala': p.kabadiwala || '—',
-          'Date': p.date,
-          'Total Value (₹)': p.totalValue,
-          'Amount Paid (₹)': p.amountPaid,
-          'Remaining (₹)': (p.totalValue||0)-(p.amountPaid||0),
+          'Order ID': p.orderId || p.id, 'Donor': p.donorName, 'Society': p.society, 'Sector': p.sector,
+          'Kabadiwala': p.kabadiwala || '—', 'Date': p.date, 'Total Value (₹)': p.totalValue,
+          'Amount Paid (₹)': p.amountPaid, 'Remaining (₹)': (p.totalValue||0)-(p.amountPaid||0),
           'Payment Status': p.paymentStatus,
         })),'Payments_Report')} style={{ marginLeft:'auto' }}>
           <Download size={13}/> Export
@@ -593,15 +555,12 @@ function KabadiwalaTracking({ pickups, kabadiwalas, updatePickup }) {
                         <span className={`badge ${paymentStatusColor(p.paymentStatus)}`} style={{ fontSize:11 }}>{p.paymentStatus}</span>
                       </div>
                       <div style={{ fontWeight:700, fontSize:14 }}>{p.donorName}</div>
-                      <div style={{ fontSize:12, color:'var(--text-muted)', marginTop:2 }}>
-                        {fmtDate(p.date)} · {p.kabadiwala||'No kabadiwala'}
-                      </div>
-                      {/* Society + Sector */}
+                      <div style={{ fontSize:12, color:'var(--text-muted)', marginTop:2 }}>{fmtDate(p.date)} · {p.kabadiwala||'No kabadiwala'}</div>
                       {(p.society || p.sector) && (
-                        <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <div style={{ fontSize:11.5, color:'var(--text-muted)', marginTop:3, display:'flex', alignItems:'center', gap:4 }}>
                           <MapPin size={10} />
                           {p.society && <span>{p.society}</span>}
-                          {p.society && p.sector && <span style={{ color: 'var(--border)' }}>·</span>}
+                          {p.society && p.sector && <span style={{ color:'var(--border)' }}>·</span>}
                           {p.sector && <span>{p.sector}</span>}
                         </div>
                       )}
@@ -678,7 +637,6 @@ function KabadiwalaTracking({ pickups, kabadiwalas, updatePickup }) {
                   )}
                 </div>
               )}
-
               <div style={{ background:'var(--bg)', borderRadius:10, padding:16, marginBottom:20, display:'flex', gap:16, flexWrap:'wrap' }}>
                 {[{label:'Total Value',val:fmtCurrency(modal.totalValue),col:'var(--text-primary)'},{label:'Already Paid',val:fmtCurrency(modal.amountPaid||0),col:'var(--secondary)'},{label:'Remaining',val:fmtCurrency(prevAmt),col:'var(--danger)'}].map(item => (
                   <div key={item.label} style={{ flex:'1 1 80px' }}>
@@ -755,7 +713,6 @@ function KabadiwalaTracking({ pickups, kabadiwalas, updatePickup }) {
                   <OrderIdChip orderId={histModal.orderId} id={histModal.id} />
                 </div>
               )}
-
               {(histModal.payHistory||[]).length === 0 ? (
                 <div className="empty-state" style={{ padding:32 }}><p>No payment history yet.</p></div>
               ) : [...(histModal.payHistory||[])].reverse().map((h, i, arr) => {
