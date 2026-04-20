@@ -781,7 +781,7 @@ export default function Payments() {
             <BarChart3 size={13} style={{ marginRight: 4 }} /> RST Revenue Analytics
           </button>
           <button className={`tab ${view === 'kabadiwala' ? 'active' : ''}`} onClick={() => setView('kabadiwala')}>
-            <IndianRupee size={13} style={{ marginRight: 4 }} /> Kabadiwala Payments
+            <IndianRupee size={13} style={{ marginRight: 4 }} /> Pickup Partners Payments
           </button>
         </div>
       </div>

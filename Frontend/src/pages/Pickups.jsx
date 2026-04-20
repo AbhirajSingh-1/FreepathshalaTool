@@ -13,7 +13,7 @@ import { RST_ITEMS, SKS_ITEMS, PICKUP_MODES } from '../data/mockData'
 import { fmtDate, fmtCurrency, generateOrderId, pickupStatusColor, paymentStatusColor } from '../utils/helpers'
 
 const todayStr = () => new Date().toISOString().slice(0, 10)
-const PAYMENT_STATUS_OPTIONS = ['Paid', 'Not Paid', 'Partially Paid', 'Write Off']
+const PAYMENT_STATUS_OPTIONS = ['Paid', 'Not Paid', 'Partially Paid']
 let _otherId = 0
 const nextOtherId = () => ++_otherId
 

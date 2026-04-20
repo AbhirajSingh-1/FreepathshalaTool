@@ -108,7 +108,7 @@ export default function SocietyInput({ city, sector, value, onChange, id, style 
         {suggestions.map(s => (
           <option key={s} value={s}>{s}</option>
         ))}
-        <option value="__custom__">✏️ Type a custom name…</option>
+        <option value="__custom__">✏️Add Society…</option>
       </select>
       <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>
         {suggestions.length} societies available · or choose "Type a custom name"
