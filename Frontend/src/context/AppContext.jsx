@@ -31,7 +31,8 @@ function derivePaymentStatus(total, paid) {
   return 'Not Paid'
 }
 
-function deriveDonorStatus(lastPickup) {
+// ── Centralised donor status logic (single source of truth) ──────────────────
+export function deriveDonorStatus(lastPickup) {
   if (!lastPickup) return 'Active'
   const days = Math.floor((Date.now() - new Date(lastPickup)) / 86_400_000)
   if (days <= 30) return 'Active'
@@ -48,11 +49,29 @@ function nextKabId(existing) {
   return `K-${String(existing.length + 1).padStart(3, '0')}`
 }
 
+// ── Convert weight entry to kg ────────────────────────────────────────────────
+function toKg(value, unit) {
+  const n = parseFloat(value) || 0
+  return unit === 'gm' ? n / 1000 : n
+}
+
 function buildRaddiRow({ pickup, donor = {}, kabObj = {}, data = {} }) {
   const totalValue = Number(data.totalValue ?? pickup.totalValue) || 0
   const amountPaid = Number(data.amountPaid ?? pickup.amountPaid) || 0
   const ps         = derivePaymentStatus(totalValue, amountPaid)
   const raddiPS    = ps === 'Paid' ? 'Received' : ps === 'Write Off' ? 'Write-off' : 'Yet to Receive'
+
+  // Build per-item kg map from rstItemWeights
+  const rawWeights = data.rstItemWeights || pickup.rstItemWeights || {}
+  const itemKgMap  = {}
+  Object.entries(rawWeights).forEach(([item, w]) => {
+    if (w && (w.value || w.value === 0)) {
+      itemKgMap[item] = toKg(w.value, w.unit || 'kg')
+    }
+  })
+
+  // Include Others custom items
+  const rstOthers = data.rstOthers || pickup.rstOthers || []
 
   return {
     orderId:         pickup.orderId || pickup.id,
@@ -70,6 +89,11 @@ function buildRaddiRow({ pickup, donor = {}, kabObj = {}, data = {} }) {
     donorStatus:     deriveDonorStatus(data.date || pickup.date),
     rstItems:        data.rstItems || pickup.rstItems || [],
     sksItems:        data.sksItems || pickup.sksItems || [],
+    // Per-item kg breakdown
+    itemKgMap,
+    rstOthers,
+    // Rate chart from kabadiwala for per-item ₹ calculation
+    kabRateChart:    kabObj.rateChart || {},
     totalKg:         Number(data.totalKg || pickup.totalKgs || pickup.totalKg)   || 0,
     totalAmount:     totalValue,
     amountPaid:      amountPaid,
@@ -153,6 +177,8 @@ export function AppProvider({ children }) {
       rstItems:       data.rstItems  || [],
       sksItems:       data.sksItems  || [],
       sksItemDetails: data.sksItemDetails || {},
+      rstItemWeights: data.rstItemWeights || {},
+      rstOthers:      data.rstOthers || [],
       createdAt:      today(),
     }
     pickup.id = pickup.orderId
@@ -338,11 +364,6 @@ export function AppProvider({ children }) {
     setKabs(prev => prev.filter(k => k.id !== id))
   }, [])
 
-  /**
-   * recordKabadiwalaPayment
-   * Records a payment for a specific pickup and syncs kabadiwala totals + raddi.
-   * Includes optional screenshot support for UPI payments.
-   */
   const recordKabadiwalaPayment = useCallback(async (kabId, {
     pickupId, amount, refMode, refValue, notes, date, screenshot,
   }) => {
@@ -391,11 +412,6 @@ export function AppProvider({ children }) {
     }
   }, [])
 
-  /**
-   * clearPartnerBalance
-   * Bulk-clears ALL outstanding dues for a pickup partner in a single action.
-   * Syncs pickups, kabadiwala totals, and raddi records globally.
-   */
   const clearPartnerBalance = useCallback(async ({ kabId, kabName }, paymentInfo) => {
     await delay()
     const {
@@ -408,7 +424,6 @@ export function AppProvider({ children }) {
     const payD = payDate || today()
 
     setPickups(prevPickups => {
-      // Compute total we are clearing
       const totalClearing = prevPickups
         .filter(p =>
           p.kabadiwala === kabName &&
@@ -417,7 +432,6 @@ export function AppProvider({ children }) {
         )
         .reduce((s, p) => s + Math.max(0, (p.totalValue || 0) - (p.amountPaid || 0)), 0)
 
-      // Sync kabadiwala totals
       setKabs(prevKabs => prevKabs.map(k => {
         if (k.id !== kabId) return k
         return {
@@ -432,14 +446,12 @@ export function AppProvider({ children }) {
         }
       }))
 
-      // Sync raddi records
       setRaddi(prevRaddi => prevRaddi.map(r => {
         if (r.kabadiwalaName !== kabName) return r
         if (r.paymentStatus === 'Received' || r.paymentStatus === 'Write-off') return r
         return { ...r, amountPaid: r.totalAmount || 0, paymentStatus: 'Received' }
       }))
 
-      // Update all pending/partial pickups for this partner
       return prevPickups.map(p => {
         if (p.kabadiwala !== kabName) return p
         if (p.paymentStatus === 'Paid' || p.paymentStatus === 'Write Off') return p

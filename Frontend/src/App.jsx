@@ -6,6 +6,7 @@ import Sidebar            from './component/Layout/Sidebar'
 import Header             from './component/Layout/Header'
 import Dashboard          from './pages/Dashboard'
 import Donors             from './pages/Donors'
+import Supporters         from './pages/Supporters'
 import Pickups            from './pages/Pickups'
 import PickupPartners     from './pages/Pickuppartners'
 import Payments           from './pages/Payments'
@@ -18,6 +19,7 @@ import TodayPickups       from './pages/Todaypickups'
 const PAGES = {
   dashboard:       Dashboard,
   donors:          Donors,
+  supporters:      Supporters,
   pickups:         Pickups,
   pickuppartners:  PickupPartners,
   payments:        Payments,
@@ -114,7 +116,6 @@ function AppShell() {
   const [sidebarOpen, setSO] = useState(false)
   const [addDonor, setAddD]  = useState(false)
 
-  // Track donor & pickup pre-selection when navigating to Pickups
   const [pickupInitDonorId,  setPickupInitDonorId]  = useState(null)
   const [pickupInitPickupId, setPickupInitPickupId] = useState(null)
 
@@ -131,9 +132,7 @@ function AppShell() {
     setPage(p)
     window.location.hash = p
     setSO(false)
-    // Pre-select donor when linking to Pickups
     setPickupInitDonorId(p === 'pickups' && opts?.donorId  ? opts.donorId  : null)
-    // Pre-select existing scheduled pickup when linking from TodayPickups → Record
     setPickupInitPickupId(p === 'pickups' && opts?.pickupId ? opts.pickupId : null)
   }
 

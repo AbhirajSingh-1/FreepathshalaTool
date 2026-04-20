@@ -6,22 +6,24 @@ import {
   AlertCircle, UserX, Heart, ThumbsUp,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { deriveDonorStatus } from '../context/AppContext'
 import {
   CITIES, CITY_SECTORS, SOCIETIES, LOST_REASONS, GURGAON_SOCIETIES,
 } from '../data/mockData'
 import { fmtDate, fmtCurrency, donorStatusColor } from '../utils/helpers'
 import { differenceInDays, parseISO } from 'date-fns'
 import SocietyInput from '../components/SocietyInput'
-// ── Operational health segments (derived from lastPickup) ─────────────────────
+
+// ── Operational health segments — Supporters segment removed (dedicated page now) ──
 const SEGMENTS = [
   { id: 'all',        label: 'All',        color: 'var(--text-secondary)', bg: 'var(--border-light)', borderColor: 'var(--border)', icon: null },
-  { id: 'supporters', label: '❤️ Supporters', color: '#991B1B', bg: '#FEE2E2', borderColor: '#EF4444', icon: Heart, description: 'Supporter or Both type' },
   { id: 'Active',     label: 'Active',     color: 'var(--secondary)',      bg: 'var(--secondary-light)', borderColor: 'var(--secondary)', icon: CheckCircle, description: '1–30 days since last pickup', days: [1, 30] },
   { id: 'Pickup Due', label: 'Pickup Due', color: 'var(--info)',           bg: 'var(--info-bg)',         borderColor: 'var(--info)',      icon: Clock,        description: '31–45 days since last pickup' },
   { id: 'At Risk',    label: 'At Risk',    color: 'var(--warning)',        bg: 'var(--warning-bg)',      borderColor: 'var(--warning)',   icon: AlertCircle,  description: '46–60 days since last pickup' },
   { id: 'Churned',    label: 'Churned',    color: 'var(--danger)',         bg: 'var(--danger-bg)',       borderColor: 'var(--danger)',    icon: UserX,        description: '>61 days since last pickup' },
 ]
 
+// ── Centralized donor status using single source of truth ────────────────────
 function getSegment(donor) {
   if (donor.status === 'Lost')      return 'Lost'
   if (donor.status === 'Postponed') return 'Postponed'
@@ -148,7 +150,7 @@ function SupportChip({ value }) {
   )
 }
 
-export default function Donors({ triggerAddDonor, onAddDonorDone }) {
+export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
   const { donors, pickups, addDonor, updateDonor, deleteDonor } = useApp()
 
   const [modal, setModal]       = useState(false)
@@ -181,42 +183,28 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
   const sectorOptions = filterCity ? (CITY_SECTORS[filterCity] || []) : []
   const formSectors   = CITY_SECTORS[form.city] || []
 
-  // Society options: cascade from city+sector for Gurgaon, else flat list
-  const formSocieties = useMemo(() => {
-    if (form.city === 'Gurgaon' && form.sector && GURGAON_SOCIETIES[form.sector]) {
-      return GURGAON_SOCIETIES[form.sector]
-    }
-    return []
-  }, [form.city, form.sector])
-
   const allSocieties = useMemo(() => [...new Set([
     ...SOCIETIES,
     ...donors.map(d => d.society).filter(Boolean),
   ])].sort(), [donors])
 
+  // Segment counts — without supporters (moved to dedicated page)
   const segCounts = useMemo(() => {
     const counts = { all: donors.length }
     donors.forEach(d => {
       const seg = getSegment(d)
       counts[seg] = (counts[seg] || 0) + 1
-      const cat = getDonorCategory(d, pickupsByDonor[d.id] || [])
-      if (cat === 'supporter' || cat === 'both') {
-        counts['supporters'] = (counts['supporters'] || 0) + 1
-      }
     })
     return counts
-  }, [donors, pickupsByDonor])
+  }, [donors])
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase()
     return donors.filter(d => {
       const seg      = getSegment(d)
-      const category = donorCategories[d.id]
       let matchSeg   = false
       if (activeSeg === 'all') {
         matchSeg = true
-      } else if (activeSeg === 'supporters') {
-        matchSeg = category === 'supporter' || category === 'both'
       } else {
         matchSeg = seg === activeSeg
       }
@@ -226,7 +214,7 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
       const matchSoc    = !filterSociety || d.society === filterSociety
       return matchSeg && matchQ && matchCity && matchSector && matchSoc
     })
-  }, [donors, activeSeg, search, filterCity, filterSector, filterSociety, donorCategories])
+  }, [donors, activeSeg, search, filterCity, filterSector, filterSociety])
 
   const hasFilters = filterCity || filterSector || filterSociety
 
@@ -270,7 +258,7 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
   return (
     <div className="page-body">
 
-      {/* ── Segment KPI cards ── */}
+      {/* ── Segment KPI cards (no supporters — dedicated page now) ── */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))', gap:12, marginBottom:20 }}>
         {SEGMENTS.filter(s => s.id !== 'all').map(seg => {
           const Icon    = seg.icon
@@ -298,6 +286,19 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
           )
         })}
       </div>
+
+      {/* ── Supporters link ── */}
+      {onNav && (
+        <div style={{ marginBottom: 14, padding: '10px 16px', background: 'linear-gradient(135deg,#FDE7DA,var(--secondary-light))', borderRadius: 10, border: '1px solid rgba(232,82,26,0.15)', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Heart size={14} color="var(--primary)" />
+          <span style={{ fontSize: 13, color: 'var(--text-secondary)', flex: 1 }}>
+            <strong>Supporters, contributors & SKS donors</strong> — view detailed breakdown on the dedicated page
+          </span>
+          <button className="btn btn-outline btn-sm" onClick={() => onNav('supporters')}>
+            View Supporters →
+          </button>
+        </div>
+      )}
 
       {/* ── Category legend ── */}
       <div style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'center', padding:'8px 14px', background:'var(--bg)', borderRadius:8, border:'1px solid var(--border-light)', marginBottom:14, fontSize:12, color:'var(--text-muted)' }}>
@@ -484,16 +485,12 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
                   <label>House / Flat No.</label>
                   <input value={form.house} onChange={e => setField('house', e.target.value)} placeholder="e.g. A-101" />
                 </div>
-
-                {/* City — first */}
                 <div className="form-group">
                   <label>City <span className="required">*</span></label>
                   <select value={form.city} onChange={e => setField('city', e.target.value)}>
                     {CITIES.map(c => <option key={c}>{c}</option>)}
                   </select>
                 </div>
-
-                {/* Sector — cascades from city */}
                 <div className="form-group">
                   <label>Sector / Area</label>
                   <select value={form.sector} onChange={e => setField('sector', e.target.value)} disabled={!form.city}>
@@ -501,22 +498,17 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
                     {formSectors.map(s => <option key={s}>{s}</option>)}
                   </select>
                 </div>
-
-                 <div className="form-group full">
-  <label>Society / Colony</label>
-  <SocietyInput city={form.city} sector={form.sector} value={form.society}
-    onChange={val => setField('society', val)} id="donors-modal" />
-</div>
-
-                {/* ── Donor Type Radio ── */}
+                <div className="form-group full">
+                  <label>Society / Colony</label>
+                  <SocietyInput city={form.city} sector={form.sector} value={form.society}
+                    onChange={val => setField('society', val)} id="donors-modal" />
+                </div>
                 <div className="form-group full">
                   <label style={{ marginBottom:8, display:'block' }}>
                     Donor Type <span className="required">*</span>
                   </label>
                   <DonorTypeRadio value={form.donorType} onChange={val => setField('donorType', val)} />
                 </div>
-
-                {/* ── Support Contribution ── */}
                 {(form.donorType === 'supporter' || form.donorType === 'both') && (
                   <div className="form-group full">
                     <label style={{ display:'flex', alignItems:'center', gap:6 }}>
@@ -537,7 +529,6 @@ export default function Donors({ triggerAddDonor, onAddDonorDone }) {
                     )}
                   </div>
                 )}
-
                 <div className="form-group full">
                   <label>Notes</label>
                   <textarea value={form.notes} onChange={e => setField('notes', e.target.value)} placeholder="Any additional notes…" style={{ minHeight:72 }} />

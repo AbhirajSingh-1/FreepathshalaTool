@@ -2,6 +2,7 @@
 import {
   LayoutDashboard, Users, Truck, UserCheck, BarChart3,
   IndianRupee, CalendarDays, Table2, Eye, Shirt, ClipboardList,
+  Heart,
 } from 'lucide-react'
 
 const getRole = () => localStorage.getItem('fp_role') || 'admin'
@@ -28,6 +29,7 @@ const buildNav = (role) => {
     { id: 'dashboard',       label: 'Dashboard',        icon: LayoutDashboard },
     { section: 'Management' },
     { id: 'donors',          label: 'Donors Status',    icon: Users },
+    { id: 'supporters',      label: 'Supporters',       icon: Heart },
     { id: 'pickups',         label: 'Pickups',          icon: Truck },
     { id: 'pickuppartners',  label: 'Pickup Partners',  icon: UserCheck },
     { section: 'Finance' },
@@ -105,7 +107,7 @@ export default function Sidebar({ active, onNav, open, onClose, overdueCount, on
           <div className="sidebar-footer-info">
             <div style={{ fontWeight: 600, color: 'rgba(255,255,255,0.4)', fontSize: 11 }}>FreePathshala NGO</div>
             <div>12A &amp; 80G Certified</div>
-            <div style={{ marginTop: 2 }}>v2.3.0</div>
+            <div style={{ marginTop: 2 }}>v2.4.0</div>
           </div>
         </div>
       </aside>

@@ -632,7 +632,7 @@ export default function PickupPartners() {
             </div>
             <div style={{ marginBottom:16, padding:14, background:'var(--bg)', borderRadius:10, border:'1px solid var(--border-light)' }}>
               <div style={{ fontWeight:700, fontSize:14, color:'var(--text-primary)', marginBottom:4 }}>Coverage Area</div>
-              <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:12 }}>Select city, up to 2 sectors, and up to 5 societies.</div>
+              <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:12 }}>Select city, up to 3 sectors, and up to 5 societies.</div>
               <div className="form-group" style={{ marginBottom:12 }}>
                 <label style={{ display:'flex', alignItems:'center', gap:5 }}><Building2 size={12} color="var(--primary)" /> City <span className="required">*</span></label>
                 <select value={form.city || 'Gurgaon'} onChange={e => setForm(f => ({ ...f, city: e.target.value, sectors: [], societies: [] }))} style={{ fontSize:13 }}>

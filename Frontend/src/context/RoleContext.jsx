@@ -9,8 +9,8 @@ export const ROLES = {
 
 // Pages each role may access
 export const ROLE_PAGES = {
-  admin:     ['dashboard', 'donors', 'pickups', 'pickuppartners', 'payments', 'pickupscheduler', 'todaypickups', 'pickupoverview', 'raddimaster', 'sksoverview'],
-  manager:   ['dashboard', 'donors', 'pickups', 'pickuppartners', 'payments', 'pickupscheduler', 'todaypickups', 'pickupoverview', 'sksoverview'],
+  admin:     ['dashboard', 'donors', 'supporters', 'pickups', 'pickuppartners', 'payments', 'pickupscheduler', 'todaypickups', 'pickupoverview', 'raddimaster', 'sksoverview'],
+  manager:   ['dashboard', 'donors', 'supporters', 'pickups', 'pickuppartners', 'payments', 'pickupscheduler', 'todaypickups', 'pickupoverview', 'sksoverview'],
   executive: ['todaypickups', 'pickups', 'pickuppartners', 'sksoverview'],
 }
 
@@ -40,6 +40,7 @@ export function RoleProvider({ children }) {
   const can = {
     viewDashboard:      role === 'admin' || role === 'manager',
     viewDonors:         role === 'admin' || role === 'manager',
+    viewSupporters:     role === 'admin' || role === 'manager',
     viewPayments:       role === 'admin' || role === 'manager',
     viewRaddiMaster:    role === 'admin',
     viewScheduler:      role === 'admin' || role === 'manager',

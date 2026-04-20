@@ -4,6 +4,7 @@ import { Menu, Bell } from 'lucide-react'
 const PAGE_META = {
   dashboard:       { title: 'Dashboard',              sub: 'Overview & quick stats' },
   donors:          { title: 'Donors',                 sub: 'Manage donor profiles' },
+  supporters:      { title: 'Supporters',             sub: 'All donors, RST/SKS contributors & supporters' },
   pickups:         { title: 'Pickups',                sub: 'RST & SKS pickup recording' },
   pickuppartners:  { title: 'Pickup Partners',        sub: 'Scrap dealer directory & financials' },
   payments:        { title: 'Payment Tracking',       sub: 'Track & update pickup partner payments' },
