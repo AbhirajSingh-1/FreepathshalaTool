@@ -1,277 +1,292 @@
 // Frontend/src/pages/Supporters.jsx
-// Dedicated page for Supporters & Contributors
-// Shows all donors classified by type: RST donors, SKS contributors, Supporters (cash/goods), Both
-// Donor status uses the same centralized logic as the rest of the system
+// Dedicated Supporters Management Page
+// Status is calculated independently from lastSupportDate (NOT pickup dates)
+// Shows: donorType === 'supporter' | 'both'
 import { useState, useMemo } from 'react'
 import {
-  Heart, ThumbsUp, Search, SlidersHorizontal, X,
+  Heart, ThumbsUp, Search, Plus, Edit2, Trash2, X,
   Phone, MapPin, Clock, CheckCircle, AlertCircle,
-  UserX, Download, ChevronDown, ChevronUp, Users,
+  UserX, Download, Users, Calendar, SlidersHorizontal,
+  ChevronDown, ChevronUp,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import { deriveDonorStatus } from '../context/AppContext'
 import { fmtDate, fmtCurrency, exportToExcel } from '../utils/helpers'
 import { CITIES, CITY_SECTORS } from '../data/mockData'
 import { differenceInDays, parseISO } from 'date-fns'
+import SocietyInput from '../components/SocietyInput'
 
-// ── Re-use the same category logic as Donors.jsx ──────────────────────────────
-function getDonorCategory(donor, donorPickups) {
-  if (donor.donorType === 'both')      return 'both'
-  if (donor.donorType === 'supporter') return 'supporter'
-  if (donor.donorType === 'donor')     return 'contributor'
-  const completed  = (donorPickups || []).filter(p => p.status === 'Completed')
-  const hasContrib = completed.some(p =>
-    (p.rstItems?.length > 0 && (p.type === 'RST' || p.type === 'RST+SKS')) ||
-    (p.sksItems?.length > 0 && (p.type === 'SKS' || p.type === 'RST+SKS')) ||
-    p.totalValue > 0
-  )
-  const hasSupport =
-    !!(donor.supportContribution?.trim()) ||
-    completed.some(p => p.rstItems?.includes('Others') || p.sksItems?.some(i => i?.startsWith('Others')))
-
-  if (hasContrib && hasSupport) return 'both'
-  if (hasSupport)               return 'supporter'
-  if (hasContrib)               return 'contributor'
-  return null
+// ── Independent supporter status — based on lastSupportDate only ─────────────
+function getSupporterStatus(lastSupportDate) {
+  if (!lastSupportDate) return 'New'
+  const days = differenceInDays(new Date(), parseISO(lastSupportDate))
+  if (days <= 60)  return 'Active'
+  if (days <= 120) return 'At Risk'
+  return 'Inactive'
 }
 
-// ── Centralized donor segment (uses same logic as Donors page) ────────────────
-function getDonorSegment(donor) {
-  if (donor.status === 'Lost')      return 'Lost'
-  if (donor.status === 'Postponed') return 'Postponed'
-  if (!donor.lastPickup)            return 'Active'
-  const days = differenceInDays(new Date(), parseISO(donor.lastPickup))
-  if (days <= 30)  return 'Active'
-  if (days <= 45)  return 'Pickup Due'
-  if (days <= 60)  return 'At Risk'
-  return 'Churned'
+const STATUS_CONFIG = {
+  'New':      { color: 'var(--info)',      bg: 'var(--info-bg)',         icon: Users,         label: 'New' },
+  'Active':   { color: 'var(--secondary)', bg: 'var(--secondary-light)', icon: CheckCircle,   label: 'Active' },
+  'At Risk':  { color: 'var(--warning)',   bg: 'var(--warning-bg)',      icon: AlertCircle,   label: 'At Risk' },
+  'Inactive': { color: 'var(--danger)',    bg: 'var(--danger-bg)',       icon: UserX,         label: 'Inactive' },
 }
 
-// ── Status config ─────────────────────────────────────────────────────────────
-const SEGMENT_CONFIG = {
-  'Active':     { color: 'var(--secondary)', bg: 'var(--secondary-light)', icon: CheckCircle },
-  'Pickup Due': { color: 'var(--info)',       bg: 'var(--info-bg)',         icon: Clock },
-  'At Risk':    { color: 'var(--warning)',    bg: 'var(--warning-bg)',      icon: AlertCircle },
-  'Churned':    { color: 'var(--danger)',     bg: 'var(--danger-bg)',       icon: UserX },
-  'Postponed':  { color: 'var(--warning)',    bg: 'var(--warning-bg)',      icon: Clock },
-  'Lost':       { color: 'var(--danger)',     bg: 'var(--danger-bg)',       icon: UserX },
-}
-
-const CATEGORY_CONFIG = {
-  both:        { label: '❤️ 👍 Supporter + Contributor', color: 'var(--primary)',   bg: 'var(--primary-light)' },
-  supporter:   { label: '❤️ Supporter',                 color: '#991B1B',           bg: '#FEE2E2' },
-  contributor: { label: '👍 RST/SKS Contributor',       color: 'var(--secondary)',  bg: 'var(--secondary-light)' },
-}
-
-function StatusBadge({ segment }) {
-  const cfg = SEGMENT_CONFIG[segment] || SEGMENT_CONFIG['Active']
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 9px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: cfg.bg, color: cfg.color }}>
-      {segment}
-    </span>
-  )
-}
-
-function CategoryBadge({ category }) {
-  if (!category) return null
-  const cfg = CATEGORY_CONFIG[category] || {}
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 9px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: cfg.bg || 'var(--border-light)', color: cfg.color || 'var(--text-muted)' }}>
-      {cfg.label}
-    </span>
-  )
-}
-
-// ── Type filter tabs ──────────────────────────────────────────────────────────
-const TYPE_FILTERS = [
-  { id: 'all',         label: 'All',           icon: Users },
-  { id: 'both',        label: '❤️ 👍 Both',   icon: null },
-  { id: 'supporter',   label: '❤️ Supporters', icon: Heart },
-  { id: 'contributor', label: '👍 RST/SKS',   icon: ThumbsUp },
+const CONTRIBUTION_TYPES = [
+  'Money', 'Clothes', 'Books', 'Stationery', 'Food Items',
+  'Toys', 'Electronics', 'Furniture', 'Medical Supplies', 'Other',
 ]
 
-// ════════════════════════════════════════════════════════════════════════════
-export default function Supporters() {
-  const { donors, pickups } = useApp()
+const EMPTY_FORM = {
+  name: '', mobile: '', house: '', city: 'Gurgaon', sector: '', society: '',
+  contributionType: '', lastSupportDate: '', notes: '',
+  isAlsoDonor: false,
+}
 
-  const [search,        setSearch]       = useState('')
-  const [filterType,    setFilterType]   = useState('all')
-  const [filterStatus,  setFilterStatus] = useState('')
-  const [filterCity,    setFilterCity]   = useState('')
-  const [filterSector,  setFilterSector] = useState('')
-  const [showFilters,   setShowFilters]  = useState(false)
-  const [sortKey,       setSortKey]      = useState('name')
-  const [sortDir,       setSortDir]      = useState('asc')
-  const [expanded,      setExpanded]     = useState({})
+// ── Role icon badges ──────────────────────────────────────────────────────────
+function RoleIcon({ donorType, size = 15 }) {
+  if (donorType === 'both') {
+    return (
+      <span title="RST/SKS Donor + Supporter"
+        style={{ fontSize: size, cursor: 'help', flexShrink: 0, letterSpacing: 1 }}>
+        👍❤️
+      </span>
+    )
+  }
+  return (
+    <span title="Supporter" style={{ fontSize: size, cursor: 'help', flexShrink: 0 }}>
+      ❤️
+    </span>
+  )
+}
+
+function StatusBadge({ status }) {
+  const cfg  = STATUS_CONFIG[status] || STATUS_CONFIG['New']
+  const Icon = cfg.icon
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 4,
+      padding: '3px 10px', borderRadius: 20,
+      fontSize: 11, fontWeight: 700,
+      background: cfg.bg, color: cfg.color,
+    }}>
+      <Icon size={10} />{cfg.label}
+    </span>
+  )
+}
+
+export default function Supporters() {
+  const { donors, addDonor, updateDonor, deleteDonor } = useApp()
+
+  const [modal,    setModal]    = useState(false)
+  const [editing,  setEditing]  = useState(null)
+  const [form,     setForm]     = useState(EMPTY_FORM)
+  const [saving,   setSaving]   = useState(false)
+  const [errors,   setErrors]   = useState({})
+  const [expanded, setExpanded] = useState({})
+
+  const [search,       setSearch]       = useState('')
+  const [filterStatus, setFilterStatus] = useState('all')
+  const [filterType,   setFilterType]   = useState('all')
+  const [filterCity,   setFilterCity]   = useState('')
+  const [filterSector, setFilterSector] = useState('')
+  const [showFilters,  setShowFilters]  = useState(false)
 
   const sectorOptions = useMemo(() => filterCity ? (CITY_SECTORS[filterCity] || []) : [], [filterCity])
+  const formSectors   = CITY_SECTORS[form.city] || []
 
-  // Build pickup lookup
-  const pickupsByDonor = useMemo(() => {
-    const map = {}
-    pickups.forEach(p => {
-      if (!map[p.donorId]) map[p.donorId] = []
-      map[p.donorId].push(p)
+  // ── Pull only supporters from donors array ────────────────────────────────
+  const supporters = useMemo(() =>
+    donors
+      .filter(d => d.donorType === 'supporter' || d.donorType === 'both')
+      .map(d => ({
+        ...d,
+        supporterStatus:  getSupporterStatus(d.lastSupportDate),
+        effectiveContrib: d.contributionType || d.supportContribution || '',
+      })),
+    [donors]
+  )
+
+  // ── KPIs ──────────────────────────────────────────────────────────────────
+  const kpis = useMemo(() => {
+    const c = { total: supporters.length, New: 0, Active: 0, 'At Risk': 0, Inactive: 0, both: 0, supporter: 0 }
+    supporters.forEach(d => {
+      c[d.supporterStatus] = (c[d.supporterStatus] || 0) + 1
+      if (d.donorType === 'both')      c.both++
+      if (d.donorType === 'supporter') c.supporter++
     })
-    return map
-  }, [pickups])
+    return c
+  }, [supporters])
 
-  // Enrich donors with category & segment
-  const enrichedDonors = useMemo(() => {
-    return donors
-      .filter(d => d.status !== 'Lost')  // exclude lost donors from main view
-      .map(d => {
-        const donorPickups = pickupsByDonor[d.id] || []
-        const category     = getDonorCategory(d, donorPickups)
-        const segment      = getDonorSegment(d)
-        const sksCount     = donorPickups.filter(p => p.status === 'Completed' && (p.sksItems || []).length > 0).length
-        const rstCount     = donorPickups.filter(p => p.status === 'Completed' && (p.rstItems || []).length > 0).length
-        const totalPickups = donorPickups.filter(p => p.status === 'Completed').length
-        const daysSince    = d.lastPickup ? differenceInDays(new Date(), parseISO(d.lastPickup)) : null
-        return { ...d, category, segment, sksCount, rstCount, totalPickups, daysSince }
-      })
-  }, [donors, pickupsByDonor])
-
-  // KPI counts
-  const kpis = useMemo(() => ({
-    total:       enrichedDonors.length,
-    both:        enrichedDonors.filter(d => d.category === 'both').length,
-    supporters:  enrichedDonors.filter(d => d.category === 'supporter').length,
-    contributors:enrichedDonors.filter(d => d.category === 'contributor').length,
-    active:      enrichedDonors.filter(d => d.segment === 'Active').length,
-    atRisk:      enrichedDonors.filter(d => d.segment === 'At Risk' || d.segment === 'Churned').length,
-  }), [enrichedDonors])
-
-  // Filter
+  // ── Filtered list ─────────────────────────────────────────────────────────
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim()
-    let rows = enrichedDonors.filter(d => {
+    return supporters.filter(d => {
       const mSearch = !q || d.name.toLowerCase().includes(q) || (d.mobile || '').includes(q) || (d.society || '').toLowerCase().includes(q) || (d.id || '').toLowerCase().includes(q)
-      const mType   = filterType === 'all' || d.category === filterType
-      const mStatus = !filterStatus || d.segment === filterStatus
+      const mStatus = filterStatus === 'all' || d.supporterStatus === filterStatus
+      const mType   = filterType   === 'all' || d.donorType       === filterType
       const mCity   = !filterCity   || d.city   === filterCity
       const mSector = !filterSector || d.sector === filterSector
-      return mSearch && mType && mStatus && mCity && mSector
+      return mSearch && mStatus && mType && mCity && mSector
     })
-    // Sort
-    rows.sort((a, b) => {
-      let av = a[sortKey] ?? '', bv = b[sortKey] ?? ''
-      if (sortKey === 'totalRST' || sortKey === 'totalPickups' || sortKey === 'sksCount') {
-        av = Number(av); bv = Number(bv)
-      } else {
-        if (typeof av === 'string') av = av.toLowerCase()
-        if (typeof bv === 'string') bv = bv.toLowerCase()
-      }
-      if (av < bv) return sortDir === 'asc' ? -1 : 1
-      if (av > bv) return sortDir === 'asc' ? 1 : -1
-      return 0
-    })
-    return rows
-  }, [enrichedDonors, search, filterType, filterStatus, filterCity, filterSector, sortKey, sortDir])
+  }, [supporters, search, filterStatus, filterType, filterCity, filterSector])
 
-  const toggleSort = (key) => {
-    setSortDir(d => sortKey === key ? (d === 'asc' ? 'desc' : 'asc') : 'asc')
-    setSortKey(key)
+  const hasFilters = filterCity || filterSector || filterType !== 'all'
+
+  // ── Modal helpers ─────────────────────────────────────────────────────────
+  const openModal = (s = null) => {
+    setEditing(s)
+    setErrors({})
+    setForm(s ? {
+      name:             s.name || '',
+      mobile:           s.mobile || '',
+      house:            s.house || '',
+      city:             s.city || 'Gurgaon',
+      sector:           s.sector || '',
+      society:          s.society || '',
+      contributionType: s.contributionType || s.supportContribution || '',
+      lastSupportDate:  s.lastSupportDate || '',
+      notes:            s.notes || '',
+      isAlsoDonor:      s.donorType === 'both',
+    } : EMPTY_FORM)
+    setModal(true)
+  }
+  const closeModal = () => { setModal(false); setEditing(null) }
+
+  const setField = (key, val) => {
+    setForm(f => {
+      const next = { ...f, [key]: val }
+      if (key === 'city')   { next.sector = ''; next.society = '' }
+      if (key === 'sector') { next.society = '' }
+      return next
+    })
+    setErrors(e => ({ ...e, [key]: '' }))
+  }
+
+  const validate = () => {
+    const e = {}
+    if (!form.name.trim())   e.name   = 'Name is required'
+    if (!form.mobile.trim() || form.mobile.length < 10) e.mobile = 'Valid 10-digit mobile required'
+    return e
+  }
+
+  const save = async () => {
+    const e = validate()
+    if (Object.keys(e).length) { setErrors(e); return }
+    setSaving(true)
+    try {
+      const payload = {
+        ...form,
+        donorType:          form.isAlsoDonor ? 'both' : 'supporter',
+        supportContribution: form.contributionType,
+      }
+      delete payload.isAlsoDonor
+      editing ? await updateDonor(editing.id, payload) : await addDonor(payload)
+      closeModal()
+    } finally { setSaving(false) }
+  }
+
+  const remove = async (id) => {
+    if (!confirm('Remove this supporter?')) return
+    await deleteDonor(id)
   }
 
   const toggleExpand = id => setExpanded(prev => ({ ...prev, [id]: !prev[id] }))
-  const hasFilters = filterStatus || filterCity || filterSector
-
-  const SortTh = ({ k, children, style: s }) => (
-    <th onClick={() => toggleSort(k)} style={{ cursor: 'pointer', userSelect: 'none', ...s }}>
-      {children}
-      {sortKey === k
-        ? <span style={{ marginLeft: 4, opacity: 0.6 }}>{sortDir === 'asc' ? '↑' : '↓'}</span>
-        : <span style={{ marginLeft: 4, opacity: 0.2 }}>↕</span>}
-    </th>
-  )
 
   const handleExport = () => {
     exportToExcel(filtered.map(d => ({
-      'ID':                 d.id,
-      'Name':               d.name,
-      'Mobile':             d.mobile || '—',
-      'Type':               CATEGORY_CONFIG[d.category]?.label || '—',
-      'Support Contribution': d.supportContribution || '—',
-      'Donor Status':       d.segment,
-      'City':               d.city || '—',
-      'Sector':             d.sector || '—',
-      'Society':            d.society || '—',
-      'House No':           d.house || '—',
-      'Last Pickup':        d.lastPickup ? fmtDate(d.lastPickup) : '—',
-      'Next Pickup':        d.nextPickup ? fmtDate(d.nextPickup) : '—',
-      'Total Pickups':      d.totalPickups,
-      'RST Pickups':        d.rstCount,
-      'SKS Pickups':        d.sksCount,
-      'Total RST Donated (₹)': d.totalRST || 0,
+      'ID':                d.id,
+      'Name':              d.name,
+      'Mobile':            d.mobile || '—',
+      'Role':              d.donorType === 'both' ? 'Donor + Supporter' : 'Supporter',
+      'Contribution Type': d.effectiveContrib || '—',
+      'Last Support Date': d.lastSupportDate ? fmtDate(d.lastSupportDate) : '—',
+      'Supporter Status':  d.supporterStatus,
+      'City':              d.city || '—',
+      'Sector':            d.sector || '—',
+      'Society':           d.society || '—',
+      'Notes':             d.notes || '—',
     })), 'Supporters_Export')
   }
 
+  const STATUS_TABS = [
+    { id: 'all',      label: 'All',           count: kpis.total },
+    { id: 'Active',   label: '✓ Active',       count: kpis['Active']   || 0 },
+    { id: 'At Risk',  label: '⚠ At Risk',      count: kpis['At Risk']  || 0 },
+    { id: 'Inactive', label: '✗ Inactive',     count: kpis['Inactive'] || 0 },
+    { id: 'New',      label: '✦ New',          count: kpis['New']      || 0 },
+  ]
+
+  const previewStatus = form.lastSupportDate ? getSupporterStatus(form.lastSupportDate) : null
+  const previewCfg    = previewStatus ? STATUS_CONFIG[previewStatus] : null
+
+  // ────────────────────────────────────────────────────────────────────────
   return (
     <div className="page-body">
 
-      {/* ── Header ── */}
-      <div style={{ marginBottom: 20, padding: '14px 18px', background: 'linear-gradient(135deg, #FDE7DA 0%, var(--secondary-light) 100%)', borderRadius: 'var(--radius)', border: '1px solid rgba(232,82,26,0.15)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+      {/* ── Header banner ── */}
+      <div style={{ marginBottom: 20, padding: '14px 18px', background: 'linear-gradient(135deg,#FDE7DA 0%,var(--secondary-light) 100%)', borderRadius: 'var(--radius)', border: '1px solid rgba(232,82,26,0.15)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ width: 42, height: 42, borderRadius: 10, background: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
           <Heart size={20} color="white" />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 16, color: 'var(--primary)' }}>Supporters & Contributors</div>
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>All donors, RST/SKS contributors and supporters in one view</div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+            People who support FreePathshala with money, goods, clothes, or other contributions
+          </div>
         </div>
-        <button className="btn btn-ghost btn-sm" onClick={handleExport} style={{ flexShrink: 0 }}>
-          <Download size={13} /> Export ({filtered.length})
-        </button>
+        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+          <button className="btn btn-ghost btn-sm" onClick={handleExport}>
+            <Download size={13} /> Export ({filtered.length})
+          </button>
+          <button className="btn btn-primary btn-sm" onClick={() => openModal()}>
+            <Plus size={13} /> Add Supporter
+          </button>
+        </div>
       </div>
 
-      {/* ── KPI Strip ── */}
+      {/* ── KPI Cards ── */}
       <div className="stat-grid" style={{ marginBottom: 20 }}>
         <div className="stat-card orange">
-          <div className="stat-icon"><Users size={18} /></div>
-          <div className="stat-value">{kpis.total}</div>
-          <div className="stat-label">Total Donors</div>
-        </div>
-        <div className="stat-card red">
           <div className="stat-icon"><Heart size={18} /></div>
-          <div className="stat-value">{kpis.supporters + kpis.both}</div>
-          <div className="stat-label">Supporters (incl. Both)</div>
+          <div className="stat-value">{kpis.total}</div>
+          <div className="stat-label">Total Supporters</div>
+          <div className="stat-change up">{kpis.both} also RST/SKS donors</div>
         </div>
         <div className="stat-card green">
-          <div className="stat-icon"><ThumbsUp size={18} /></div>
-          <div className="stat-value">{kpis.contributors + kpis.both}</div>
-          <div className="stat-label">RST/SKS Contributors</div>
-        </div>
-        <div className="stat-card blue">
           <div className="stat-icon"><CheckCircle size={18} /></div>
-          <div className="stat-value">{kpis.active}</div>
-          <div className="stat-label">Active Donors</div>
-          <div className="stat-change down">{kpis.atRisk} at risk / churned</div>
+          <div className="stat-value">{kpis['Active'] || 0}</div>
+          <div className="stat-label">Active (≤ 60 days)</div>
+        </div>
+        <div className="stat-card yellow">
+          <div className="stat-icon"><AlertCircle size={18} /></div>
+          <div className="stat-value">{kpis['At Risk'] || 0}</div>
+          <div className="stat-label">At Risk (61–120 days)</div>
+        </div>
+        <div className="stat-card red">
+          <div className="stat-icon"><UserX size={18} /></div>
+          <div className="stat-value">{kpis['Inactive'] || 0}</div>
+          <div className="stat-label">Inactive (&gt; 120 days)</div>
         </div>
       </div>
 
-      {/* ── Type filter tabs ── */}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
-        {TYPE_FILTERS.map(t => (
+      {/* ── Status tabs ── */}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
+        {STATUS_TABS.map(tab => (
           <button
-            key={t.id}
-            onClick={() => setFilterType(t.id)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 7, padding: '8px 16px',
-              borderRadius: 'var(--radius-sm)', border: `1.5px solid ${filterType === t.id ? 'var(--primary)' : 'var(--border)'}`,
-              background: filterType === t.id ? 'var(--primary-light)' : 'var(--surface)',
-              color: filterType === t.id ? 'var(--primary)' : 'var(--text-secondary)',
-              fontWeight: filterType === t.id ? 700 : 500, fontSize: 13, cursor: 'pointer', transition: 'all 0.15s',
-            }}
+            key={tab.id}
+            onClick={() => setFilterStatus(tab.id)}
+            className={`btn btn-sm ${filterStatus === tab.id ? 'btn-primary' : 'btn-ghost'}`}
+            style={{ fontSize: 12.5 }}
           >
-            {t.label}
-            <span style={{ background: filterType === t.id ? 'var(--primary)' : 'var(--border)', color: filterType === t.id ? 'white' : 'var(--text-muted)', borderRadius: 20, fontSize: 10.5, fontWeight: 700, padding: '1px 7px', minWidth: 20, textAlign: 'center' }}>
-              {t.id === 'all' ? kpis.total : t.id === 'both' ? kpis.both : t.id === 'supporter' ? kpis.supporters : kpis.contributors}
+            {tab.label}
+            <span style={{ marginLeft: 5, background: filterStatus === tab.id ? 'rgba(255,255,255,0.3)' : 'var(--border)', color: filterStatus === tab.id ? 'white' : 'var(--text-muted)', borderRadius: 20, fontSize: 10.5, padding: '1px 7px', fontWeight: 700 }}>
+              {tab.count}
             </span>
           </button>
         ))}
       </div>
 
-      {/* ── Search + Filters ── */}
+      {/* ── Search + filters ── */}
       <div style={{ marginBottom: 12 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
           <div style={{ position: 'relative', flex: '1 1 220px', minWidth: 0 }}>
@@ -285,20 +300,19 @@ export default function Supporters() {
           >
             <SlidersHorizontal size={13} />
             {hasFilters
-              ? <span style={{ background: 'var(--primary)', color: '#fff', borderRadius: '50%', width: 16, height: 16, fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{[filterStatus, filterCity, filterSector].filter(Boolean).length}</span>
-              : 'Filter'}
+              ? <span style={{ background: 'var(--primary)', color: '#fff', borderRadius: '50%', width: 16, height: 16, fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {[filterType !== 'all', filterCity, filterSector].filter(Boolean).length}
+                </span>
+              : 'Filters'}
           </button>
         </div>
 
         {showFilters && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 8, background: 'var(--bg)', borderRadius: 10, padding: 10, border: '1px solid var(--border-light)' }}>
-            <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ fontSize: 12.5 }}>
-              <option value="">All Statuses</option>
-              <option value="Active">Active</option>
-              <option value="Pickup Due">Pickup Due</option>
-              <option value="At Risk">At Risk</option>
-              <option value="Churned">Churned</option>
-              <option value="Postponed">Postponed</option>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(150px,1fr))', gap: 8, background: 'var(--bg)', borderRadius: 10, padding: 10, border: '1px solid var(--border-light)' }}>
+            <select value={filterType} onChange={e => setFilterType(e.target.value)} style={{ fontSize: 12.5 }}>
+              <option value="all">All Roles</option>
+              <option value="supporter">❤️ Supporter Only</option>
+              <option value="both">👍❤️ Donor + Supporter</option>
             </select>
             <select value={filterCity} onChange={e => { setFilterCity(e.target.value); setFilterSector('') }} style={{ fontSize: 12.5 }}>
               <option value="">All Cities</option>
@@ -309,7 +323,8 @@ export default function Supporters() {
               {sectorOptions.map(s => <option key={s}>{s}</option>)}
             </select>
             {hasFilters && (
-              <button className="btn btn-ghost btn-sm" style={{ fontSize: 11 }} onClick={() => { setFilterStatus(''); setFilterCity(''); setFilterSector('') }}>
+              <button className="btn btn-ghost btn-sm" style={{ fontSize: 11 }}
+                onClick={() => { setFilterType('all'); setFilterCity(''); setFilterSector('') }}>
                 <X size={10} /> Clear All
               </button>
             )}
@@ -317,140 +332,116 @@ export default function Supporters() {
         )}
       </div>
 
-      {/* Result count */}
       <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginBottom: 12 }}>
-        Showing <strong style={{ color: 'var(--text-primary)' }}>{filtered.length}</strong> of <strong>{enrichedDonors.length}</strong> donors
+        Showing <strong style={{ color: 'var(--text-primary)' }}>{filtered.length}</strong> of <strong>{supporters.length}</strong> supporters
       </div>
 
-      {/* ── Table ── */}
+      {/* ── Empty state ── */}
       {filtered.length === 0 ? (
         <div className="empty-state">
-          <div className="empty-icon"><Heart size={24} /></div>
-          <h3>No donors found</h3>
-          <p>Try adjusting your search or filters.</p>
+          <div className="empty-icon" style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}>
+            <Heart size={24} />
+          </div>
+          <h3>{supporters.length === 0 ? 'No Supporters Added Yet' : 'No Supporters Match'}</h3>
+          <p>{supporters.length === 0 ? 'Add your first supporter to get started tracking contributions.' : 'Try adjusting your search or filters.'}</p>
+          {supporters.length === 0 && (
+            <button className="btn btn-primary btn-sm" style={{ marginTop: 16 }} onClick={() => openModal()}>
+              <Plus size={13} /> Add First Supporter
+            </button>
+          )}
         </div>
       ) : (
         <>
+          {/* ── Desktop table ── */}
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th style={{ width: 28, padding: '10px 6px' }}></th>
-                  <SortTh k="id">ID</SortTh>
-                  <SortTh k="name">Name</SortTh>
+                  <th style={{ width: 28 }}></th>
+                  <th>ID</th>
+                  <th>Name</th>
+                  <th>Role</th>
                   <th>Mobile</th>
-                  <th>Type / Category</th>
-                  <th>Support Contribution</th>
-                  <SortTh k="segment">Donor Status</SortTh>
+                  <th>Contribution</th>
+                  <th>Last Support</th>
+                  <th>Status</th>
                   <th>Location</th>
-                  <SortTh k="lastPickup">Last Pickup</SortTh>
-                  <th>Next Pickup</th>
-                  <SortTh k="totalPickups">Pickups</SortTh>
-                  <SortTh k="sksCount">SKS</SortTh>
-                  <SortTh k="totalRST">RST Donated</SortTh>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map(d => {
-                  const isOpen   = !!expanded[d.id]
-                  const segCfg   = SEGMENT_CONFIG[d.segment] || SEGMENT_CONFIG['Active']
-                  const donorPks = pickupsByDonor[d.id] || []
-                  const recentPks = donorPks.filter(p => p.status === 'Completed').sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 5)
+                  const cfg     = STATUS_CONFIG[d.supporterStatus] || STATUS_CONFIG['New']
+                  const isOpen  = !!expanded[d.id]
+                  const hasNote = !!d.notes?.trim()
+                  const daysDiff = d.lastSupportDate
+                    ? differenceInDays(new Date(), parseISO(d.lastSupportDate))
+                    : null
 
                   return [
-                    <tr key={d.id} onClick={() => toggleExpand(d.id)} style={{ cursor: 'pointer' }}>
-                      {/* Expand */}
+                    <tr key={d.id} onClick={() => hasNote && toggleExpand(d.id)}
+                      style={{ cursor: hasNote ? 'pointer' : 'default' }}>
                       <td style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '11px 6px' }}>
-                        {recentPks.length > 0 ? (isOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />) : null}
+                        {hasNote ? (isOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />) : null}
                       </td>
-                      {/* ID */}
                       <td>
-                        <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 800, color: 'white', background: 'var(--primary)', padding: '2px 8px', borderRadius: 5 }}>{d.id}</span>
+                        <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 800, color: 'white', background: 'var(--primary)', padding: '2px 8px', borderRadius: 5 }}>
+                          {d.id}
+                        </span>
                       </td>
-                      {/* Name */}
                       <td>
                         <div style={{ fontWeight: 700, fontSize: 13 }}>{d.name}</div>
                         {d.house && <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{d.house}</div>}
                       </td>
-                      {/* Mobile */}
-                      <td style={{ fontSize: 12.5, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+                      <td><RoleIcon donorType={d.donorType} /></td>
+                      <td style={{ fontFamily: 'monospace', fontSize: 12.5 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                           <Phone size={10} color="var(--text-muted)" />
                           {d.mobile || '—'}
                         </div>
                       </td>
-                      {/* Type */}
-                      <td><CategoryBadge category={d.category} /></td>
-                      {/* Support Contribution */}
                       <td>
-                        {d.supportContribution?.trim()
-                          ? <span style={{ fontSize: 12, color: '#991B1B', background: '#FEE2E2', padding: '2px 8px', borderRadius: 20, fontWeight: 600 }}>❤️ {d.supportContribution}</span>
+                        {d.effectiveContrib
+                          ? <span style={{ fontSize: 12, padding: '2px 8px', borderRadius: 20, background: 'var(--danger-bg)', color: '#991B1B', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                              <Heart size={9} fill="#991B1B" /> {d.effectiveContrib}
+                            </span>
                           : <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>—</span>}
                       </td>
-                      {/* Status */}
-                      <td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                          <span style={{ width: 8, height: 8, borderRadius: '50%', background: segCfg.color, flexShrink: 0 }} />
-                          <StatusBadge segment={d.segment} />
-                        </div>
-                        {d.daysSince !== null && (
-                          <div style={{ fontSize: 10.5, color: segCfg.color, marginTop: 2, fontWeight: 600 }}>{d.daysSince}d ago</div>
-                        )}
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        {d.lastSupportDate ? (
+                          <>
+                            <div style={{ fontSize: 12.5, fontWeight: 600 }}>{fmtDate(d.lastSupportDate)}</div>
+                            <div style={{ fontSize: 11, color: cfg.color, fontWeight: 600, marginTop: 1 }}>
+                              {daysDiff}d ago
+                            </div>
+                          </>
+                        ) : <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>Not recorded</span>}
                       </td>
-                      {/* Location */}
+                      <td><StatusBadge status={d.supporterStatus} /></td>
                       <td>
-                        <div style={{ fontSize: 12.5, display: 'flex', alignItems: 'flex-start', gap: 4 }}>
-                          <MapPin size={10} color="var(--text-muted)" style={{ marginTop: 2, flexShrink: 0 }} />
-                          <div>
-                            {d.society && <div style={{ fontWeight: 500 }}>{d.society}</div>}
-                            <div style={{ color: 'var(--text-muted)', fontSize: 11.5 }}>{[d.sector, d.city].filter(Boolean).join(', ')}</div>
+                        <div style={{ fontSize: 12.5 }}>
+                          {d.society && <div style={{ fontWeight: 500 }}>{d.society}</div>}
+                          <div style={{ color: 'var(--text-muted)', fontSize: 11.5 }}>
+                            {[d.sector, d.city].filter(Boolean).join(', ')}
                           </div>
                         </div>
                       </td>
-                      {/* Last Pickup */}
-                      <td style={{ fontSize: 12.5, whiteSpace: 'nowrap' }}>{d.lastPickup ? fmtDate(d.lastPickup) : <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
-                      {/* Next Pickup */}
-                      <td style={{ fontSize: 12.5, whiteSpace: 'nowrap' }}>
-                        {d.nextPickup
-                          ? <span style={{ fontWeight: 600, color: new Date(d.nextPickup) < new Date() ? 'var(--danger)' : 'var(--info)' }}>{fmtDate(d.nextPickup)}</span>
-                          : <span style={{ color: 'var(--text-muted)' }}>—</span>}
-                      </td>
-                      {/* Total Pickups */}
-                      <td style={{ fontWeight: 700, textAlign: 'center' }}>{d.totalPickups}</td>
-                      {/* SKS */}
-                      <td style={{ textAlign: 'center' }}>
-                        {d.sksCount > 0
-                          ? <span style={{ background: 'var(--info-bg)', color: 'var(--info)', padding: '2px 8px', borderRadius: 20, fontSize: 11.5, fontWeight: 700 }}>{d.sksCount}</span>
-                          : <span style={{ color: 'var(--text-muted)' }}>—</span>}
-                      </td>
-                      {/* RST Donated */}
-                      <td style={{ fontWeight: 700, color: 'var(--secondary)' }}>
-                        {(d.totalRST || 0) > 0 ? fmtCurrency(d.totalRST) : <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>—</span>}
+                      <td onClick={e => e.stopPropagation()}>
+                        <div className="td-actions">
+                          <button className="btn btn-ghost btn-icon btn-sm" title="Edit" onClick={() => openModal(d)}>
+                            <Edit2 size={13} />
+                          </button>
+                          <button className="btn btn-danger btn-icon btn-sm" title="Remove" onClick={() => remove(d.id)}>
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
                       </td>
                     </tr>,
 
-                    // Expanded detail: recent pickups
-                    isOpen && recentPks.length > 0 && (
-                      <tr key={`${d.id}-detail`}>
-                        <td colSpan={13} style={{ padding: '12px 20px', background: 'var(--bg)', borderBottom: '2px solid var(--border-light)' }}>
-                          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.05em' }}>Recent Pickups</div>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                            {recentPks.map(p => (
-                              <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border-light)', flexWrap: 'wrap' }}>
-                                <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 700, color: 'var(--primary)', background: 'var(--primary-light)', padding: '1px 7px', borderRadius: 4 }}>{p.orderId || p.id}</span>
-                                <span style={{ fontSize: 12.5, fontWeight: 600 }}>{fmtDate(p.date)}</span>
-                                <span style={{ fontSize: 11, background: p.type === 'RST' ? 'var(--secondary-light)' : p.type === 'SKS' ? 'var(--info-bg)' : 'var(--warning-bg)', color: p.type === 'RST' ? 'var(--secondary)' : p.type === 'SKS' ? 'var(--info)' : '#92400E', padding: '1px 7px', borderRadius: 20, fontWeight: 600 }}>{p.type}</span>
-                                {(p.rstItems || []).slice(0, 3).map(item => (
-                                  <span key={item} style={{ fontSize: 10, padding: '1px 6px', borderRadius: 20, background: 'var(--secondary-light)', color: 'var(--secondary)', fontWeight: 600 }}>{item}</span>
-                                ))}
-                                {(p.sksItems || []).slice(0, 2).map(item => (
-                                  <span key={item} style={{ fontSize: 10, padding: '1px 6px', borderRadius: 20, background: 'var(--info-bg)', color: 'var(--info)', fontWeight: 600 }}>{item}</span>
-                                ))}
-                                {p.totalValue > 0 && <span style={{ marginLeft: 'auto', fontWeight: 700, color: 'var(--primary)' }}>{fmtCurrency(p.totalValue)}</span>}
-                                <span style={{ fontSize: 11, fontWeight: 600, color: p.kabadiwala ? 'var(--secondary)' : 'var(--text-muted)' }}>{p.kabadiwala || '—'}</span>
-                              </div>
-                            ))}
-                          </div>
+                    isOpen && hasNote && (
+                      <tr key={`${d.id}-note`}>
+                        <td colSpan={10} style={{ padding: '10px 20px', background: 'var(--bg)', fontSize: 12.5, color: 'var(--text-secondary)', fontStyle: 'italic', borderBottom: '1px solid var(--border-light)' }}>
+                          📝 {d.notes}
                         </td>
                       </tr>
                     ),
@@ -460,44 +451,211 @@ export default function Supporters() {
             </table>
           </div>
 
-          {/* Mobile cards */}
+          {/* ── Mobile cards ── */}
           <div className="mobile-cards">
             {filtered.map(d => {
-              const segCfg = SEGMENT_CONFIG[d.segment] || SEGMENT_CONFIG['Active']
+              const cfg     = STATUS_CONFIG[d.supporterStatus] || STATUS_CONFIG['New']
               return (
-                <div key={d.id} className="card" style={{ marginBottom: 10, padding: 14, borderLeft: `3px solid ${segCfg.color}` }}>
+                <div key={d.id} className="card" style={{ marginBottom: 10, padding: 14, borderLeft: `3px solid ${cfg.color}` }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                     <div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
                         <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 800, color: 'white', background: 'var(--primary)', padding: '1px 7px', borderRadius: 4 }}>{d.id}</span>
+                        <RoleIcon donorType={d.donorType} />
                         <div style={{ fontWeight: 700, fontSize: 14 }}>{d.name}</div>
                       </div>
-                      <div style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <Phone size={10} /> {d.mobile}
-                      </div>
+                      {d.mobile && (
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <Phone size={10} /> {d.mobile}
+                        </div>
+                      )}
                     </div>
-                    <StatusBadge segment={d.segment} />
+                    <StatusBadge status={d.supporterStatus} />
                   </div>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
-                    <CategoryBadge category={d.category} />
-                  </div>
-                  {d.supportContribution?.trim() && (
-                    <div style={{ fontSize: 12, color: '#991B1B', marginBottom: 4 }}>❤️ {d.supportContribution}</div>
+
+                  {d.effectiveContrib && (
+                    <div style={{ fontSize: 12, color: '#991B1B', background: 'var(--danger-bg)', padding: '3px 10px', borderRadius: 20, marginBottom: 6, display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 600 }}>
+                      <Heart size={9} fill="#991B1B" /> {d.effectiveContrib}
+                    </div>
                   )}
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <MapPin size={10} /> {[d.society, d.sector, d.city].filter(Boolean).join(', ')}
+                  {(d.society || d.sector || d.city) && (
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <MapPin size={10} /> {[d.society, d.sector, d.city].filter(Boolean).join(', ')}
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                      {d.lastSupportDate
+                        ? `Last support: ${fmtDate(d.lastSupportDate)}`
+                        : 'No support date recorded'}
+                    </div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button className="btn btn-ghost btn-icon btn-sm" onClick={() => openModal(d)}><Edit2 size={12} /></button>
+                      <button className="btn btn-danger btn-icon btn-sm" onClick={() => remove(d.id)}><Trash2 size={12} /></button>
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 12, fontSize: 12, flexWrap: 'wrap' }}>
-                    <span>Last: {d.lastPickup ? fmtDate(d.lastPickup) : '—'}</span>
-                    <span>{d.totalPickups} pickups</span>
-                    {d.sksCount > 0 && <span style={{ color: 'var(--info)' }}>SKS: {d.sksCount}</span>}
-                    {(d.totalRST || 0) > 0 && <span style={{ color: 'var(--secondary)', fontWeight: 700 }}>{fmtCurrency(d.totalRST)}</span>}
-                  </div>
+                  {d.notes?.trim() && (
+                    <div style={{ marginTop: 6, fontSize: 11.5, color: 'var(--text-muted)', fontStyle: 'italic', padding: '4px 8px', background: 'var(--bg)', borderRadius: 5 }}>
+                      📝 {d.notes}
+                    </div>
+                  )}
                 </div>
               )
             })}
           </div>
         </>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════════
+          ADD / EDIT MODAL
+      ════════════════════════════════════════════════════════════════════ */}
+      {modal && (
+        <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && closeModal()}>
+          <div className="modal" style={{ maxWidth: 580, width: '95vw' }}>
+
+            {/* Header */}
+            <div className="modal-header">
+              <Heart size={18} color="var(--primary)" />
+              <div className="modal-title">{editing ? 'Edit Supporter' : 'Add New Supporter'}</div>
+              {editing && (
+                <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 800, color: 'white', background: 'var(--primary)', padding: '2px 8px', borderRadius: 5 }}>
+                  {editing.id}
+                </span>
+              )}
+              <button className="btn btn-ghost btn-icon btn-sm" onClick={closeModal}><X size={16} /></button>
+            </div>
+
+            {/* Body */}
+            <div className="modal-body" style={{ maxHeight: '72vh', overflowY: 'auto' }}>
+              <div className="form-grid">
+
+                {/* Name */}
+                <div className="form-group">
+                  <label>Full Name <span className="required">*</span></label>
+                  <input value={form.name} onChange={e => setField('name', e.target.value)}
+                    placeholder="e.g. Priya Sharma" autoFocus />
+                  {errors.name && <div style={{ fontSize: 11.5, color: 'var(--danger)', marginTop: 3 }}>{errors.name}</div>}
+                </div>
+
+                {/* Mobile */}
+                <div className="form-group">
+                  <label>Mobile Number <span className="required">*</span></label>
+                  <input value={form.mobile}
+                    onChange={e => setField('mobile', e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    placeholder="10-digit mobile" inputMode="numeric" maxLength={10} />
+                  {errors.mobile && <div style={{ fontSize: 11.5, color: 'var(--danger)', marginTop: 3 }}>{errors.mobile}</div>}
+                </div>
+
+                {/* House */}
+                <div className="form-group">
+                  <label>House / Flat No.</label>
+                  <input value={form.house} onChange={e => setField('house', e.target.value)}
+                    placeholder="e.g. A-101" />
+                </div>
+
+                {/* City */}
+                <div className="form-group">
+                  <label>City</label>
+                  <select value={form.city} onChange={e => setField('city', e.target.value)}>
+                    {CITIES.map(c => <option key={c}>{c}</option>)}
+                  </select>
+                </div>
+
+                {/* Sector */}
+                <div className="form-group">
+                  <label>Sector / Area</label>
+                  <select value={form.sector} onChange={e => setField('sector', e.target.value)} disabled={!form.city}>
+                    <option value="">{form.city ? 'Select Sector' : 'Select City First'}</option>
+                    {formSectors.map(s => <option key={s}>{s}</option>)}
+                  </select>
+                </div>
+
+                {/* Society */}
+                <div className="form-group full">
+                  <label>Society / Colony</label>
+                  <SocietyInput city={form.city} sector={form.sector}
+                    value={form.society} onChange={val => setField('society', val)}
+                    id="supporter-modal" />
+                </div>
+
+                {/* Contribution type */}
+                <div className="form-group">
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <Heart size={12} color="var(--danger)" />
+                    Contribution Type
+                  </label>
+                  <select value={form.contributionType} onChange={e => setField('contributionType', e.target.value)}>
+                    <option value="">Select contribution type…</option>
+                    {CONTRIBUTION_TYPES.map(t => <option key={t}>{t}</option>)}
+                  </select>
+                </div>
+
+                {/* Last support date */}
+                <div className="form-group">
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <Calendar size={12} color="var(--info)" />
+                    Last Support Date
+                  </label>
+                  <input type="date" value={form.lastSupportDate}
+                    onChange={e => setField('lastSupportDate', e.target.value)} />
+                  {previewCfg && (
+                    <div style={{ fontSize: 11.5, marginTop: 4, display: 'flex', alignItems: 'center', gap: 5, color: previewCfg.color, fontWeight: 600 }}>
+                      Status preview: {previewStatus}
+                    </div>
+                  )}
+                </div>
+
+                {/* Notes */}
+                <div className="form-group full">
+                  <label>Notes</label>
+                  <textarea value={form.notes} onChange={e => setField('notes', e.target.value)}
+                    placeholder="Any additional info about this supporter…" style={{ minHeight: 68 }} />
+                </div>
+              </div>
+
+              {/* Also a Donor toggle */}
+              <div
+                style={{ marginTop: 16, padding: '14px 16px', borderRadius: 10, cursor: 'pointer', transition: 'all 0.15s', border: `2px solid ${form.isAlsoDonor ? 'var(--secondary)' : 'var(--border)'}`, background: form.isAlsoDonor ? 'var(--secondary-light)' : 'var(--surface)' }}
+                onClick={() => setField('isAlsoDonor', !form.isAlsoDonor)}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <input
+                    type="checkbox"
+                    checked={form.isAlsoDonor}
+                    onChange={e => setField('isAlsoDonor', e.target.checked)}
+                    onClick={e => e.stopPropagation()}
+                    style={{ width: 16, height: 16, accentColor: 'var(--secondary)', cursor: 'pointer', padding: 0, border: 'none', flexShrink: 0 }}
+                  />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700, fontSize: 13.5, color: form.isAlsoDonor ? 'var(--secondary)' : 'var(--text-primary)' }}>
+                      👍 Also an RST/SKS Donor
+                    </div>
+                    <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>
+                      This person also donates raddi/goods. They will appear in the Donors page too.
+                    </div>
+                  </div>
+                  {form.isAlsoDonor && (
+                    <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--secondary)', background: 'rgba(27,94,53,0.12)', padding: '4px 10px', borderRadius: 20, whiteSpace: 'nowrap' }}>
+                      👍❤️ Both
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={closeModal} disabled={saving}>Cancel</button>
+              <button
+                className="btn btn-primary"
+                onClick={save}
+                disabled={saving || !form.name.trim() || !form.mobile.trim()}
+              >
+                {saving ? 'Saving…' : editing ? 'Save Changes' : '+ Add Supporter'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

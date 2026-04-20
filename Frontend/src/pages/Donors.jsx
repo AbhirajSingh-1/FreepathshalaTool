@@ -3,7 +3,7 @@ import { useState, useMemo } from 'react'
 import {
   Search, Plus, Edit2, Trash2, X, Phone, MapPin,
   AlertTriangle, SlidersHorizontal, Clock, CheckCircle,
-  AlertCircle, UserX, Heart, ThumbsUp,
+  AlertCircle, UserX,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { deriveDonorStatus } from '../context/AppContext'
@@ -14,7 +14,7 @@ import { fmtDate, fmtCurrency, donorStatusColor } from '../utils/helpers'
 import { differenceInDays, parseISO } from 'date-fns'
 import SocietyInput from '../components/SocietyInput'
 
-// ── Operational health segments — Supporters segment removed (dedicated page now) ──
+// ── Segments — operational health only (supporters live on their own page) ───
 const SEGMENTS = [
   { id: 'all',        label: 'All',        color: 'var(--text-secondary)', bg: 'var(--border-light)', borderColor: 'var(--border)', icon: null },
   { id: 'Active',     label: 'Active',     color: 'var(--secondary)',      bg: 'var(--secondary-light)', borderColor: 'var(--secondary)', icon: CheckCircle, description: '1–30 days since last pickup', days: [1, 30] },
@@ -23,7 +23,6 @@ const SEGMENTS = [
   { id: 'Churned',    label: 'Churned',    color: 'var(--danger)',         bg: 'var(--danger-bg)',       borderColor: 'var(--danger)',    icon: UserX,        description: '>61 days since last pickup' },
 ]
 
-// ── Centralized donor status using single source of truth ────────────────────
 function getSegment(donor) {
   if (donor.status === 'Lost')      return 'Lost'
   if (donor.status === 'Postponed') return 'Postponed'
@@ -40,75 +39,21 @@ function daysSince(dateStr) {
   return differenceInDays(new Date(), parseISO(dateStr))
 }
 
-function getDonorCategory(donor, donorPickups) {
-  if (donor.donorType === 'both')      return 'both'
-  if (donor.donorType === 'supporter') return 'supporter'
-  if (donor.donorType === 'donor')     return 'contributor'
-
-  const completed   = donorPickups.filter(p => p.status === 'Completed')
-  const hasContrib  = completed.some(p =>
-    (p.rstItems?.length > 0 && (p.type === 'RST' || p.type === 'RST+SKS')) ||
-    (p.sksItems?.length > 0 && (p.type === 'SKS' || p.type === 'RST+SKS')) ||
-    p.totalValue > 0
-  )
-  const hasSupport  =
-    !!(donor.supportContribution?.trim()) ||
-    completed.some(p => p.rstItems?.includes('Others') || p.sksItems?.some(i => i?.startsWith('Others')))
-
-  if (hasContrib && hasSupport) return 'both'
-  if (hasSupport)               return 'supporter'
-  if (hasContrib)               return 'contributor'
-  return null
-}
-
-function CategoryBadge({ category }) {
-  if (!category) return null
-  const configs = {
-    both:        { label: '❤️ 👍', title: 'Supporter + Contributor', bg: 'linear-gradient(135deg,#FDE7DA 0%,#E8F5EE 100%)', border: '1px solid rgba(232,82,26,0.25)', color: 'var(--text-secondary)' },
-    supporter:   { label: '❤️',   title: 'Supporter (donated goods/money)',   bg: 'var(--danger-bg)',     border: '1px solid rgba(239,68,68,0.25)',  color: '#991B1B' },
-    contributor: { label: '👍',   title: 'RST/SKS Contributor',               bg: 'var(--secondary-light)', border: '1px solid rgba(27,94,53,0.25)', color: 'var(--secondary)' },
+// ── Icon badge — 👍 for donors, 👍❤️ for both ────────────────────────────────
+// Supporters-only (❤️) never appear on this page
+function CategoryBadge({ donorType }) {
+  if (donorType === 'both') {
+    return (
+      <span title="RST/SKS Donor + Supporter" style={{ fontSize: 15, cursor: 'help', flexShrink: 0, letterSpacing: 1 }}>
+        👍❤️
+      </span>
+    )
   }
-  const cfg = configs[category]
   return (
-    <span title={cfg.title} style={{ display:'inline-flex', alignItems:'center', padding:'2px 8px', borderRadius:20, fontSize:12, fontWeight:600, background:cfg.bg, border:cfg.border, color:cfg.color, flexShrink:0, cursor:'help' }}>
-      {cfg.label}
+    <span title="RST/SKS Donor" style={{ fontSize: 14, cursor: 'help', flexShrink: 0 }}>
+      👍
     </span>
   )
-}
-
-function DonorTypeRadio({ value, onChange }) {
-  const opts = [
-    { id: 'donor',     label: '👍 Donor',     desc: 'Donates RST / SKS items' },
-    { id: 'supporter', label: '❤️ Supporter', desc: 'Donates goods, money, clothes…' },
-    { id: 'both',      label: '❤️ 👍 Both',  desc: 'Both RST/SKS and support' },
-  ]
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {opts.map(o => (
-        <label key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 8, border: `2px solid ${value === o.id ? 'var(--primary)' : 'var(--border)'}`, background: value === o.id ? 'var(--primary-light)' : 'var(--surface)', cursor: 'pointer', transition: 'all 0.15s' }}>
-          <input
-            type="radio"
-            name="donorType"
-            value={o.id}
-            checked={value === o.id}
-            onChange={() => onChange(o.id)}
-            style={{ accentColor: 'var(--primary)', width: 16, height: 16, padding: 0, border: 'none', flexShrink: 0 }}
-          />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 700, fontSize: 13.5, color: value === o.id ? 'var(--primary-dark)' : 'var(--text-primary)' }}>{o.label}</div>
-            <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 1 }}>{o.desc}</div>
-          </div>
-        </label>
-      ))}
-    </div>
-  )
-}
-
-const EMPTY_FORM = {
-  name: '', mobile: '', house: '', society: '',
-  city: 'Gurgaon', sector: '',
-  donorType: 'donor',
-  lostReason: '', notes: '', supportContribution: '',
 }
 
 function SegmentChip({ segId }) {
@@ -140,14 +85,11 @@ function DonorIdBadge({ id }) {
   )
 }
 
-function SupportChip({ value }) {
-  if (!value?.trim()) return null
-  return (
-    <div style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'3px 10px', borderRadius:20, fontSize:11, fontWeight:600, background:'var(--danger-bg)', color:'#991B1B', border:'1px solid rgba(239,68,68,0.2)' }}>
-      <Heart size={10} fill="#991B1B" />
-      {value}
-    </div>
-  )
+const EMPTY_FORM = {
+  name: '', mobile: '', house: '', society: '',
+  city: 'Gurgaon', sector: '',
+  donorType: 'donor',
+  lostReason: '', notes: '',
 }
 
 export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
@@ -165,21 +107,6 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
   const [showFilters, setShowFilters]     = useState(false)
   const [activeSeg, setActiveSeg]         = useState('all')
 
-  const pickupsByDonor = useMemo(() => {
-    const map = {}
-    pickups.forEach(p => {
-      if (!map[p.donorId]) map[p.donorId] = []
-      map[p.donorId].push(p)
-    })
-    return map
-  }, [pickups])
-
-  const donorCategories = useMemo(() => {
-    const map = {}
-    donors.forEach(d => { map[d.id] = getDonorCategory(d, pickupsByDonor[d.id] || []) })
-    return map
-  }, [donors, pickupsByDonor])
-
   const sectorOptions = filterCity ? (CITY_SECTORS[filterCity] || []) : []
   const formSectors   = CITY_SECTORS[form.city] || []
 
@@ -188,26 +115,30 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
     ...donors.map(d => d.society).filter(Boolean),
   ])].sort(), [donors])
 
-  // Segment counts — without supporters (moved to dedicated page)
+  // ── Only count non-supporter donors in segment KPIs ──────────────────────
+  const actualDonors = useMemo(() =>
+    donors.filter(d => d.donorType !== 'supporter'),
+    [donors]
+  )
+
   const segCounts = useMemo(() => {
-    const counts = { all: donors.length }
-    donors.forEach(d => {
+    const counts = { all: actualDonors.length }
+    actualDonors.forEach(d => {
       const seg = getSegment(d)
       counts[seg] = (counts[seg] || 0) + 1
     })
     return counts
-  }, [donors])
+  }, [actualDonors])
 
+  // ── Filtered list — exclude supporter-only users ──────────────────────────
   const filtered = useMemo(() => {
     const q = search.toLowerCase()
     return donors.filter(d => {
-      const seg      = getSegment(d)
-      let matchSeg   = false
-      if (activeSeg === 'all') {
-        matchSeg = true
-      } else {
-        matchSeg = seg === activeSeg
-      }
+      // Exclude supporter-only — they live on the Supporters page
+      if (d.donorType === 'supporter') return false
+
+      const seg = getSegment(d)
+      let matchSeg = activeSeg === 'all' ? true : seg === activeSeg
       const matchQ      = !q || d.name.toLowerCase().includes(q) || d.mobile.includes(q) || d.society?.toLowerCase().includes(q) || d.id?.toLowerCase().includes(q)
       const matchCity   = !filterCity   || d.city === filterCity
       const matchSector = !filterSector || d.sector === filterSector
@@ -221,25 +152,31 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
   const openModal = (donor = null) => {
     setEditing(donor)
     setForm(donor
-      ? { ...EMPTY_FORM, ...donor, donorType: donor.donorType || 'donor', supportContribution: donor.supportContribution || '' }
+      ? { ...EMPTY_FORM, ...donor, donorType: donor.donorType || 'donor' }
       : EMPTY_FORM
     )
     setModal(true)
   }
   const closeModal = () => { setModal(false); setEditing(null) }
-  const setField   = (key, val) => setForm(f => {
-    const next = { ...f, [key]: val }
-    if (key === 'city') { next.sector = ''; next.society = '' }
-    if (key === 'sector') { next.society = '' }
-    if (key === 'donorType' && val === 'donor') next.supportContribution = ''
-    return next
-  })
+
+  const setField = (key, val) => {
+    setForm(f => {
+      const next = { ...f, [key]: val }
+      if (key === 'city')   { next.sector = ''; next.society = '' }
+      if (key === 'sector') { next.society = '' }
+      return next
+    })
+  }
 
   const save = async () => {
     if (!form.name.trim() || !form.mobile.trim()) return
     setSaving(true)
     try {
-      editing ? await updateDonor(editing.id, form) : await addDonor(form)
+      // When adding a new donor from this page, type is always 'donor'
+      // When editing a 'both' user, preserve their type
+      const data = { ...form }
+      if (!editing) data.donorType = 'donor'
+      editing ? await updateDonor(editing.id, data) : await addDonor(data)
       closeModal()
     } finally { setSaving(false) }
   }
@@ -258,7 +195,7 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
   return (
     <div className="page-body">
 
-      {/* ── Segment KPI cards (no supporters — dedicated page now) ── */}
+      {/* ── Segment KPI cards ── */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))', gap:12, marginBottom:20 }}>
         {SEGMENTS.filter(s => s.id !== 'all').map(seg => {
           const Icon    = seg.icon
@@ -287,12 +224,12 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
         })}
       </div>
 
-      {/* ── Supporters link ── */}
+      {/* ── Supporters link banner ── */}
       {onNav && (
         <div style={{ marginBottom: 14, padding: '10px 16px', background: 'linear-gradient(135deg,#FDE7DA,var(--secondary-light))', borderRadius: 10, border: '1px solid rgba(232,82,26,0.15)', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Heart size={14} color="var(--primary)" />
+          <span style={{ fontSize: 16 }}>❤️</span>
           <span style={{ fontSize: 13, color: 'var(--text-secondary)', flex: 1 }}>
-            <strong>Supporters, contributors & SKS donors</strong> — view detailed breakdown on the dedicated page
+            <strong>Supporters</strong> (goods, money, clothes) — managed separately
           </span>
           <button className="btn btn-outline btn-sm" onClick={() => onNav('supporters')}>
             View Supporters →
@@ -300,14 +237,12 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
         </div>
       )}
 
-      {/* ── Category legend ── */}
+      {/* ── Icon legend ── */}
       <div style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'center', padding:'8px 14px', background:'var(--bg)', borderRadius:8, border:'1px solid var(--border-light)', marginBottom:14, fontSize:12, color:'var(--text-muted)' }}>
         <span style={{ fontWeight:600, color:'var(--text-secondary)', marginRight:4 }}>Donor type:</span>
-        <span>👍 RST/SKS Contributor</span>
+        <span>👍 RST/SKS Donor</span>
         <span style={{ color:'var(--border)' }}>·</span>
-        <span>❤️ Supporter</span>
-        <span style={{ color:'var(--border)' }}>·</span>
-        <span>❤️ 👍 Both</span>
+        <span>👍❤️ Donor + Supporter</span>
       </div>
 
       {/* ── Search + filter bar ── */}
@@ -368,7 +303,7 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
       })()}
 
       <div style={{ fontSize:12, color:'var(--text-muted)', margin:'0 0 12px' }}>
-        Showing <strong>{filtered.length}</strong> of <strong>{donors.length}</strong> donors
+        Showing <strong>{filtered.length}</strong> of <strong>{actualDonors.length}</strong> donors
       </div>
 
       {/* ── Donor cards ── */}
@@ -386,7 +321,6 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
             const segDef   = SEGMENTS.find(s => s.id === seg)
             const overdue  = d.nextPickup && new Date(d.nextPickup) < new Date() && d.status === 'Active'
             const days     = daysSince(d.lastPickup)
-            const category = donorCategories[d.id]
 
             return (
               <div key={d.id} className="card" style={{ borderLeft:`3px solid ${segDef?.borderColor || 'var(--border-light)'}` }}>
@@ -398,7 +332,7 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
                     <div style={{ display:'flex', alignItems:'center', gap:7, flexWrap:'wrap', marginBottom:4 }}>
                       <DonorIdBadge id={d.id} />
                       <div style={{ fontWeight:700, fontSize:15, color:'var(--text-primary)' }}>{d.name}</div>
-                      <CategoryBadge category={category} />
+                      <CategoryBadge donorType={d.donorType} />
                       <SegmentChip segId={seg} />
                       <DaysSinceBadge lastPickup={d.lastPickup} />
                     </div>
@@ -409,11 +343,6 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
                       <MapPin size={10} style={{ flexShrink:0 }} />
                       <span className="truncate">{d.society}{d.sector && `, ${d.sector}`}, {d.city}</span>
                     </div>
-                    {d.supportContribution?.trim() && (
-                      <div style={{ marginTop:6 }}>
-                        <SupportChip value={d.supportContribution} />
-                      </div>
-                    )}
                   </div>
                   <div style={{ display:'flex', gap:4, flexShrink:0 }}>
                     <button className="btn btn-ghost btn-icon btn-sm" title="Edit" onClick={() => openModal(d)}><Edit2 size={13} /></button>
@@ -463,7 +392,7 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
         <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && closeModal()}>
           <div className="modal" style={{ maxWidth:600, width:'95vw' }}>
             <div className="modal-header">
-              <div className="modal-title">{editing ? 'Edit Donor' : 'Add New'}</div>
+              <div className="modal-title">{editing ? 'Edit Donor' : 'Add New Donor'}</div>
               {editing && (
                 <span style={{ fontSize:12, fontFamily:'monospace', fontWeight:800, color:'white', background:'var(--primary)', padding:'2px 10px', borderRadius:5 }}>
                   {editing.id}
@@ -504,36 +433,18 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
                     onChange={val => setField('society', val)} id="donors-modal" />
                 </div>
                 <div className="form-group full">
-                  <label style={{ marginBottom:8, display:'block' }}>
-                    Donor Type <span className="required">*</span>
-                  </label>
-                  <DonorTypeRadio value={form.donorType} onChange={val => setField('donorType', val)} />
-                </div>
-                {(form.donorType === 'supporter' || form.donorType === 'both') && (
-                  <div className="form-group full">
-                    <label style={{ display:'flex', alignItems:'center', gap:6 }}>
-                      <Heart size={12} color="var(--danger)" />
-                      Support Contribution
-                      <span style={{ fontSize:11, fontWeight:400, color:'var(--text-muted)', marginLeft:2 }}>(optional — goods, money, clothes, books, etc.)</span>
-                    </label>
-                    <input
-                      value={form.supportContribution}
-                      onChange={e => setField('supportContribution', e.target.value)}
-                      placeholder="e.g. Clothes, Books, Money, Stationery…"
-                    />
-                    {form.supportContribution?.trim() && (
-                      <div style={{ marginTop:6, padding:'6px 12px', background:'var(--danger-bg)', borderRadius:6, fontSize:12, color:'#991B1B', display:'flex', alignItems:'center', gap:6 }}>
-                        <Heart size={11} fill="#991B1B" />
-                        Tagged as <strong>❤️ {form.donorType === 'both' ? 'Supporter + Contributor' : 'Supporter'}</strong>
-                      </div>
-                    )}
-                  </div>
-                )}
-                <div className="form-group full">
                   <label>Notes</label>
                   <textarea value={form.notes} onChange={e => setField('notes', e.target.value)} placeholder="Any additional notes…" style={{ minHeight:72 }} />
                 </div>
               </div>
+
+              {/* Info strip for 'both' type donors (editing only) */}
+              {editing && editing.donorType === 'both' && (
+                <div style={{ marginTop: 14, padding: '10px 14px', background: 'linear-gradient(135deg,#FDE7DA,var(--secondary-light))', borderRadius: 8, fontSize: 12.5, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 16 }}>👍❤️</span>
+                  This person is also a Supporter. To change their supporter details, visit the <strong>Supporters page</strong>.
+                </div>
+              )}
             </div>
             <div className="modal-footer">
               <button className="btn btn-ghost" onClick={closeModal}>Cancel</button>
