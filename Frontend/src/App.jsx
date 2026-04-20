@@ -13,7 +13,7 @@ import PickupScheduler    from './pages/PickupScheduler'
 import PickupOverview     from './pages/PickupOverview'
 import RaddiMaster        from './pages/RaddiMaster'
 import SKSOverview        from './pages/SKSOverview'
-import TodayPickups       from './pages/TodayPickups'
+import TodayPickups       from './pages/Todaypickups'
 
 const PAGES = {
   dashboard:       Dashboard,
