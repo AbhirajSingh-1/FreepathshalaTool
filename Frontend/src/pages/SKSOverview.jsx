@@ -82,7 +82,7 @@ function getHistoryDateRange(preset, customFrom, customTo) {
   return { from: '', to: '' }
 }
 
-// ── Record Inflow panel ───────────────────────────────────────────────────────
+// ── Record Stock In panel ───────────────────────────────────────────────────────
 function RecordInflowPanel({ pickups, inflowedPickupIds, onAdd }) {
   const [selectedSociety, setSelectedSociety] = useState('')
   const [selectedPickup,  setSelectedPickup]  = useState('')
@@ -146,7 +146,7 @@ function RecordInflowPanel({ pickups, inflowedPickupIds, onAdd }) {
     <div className="card" style={{ height:'100%' }}>
       <div className="card-header" style={{ background:'linear-gradient(135deg,#E8F5EE 0%,#f8fff9 100%)' }}>
         <ArrowDownCircle size={18} color="var(--secondary)" />
-        <div className="card-title" style={{ color:'var(--secondary)' }}>Record Inflow</div>
+        <div className="card-title" style={{ color:'var(--secondary)' }}>Stock In</div>
         {saved && (
           <span style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:5, fontSize:12, fontWeight:700, color:'var(--secondary)', background:'var(--secondary-light)', padding:'3px 10px', borderRadius:20 }}>
             <CheckCircle size={12} /> Saved!
@@ -247,14 +247,14 @@ function RecordInflowPanel({ pickups, inflowedPickupIds, onAdd }) {
         )}
 
         <button className="btn btn-secondary" onClick={handleAdd} disabled={!canAdd} style={{ width:'100%', justifyContent:'center', padding:'10px', fontSize:14, fontWeight:700, background: canAdd ? 'var(--secondary)' : 'var(--border)', opacity: canAdd ? 1 : 0.5 }}>
-          <ArrowDownCircle size={16} /> Record Inflow
+          <ArrowDownCircle size={16} /> Stock In
         </button>
       </div>
     </div>
   )
 }
 
-// ── Record Outflow panel ──────────────────────────────────────────────────────
+// ── Record Stock Out panel ──────────────────────────────────────────────────────
 function RecordOutflowPanel({ stock, onAdd }) {
   const [partnerName,  setPartnerName]  = useState('')
   const [partnerPhone, setPartnerPhone] = useState('')
@@ -279,7 +279,7 @@ function RecordOutflowPanel({ stock, onAdd }) {
     <div className="card" style={{ height:'100%' }}>
       <div className="card-header" style={{ background:'linear-gradient(135deg,#FDE7DA 0%,#fff9f7 100%)' }}>
         <ArrowUpCircle size={18} color="var(--primary)" />
-        <div className="card-title" style={{ color:'var(--primary)' }}>Record Outflow</div>
+        <div className="card-title" style={{ color:'var(--primary)' }}>Stock Out</div>
         {saved && (
           <span style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:5, fontSize:12, fontWeight:700, color:'var(--primary)', background:'var(--primary-light)', padding:'3px 10px', borderRadius:20 }}>
             <CheckCircle size={12} /> Dispatched!
@@ -305,7 +305,7 @@ function RecordOutflowPanel({ stock, onAdd }) {
         <div>
           <label style={{ fontSize:12.5, fontWeight:700, color:'var(--primary)', marginBottom:8, display:'block' }}>Items to Dispatch (from current stock)</label>
           {availableItems.length === 0 ? (
-            <div style={{ padding:'20px', textAlign:'center', color:'var(--text-muted)', fontSize:13, background:'var(--bg)', borderRadius:8 }}>No items in stock yet. Record inflow first.</div>
+            <div style={{ padding:'20px', textAlign:'center', color:'var(--text-muted)', fontSize:13, background:'var(--bg)', borderRadius:8 }}>No items in stock yet. Stock In first.</div>
           ) : (
             <div style={{ border:'1.5px solid var(--primary)', borderRadius:8, overflow:'hidden' }}>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 80px 100px', padding:'6px 12px', background:'var(--primary-light)', fontSize:10.5, fontWeight:700, color:'var(--primary)', textTransform:'uppercase' }}>
@@ -337,7 +337,7 @@ function RecordOutflowPanel({ stock, onAdd }) {
         </div>
 
         <button className="btn btn-primary" onClick={handleAdd} disabled={!canAdd} style={{ width:'100%', justifyContent:'center', padding:'10px', fontSize:14, fontWeight:700, opacity: canAdd ? 1 : 0.5 }}>
-          <ArrowUpCircle size={16} /> Record Outflow
+          <ArrowUpCircle size={16} />Stock Out
         </button>
       </div>
     </div>
@@ -585,7 +585,7 @@ export default function SKSOverview() {
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20, flexWrap:'wrap', gap:10 }}>
         <div className="tabs" style={{ marginBottom:0 }}>
           <button className={`tab ${section === 'record' ? 'active' : ''}`} onClick={() => setSection('record')}>
-            📋 Record Inflow / Outflow
+            📋 Stock In / Out
           </button>
           <button className={`tab ${section === 'warehouse' ? 'active' : ''}`} onClick={() => setSection('warehouse')}>
             📦 Warehouse & History

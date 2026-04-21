@@ -20,7 +20,7 @@ const buildNav = (role) => {
       { id: 'pickups',        label: 'Record Pickup',    icon: Truck },
       { id: 'pickuppartners', label: 'Pickup Partners',  icon: UserCheck },
       { section: 'Warehouse' },
-      { id: 'sksoverview',    label: 'SKS Overview',     icon: Shirt },
+      { id: 'sksoverview',    label: 'SKS Stock',     icon: Shirt },
     ]
   }
 
@@ -43,7 +43,7 @@ const buildNav = (role) => {
     ),
     { section: 'Insights' },
     ...(isAdmin || isManager
-      ? [{ id: 'sksoverview', label: 'SKS Overview', icon: Shirt }]
+      ? [{ id: 'sksoverview', label: 'SKS Stock', icon: Shirt }]
       : []
     ),
     ...(isAdmin

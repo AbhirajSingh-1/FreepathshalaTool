@@ -12,7 +12,7 @@ const PAGE_META = {
   todaypickups:    { title: "Today's Pickups",        sub: 'Your pickup assignments for today' },
   pickupoverview:  { title: 'Pickup Overview',        sub: 'Individual & drive analytics — admin view' },
   raddimaster:     { title: 'Raddi Master',           sub: 'Complete pickup data — all orders in one view' },
-  sksoverview:     { title: 'SKS Overview',           sub: 'Warehouse tracking for donated goods' },
+  sksoverview:     { title: 'SKS Stock',           sub: 'Warehouse tracking for donated goods' },
 }
 
 export default function Header({ page, onMenuClick }) {
@@ -33,11 +33,7 @@ export default function Header({ page, onMenuClick }) {
         </div>
       </div>
 
-      <div className="header-actions">
-        <button className="btn btn-ghost btn-icon" title="Notifications">
-          <Bell size={18} />
-        </button>
-      </div>
+       
     </header>
   )
 }

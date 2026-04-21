@@ -1,16 +1,27 @@
 // Frontend/src/pages/Payments.jsx
-import { useMemo, useState } from 'react'
+// ══════════════════════════════════════════════════════════════════════════════
+// PICKUP PARTNER PAYMENT MODULE — Central Financial Engine
+// Source of Truth: All changes auto-sync to Dashboard, Raddi Master, Analytics
+// via AppContext shared state — no duplication, no mismatch.
+// ══════════════════════════════════════════════════════════════════════════════
+
+import { useMemo, useState, useCallback } from 'react'
 import {
   AlertCircle, BarChart3, Calendar, CheckCircle, CreditCard,
   Download, FileText, History, Image, IndianRupee, AlertTriangle,
   Plus, Search, Smartphone, Upload, X, Hash, MapPin,
+  ChevronDown, ChevronUp, TrendingUp, Truck, Clock,
+  Star, Phone, Filter, Lock, RefreshCw, Package,
 } from 'lucide-react'
 import { useApp }  from '../context/AppContext'
 import { useRole } from '../context/RoleContext'
 import { fmtDate, fmtCurrency, exportToExcel } from '../utils/helpers'
 import { CITIES, CITY_SECTORS } from '../data/mockData'
 
-// ── Constants ────────────────────────────────────────────────────────────────
+// ── Payment status priority (lower = shown first) ─────────────────────────────
+const STATUS_PRIORITY = { 'Not Paid': 0, 'Partially Paid': 1, 'Paid': 2, 'Write Off': 3 }
+
+// ── Payment methods ───────────────────────────────────────────────────────────
 const REF_MODES = [
   { value: 'cash',   label: 'Cash',          icon: IndianRupee,  placeholder: 'Receipt number (optional)' },
   { value: 'upi',    label: 'UPI',           icon: Smartphone,   placeholder: 'UPI transaction ID' },
@@ -25,104 +36,1068 @@ const DATE_PRESETS = [
   { id: 'custom',     label: 'Custom' },
 ]
 
-const refModeLabel = (mode) => REF_MODES.find(r => r.value === mode)?.label || mode || 'Recorded'
+// ── Helpers ───────────────────────────────────────────────────────────────────
 const money = (n) => fmtCurrency(Number(n) || 0)
+const refModeLabel = (m) => REF_MODES.find(r => r.value === m)?.label || m || 'Cash'
+const padM = (n) => String(n).padStart(2, '0')
 
 function getDateRange(preset, customFrom, customTo) {
   const now = new Date()
   const fmt = d => d.toISOString().slice(0, 10)
   const y = now.getFullYear(), m = now.getMonth()
-  if (preset === 'month') return { from: `${y}-${String(m + 1).padStart(2, '0')}-01`, to: fmt(now) }
+  if (preset === 'month') return { from: `${y}-${padM(m + 1)}-01`, to: fmt(now) }
   if (preset === 'last_month') {
-    const lm = m === 0 ? 11 : m - 1, ly = m === 0 ? y - 1 : y
+    const lm = m === 0 ? 11 : m - 1; const ly = m === 0 ? y - 1 : y
     const last = new Date(ly, lm + 1, 0).getDate()
-    return { from: `${ly}-${String(lm + 1).padStart(2, '0')}-01`, to: `${ly}-${String(lm + 1).padStart(2, '0')}-${String(last).padStart(2, '0')}` }
+    return { from: `${ly}-${padM(lm + 1)}-01`, to: `${ly}-${padM(lm + 1)}-${padM(last)}` }
   }
   if (preset === 'custom') return { from: customFrom || '', to: customTo || '' }
   return { from: '', to: '' }
 }
 
-// ── Shared UI pieces ──────────────────────────────────────────────────────────
-function OrderIdChip({ orderId, id }) {
-  const v = orderId || id
-  if (!v) return null
+// Compute monthly breakdown for a partner's pickups
+function buildMonthlyBreakdown(pickups) {
+  const map = {}
+  pickups.forEach(p => {
+    const key = (p.date || '').slice(0, 7)
+    if (!key) return
+    if (!map[key]) map[key] = { month: key, count: 0, total: 0, paid: 0, pending: 0 }
+    const total = Number(p.totalValue) || 0
+    const paid  = Math.min(total, Number(p.amountPaid) || 0)
+    const pend  = Math.max(0, total - paid)
+    map[key].count++
+    map[key].total   += total
+    map[key].paid    += paid
+    map[key].pending += pend
+  })
+  return Object.entries(map)
+    .sort(([a], [b]) => b.localeCompare(a))
+    .map(([, v]) => v)
+}
+
+function getPickupPayStatus(total, paid) {
+  const t = Number(total) || 0; const p = Number(paid) || 0
+  if (t === 0) return 'Not Paid'
+  if (p >= t)  return 'Paid'
+  if (p > 0)   return 'Partially Paid'
+  return 'Not Paid'
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SHARED UI COMPONENTS
+// ══════════════════════════════════════════════════════════════════════════════
+
+function OrderIdChip({ id }) {
+  if (!id) return null
   return (
-    <span style={{ display:'inline-flex', alignItems:'center', gap:3, fontFamily:'monospace', fontSize:10.5, fontWeight:700, color:'var(--primary)', background:'var(--primary-light)', padding:'2px 7px', borderRadius:5, whiteSpace:'nowrap' }}>
-      <Hash size={9}/>{v}
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 3,
+      fontFamily: 'monospace', fontSize: 10.5, fontWeight: 700,
+      color: 'var(--primary)', background: 'var(--primary-light)',
+      padding: '2px 7px', borderRadius: 5, border: '1px solid rgba(232,82,26,0.18)',
+      whiteSpace: 'nowrap', flexShrink: 0,
+    }}>
+      <Hash size={9} />{id}
     </span>
   )
 }
 
 function PayBadge({ status }) {
-  const map = {
-    Received:        { bg:'var(--secondary-light)', color:'var(--secondary)' },
-    'Yet to Receive':{ bg:'var(--warning-bg)',       color:'#92400E' },
-    'Write-off':     { bg:'var(--danger-bg)',        color:'var(--danger)' },
-    Paid:            { bg:'var(--secondary-light)', color:'var(--secondary)' },
-    'Not Paid':      { bg:'var(--danger-bg)',        color:'var(--danger)' },
-    'Partially Paid':{ bg:'var(--warning-bg)',       color:'#92400E' },
-    'Write Off':     { bg:'var(--danger-bg)',        color:'var(--danger)' },
-    Completed:       { bg:'var(--secondary-light)', color:'var(--secondary)' },
-    Partial:         { bg:'var(--warning-bg)',       color:'#92400E' },
-    Pending:         { bg:'var(--danger-bg)',        color:'var(--danger)' },
+  const MAP = {
+    'Paid':            { bg: 'var(--secondary-light)', color: 'var(--secondary)' },
+    'Not Paid':        { bg: 'var(--danger-bg)',        color: 'var(--danger)'   },
+    'Partially Paid':  { bg: 'var(--warning-bg)',       color: '#92400E'         },
+    'Write Off':       { bg: 'var(--border-light)',     color: 'var(--text-muted)' },
+    'Received':        { bg: 'var(--secondary-light)', color: 'var(--secondary)' },
+    'Yet to Receive':  { bg: 'var(--warning-bg)',       color: '#92400E'         },
+    'Write-off':       { bg: 'var(--border-light)',     color: 'var(--text-muted)' },
   }
-  const c = map[status] || { bg:'var(--border-light)', color:'var(--text-muted)' }
+  const c = MAP[status] || { bg: 'var(--border-light)', color: 'var(--text-muted)' }
   return (
-    <span style={{ display:'inline-flex', alignItems:'center', padding:'3px 9px', borderRadius:20, fontSize:11, fontWeight:700, whiteSpace:'nowrap', background:c.bg, color:c.color }}>
+    <span style={{
+      display: 'inline-flex', alignItems: 'center',
+      padding: '3px 9px', borderRadius: 20, fontSize: 11, fontWeight: 700,
+      background: c.bg, color: c.color, whiteSpace: 'nowrap',
+    }}>
       {status}
     </span>
   )
 }
 
-function DateBar({ preset, setPreset, customFrom, setCustomFrom, customTo, setCustomTo }) {
+function StatusDot({ status }) {
+  const colors = {
+    'Not Paid': 'var(--danger)', 'Partially Paid': 'var(--warning)',
+    'Paid': 'var(--secondary)', 'Write Off': 'var(--text-muted)',
+  }
   return (
-    <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
-      <Calendar size={13} color="var(--primary)" />
-      <span style={{ fontSize:11, fontWeight:700, color:'var(--text-muted)', textTransform:'uppercase', flexShrink:0 }}>Pickup Date:</span>
-      {DATE_PRESETS.map(p => (
-        <button key={p.id} className={`btn btn-sm ${preset===p.id?'btn-primary':'btn-ghost'}`} style={{ fontSize:11.5 }} onClick={() => setPreset(p.id)}>
-          {p.label}
-        </button>
-      ))}
-      {preset === 'custom' && (
-        <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
-          <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} style={{ width:138, fontSize:12 }} />
-          <span style={{ fontSize:11, color:'var(--text-muted)' }}>to</span>
-          <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} style={{ width:138, fontSize:12 }} />
-        </div>
-      )}
-    </div>
+    <span style={{
+      display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
+      background: colors[status] || 'var(--border)', flexShrink: 0,
+    }} />
   )
 }
 
-function StatStrip({ items }) {
+function PaymentMethodPicker({ value, onChange }) {
   return (
-    <div className="stat-grid" style={{ marginBottom:16 }}>
-      {items.map(item => {
-        const Icon = item.icon
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+      {REF_MODES.map(mode => {
+        const Icon = mode.icon; const active = value === mode.value
         return (
-          <div key={item.label} className={`stat-card ${item.tone||'orange'}`}>
-            <div className="stat-icon">{Icon && <Icon size={18}/>}</div>
-            <div className="stat-value">{item.value}</div>
-            <div className="stat-label">{item.label}</div>
-          </div>
+          <button key={mode.value} type="button" onClick={() => onChange(mode.value)}
+            style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 12px', borderRadius: 8, fontSize: 12.5, cursor: 'pointer', fontWeight: active ? 700 : 400, border: `1.5px solid ${active ? 'var(--primary)' : 'var(--border)'}`, background: active ? 'var(--primary-light)' : 'transparent', color: active ? 'var(--primary)' : 'var(--text-secondary)' }}>
+            <Icon size={13} />{mode.label}
+          </button>
         )
       })}
     </div>
   )
 }
 
-// ── RST Revenue Analytics ─────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+// RECORD PAYMENT MODAL
+// ══════════════════════════════════════════════════════════════════════════════
+
+function RecordPaymentModal({ context, onClose, onSave, onWriteOff, saving, isAdmin }) {
+  // context: { partnerName, kabId, mobile, pickupId, donorName, total, paid, pending, isPartnerLevel }
+  const [amount,     setAmount]     = useState(() => context.pending > 0 ? String(Math.round(context.pending)) : '')
+  const [date,       setDate]       = useState(() => new Date().toISOString().slice(0, 10))
+  const [method,     setMethod]     = useState('cash')
+  const [reference,  setReference]  = useState('')
+  const [notes,      setNotes]      = useState('')
+  const [screenshot, setScreenshot] = useState(null)
+  const [writeOff,   setWriteOff]   = useState(false)
+  const [error,      setError]      = useState('')
+
+  const entered    = Number(amount) || 0
+  const afterPay   = Math.max(0, context.pending - entered)
+  const isFull     = entered >= context.pending - 0.01
+  const selectedMode = REF_MODES.find(r => r.value === method)
+
+  const handleScreenshot = (e) => {
+    const file = e.target.files?.[0]; if (!file) return
+    const reader = new FileReader()
+    reader.onload = ev => setScreenshot(ev.target.result)
+    reader.readAsDataURL(file)
+  }
+
+  const handleSave = () => {
+    if (context.pending <= 0) { setError('No pending amount to record.'); return }
+    if (!writeOff && entered <= 0) { setError('Enter a valid amount.'); return }
+    if (!writeOff && entered > context.pending + 0.01) { setError('Amount cannot exceed pending balance.'); return }
+    if (!writeOff && method !== 'cash' && !reference.trim()) { setError(`Enter ${refModeLabel(method)} reference.`); return }
+    if (writeOff && !notes.trim()) { setError('Reason is required for write-off.'); return }
+    onSave({ amount: entered, date, method, reference: reference.trim(), notes: notes.trim(), screenshot, writeOff, isFull })
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 560 }}>
+
+        {/* Header */}
+        <div className="modal-header">
+          <IndianRupee size={18} color="var(--primary)" />
+          <div>
+            <div className="modal-title" style={{ fontSize: 15 }}>
+              {context.isPartnerLevel ? `Record Payment — ${context.partnerName}` : `Record Payment`}
+            </div>
+            {!context.isPartnerLevel && context.donorName && (
+              <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>
+                {context.donorName} · <OrderIdChip id={context.pickupId} />
+              </div>
+            )}
+          </div>
+          <button className="btn btn-ghost btn-icon btn-sm" style={{ marginLeft: 'auto' }} onClick={onClose}><X size={16} /></button>
+        </div>
+
+        <div className="modal-body" style={{ overflowY: 'auto', maxHeight: '72vh' }}>
+
+          {/* Summary strip */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 1, background: 'var(--border-light)', borderRadius: 10, overflow: 'hidden', marginBottom: 18 }}>
+            {[
+              { label: 'Total', val: money(context.total), color: 'var(--primary)', bg: 'var(--primary-light)' },
+              { label: 'Already Paid', val: money(context.paid), color: 'var(--secondary)', bg: 'var(--secondary-light)' },
+              { label: 'Pending', val: money(context.pending), color: context.pending > 0 ? 'var(--danger)' : 'var(--secondary)', bg: context.pending > 0 ? 'var(--danger-bg)' : 'var(--secondary-light)' },
+            ].map(item => (
+              <div key={item.label} style={{ padding: '12px 14px', background: item.bg, textAlign: 'center' }}>
+                <div style={{ fontSize: 9.5, color: item.color, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', opacity: 0.8, marginBottom: 3 }}>{item.label}</div>
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 800, color: item.color }}>{item.val}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* No pending alert */}
+          {context.pending <= 0 && (
+            <div className="alert-strip alert-success" style={{ marginBottom: 14 }}>
+              <CheckCircle size={14} /> This pickup is fully paid. No pending balance.
+            </div>
+          )}
+
+          {/* Write-off toggle */}
+          {isAdmin && context.pending > 0 && (
+            <div style={{ marginBottom: 16, padding: '12px 14px', background: writeOff ? 'var(--danger-bg)' : 'var(--bg)', borderRadius: 10, border: `1.5px solid ${writeOff ? 'var(--danger)' : 'var(--border-light)'}`, transition: 'all 0.15s' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: writeOff ? 'var(--danger)' : 'var(--text-primary)' }}>Write Off Balance</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>Mark {money(context.pending)} as unrecoverable.</div>
+                </div>
+                <button type="button" onClick={() => { setWriteOff(wo => !wo); setError('') }}
+                  style={{ padding: '6px 14px', borderRadius: 8, fontSize: 12.5, cursor: 'pointer', fontWeight: 700, border: `1.5px solid ${writeOff ? 'var(--danger)' : 'var(--border)'}`, background: writeOff ? 'var(--danger)' : 'transparent', color: writeOff ? 'white' : 'var(--danger)', transition: 'all 0.15s' }}>
+                  {writeOff ? '✓ Write Off Selected' : 'Select Write Off'}
+                </button>
+              </div>
+              {writeOff && (
+                <div className="alert-strip alert-danger" style={{ marginTop: 10, marginBottom: 0 }}>
+                  <AlertTriangle size={13} /> All pending will be marked as <strong>Write Off</strong>.
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Payment form */}
+          {!writeOff && context.pending > 0 && (
+            <div className="form-grid">
+              <div className="form-group full">
+                <label>Amount Received Now (₹) <span className="required">*</span></label>
+                <input type="number" min={0} max={context.pending} inputMode="decimal"
+                  value={amount} onChange={e => { setAmount(e.target.value); setError('') }}
+                  placeholder={`Max ${money(context.pending)}`} autoFocus />
+                {entered > 0 && (
+                  <div style={{ marginTop: 8, padding: '9px 12px', background: 'var(--surface)', border: '1px solid var(--border-light)', borderRadius: 8, fontSize: 12.5, display: 'flex', gap: 14 }}>
+                    <span>Remaining: <strong style={{ color: afterPay > 0 ? 'var(--danger)' : 'var(--secondary)' }}>{money(afterPay)}</strong></span>
+                    <span>Status after: <strong>{afterPay > 0 ? 'Partial' : '✓ Fully Paid'}</strong></span>
+                  </div>
+                )}
+              </div>
+              <div className="form-group">
+                <label>Payment Date <span className="required">*</span></label>
+                <input type="date" value={date} onChange={e => setDate(e.target.value)} />
+              </div>
+              <div className="form-group full">
+                <label>Payment Method <span className="required">*</span></label>
+                <PaymentMethodPicker value={method} onChange={m => { setMethod(m); setReference(''); setScreenshot(null); setError('') }} />
+              </div>
+              <div className="form-group full">
+                <label>{refModeLabel(method)} Reference {method !== 'cash' && <span className="required">*</span>}</label>
+                <input value={reference} onChange={e => { setReference(e.target.value); setError('') }}
+                  placeholder={selectedMode?.placeholder || 'Reference'} />
+              </div>
+              {method === 'upi' && (
+                <div className="form-group full">
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Image size={13} color="var(--info)" />UPI Screenshot</label>
+                  {screenshot ? (
+                    <div style={{ position: 'relative', display: 'inline-block' }}>
+                      <img src={screenshot} alt="UPI screenshot" style={{ maxWidth: 220, maxHeight: 180, borderRadius: 8, border: '1px solid var(--border)', display: 'block' }} />
+                      <button type="button" onClick={() => setScreenshot(null)} style={{ position: 'absolute', top: 6, right: 6, width: 24, height: 24, borderRadius: 8, border: 'none', background: 'var(--danger)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={12} /></button>
+                    </div>
+                  ) : (
+                    <label className="btn btn-ghost" style={{ width: '100%', justifyContent: 'center', borderStyle: 'dashed' }}>
+                      <Upload size={15} /> Upload Screenshot
+                      <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleScreenshot} />
+                    </label>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="form-group" style={{ marginTop: writeOff ? 0 : 8 }}>
+            <label>Notes {writeOff && <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--danger)' }}>(required for write-off)</span>}</label>
+            <textarea value={notes} onChange={e => setNotes(e.target.value)}
+              placeholder={writeOff ? 'Reason for writing off…' : 'Payment notes…'}
+              style={{ minHeight: 68 }} />
+          </div>
+
+          {error && (
+            <div style={{ fontSize: 12, color: 'var(--danger)', marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <AlertCircle size={13} />{error}
+            </div>
+          )}
+        </div>
+
+        <div className="modal-footer">
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          {writeOff ? (
+            <button className="btn btn-danger" onClick={handleSave} disabled={saving || !notes.trim()}>
+              {saving ? 'Processing…' : `✗ Write Off ${money(context.pending)}`}
+            </button>
+          ) : (
+            <button className="btn btn-primary" onClick={handleSave} disabled={saving || context.pending <= 0 || entered <= 0}>
+              {saving ? 'Saving…' : isFull ? '✓ Clear Balance' : 'Record Payment'}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PAYMENT HISTORY MODAL
+// ══════════════════════════════════════════════════════════════════════════════
+
+function HistoryModal({ partner, onClose }) {
+  const entries = (partner.history || []).sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+  return (
+    <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 600 }}>
+        <div className="modal-header">
+          <History size={18} color="var(--info)" />
+          <div className="modal-title">Payment History — {partner.partnerName}</div>
+          <button className="btn btn-ghost btn-icon btn-sm" style={{ marginLeft: 'auto' }} onClick={onClose}><X size={16} /></button>
+        </div>
+        <div className="modal-body">
+          {entries.length === 0 ? (
+            <div className="empty-state" style={{ padding: 28 }}><p>No payment history recorded yet.</p></div>
+          ) : entries.map((e, i) => (
+            <div key={`${e.pickupId}-${e.date}-${i}`} style={{ display: 'flex', gap: 12, padding: '12px 0', borderBottom: i < entries.length - 1 ? '1px solid var(--border-light)' : 'none' }}>
+              <div style={{ width: 36, height: 36, borderRadius: 8, background: e.refMode === 'writeoff' ? 'var(--danger-bg)' : 'var(--secondary-light)', color: e.refMode === 'writeoff' ? 'var(--danger)' : 'var(--secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                {e.refMode === 'writeoff' ? <AlertTriangle size={16} /> : <IndianRupee size={16} />}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <strong style={{ color: e.refMode === 'writeoff' ? 'var(--danger)' : 'var(--secondary)' }}>
+                    {e.refMode === 'writeoff' ? 'Write-off' : money(e.amount)}
+                  </strong>
+                  <span className="badge badge-muted" style={{ fontSize: 10 }}>{refModeLabel(e.refMode)}</span>
+                  <OrderIdChip id={e.orderId || e.pickupId} />
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+                  {e.donorName || '—'}{e.refValue ? ` — Ref: ${e.refValue}` : ''}
+                </div>
+                {e.notes && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3 }}>{e.notes}</div>}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap', flexShrink: 0 }}>{fmtDate(e.date)}</div>
+            </div>
+          ))}
+        </div>
+        <div className="modal-footer"><button className="btn btn-ghost" onClick={onClose}>Close</button></div>
+      </div>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MONTHLY BREAKDOWN TABLE
+// ══════════════════════════════════════════════════════════════════════════════
+
+function MonthlyBreakdown({ pickups }) {
+  const months = useMemo(() => buildMonthlyBreakdown(pickups), [pickups])
+  if (months.length === 0) return null
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
+        <Calendar size={11} color="var(--primary)" /> Monthly Breakdown
+      </div>
+      <div style={{ border: '1px solid var(--border-light)', borderRadius: 8, overflow: 'hidden' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '90px 60px 1fr 1fr 1fr', padding: '6px 12px', background: 'var(--surface-alt)', fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+          <span>Month</span><span style={{ textAlign: 'center' }}>Pickups</span><span style={{ textAlign: 'right' }}>Value</span><span style={{ textAlign: 'right' }}>Received</span><span style={{ textAlign: 'right' }}>Pending</span>
+        </div>
+        {months.map((m, idx) => {
+          const [y, mo] = m.month.split('-')
+          const label = new Date(Number(y), Number(mo) - 1, 1).toLocaleString('default', { month: 'short', year: '2-digit' })
+          return (
+            <div key={m.month} style={{ display: 'grid', gridTemplateColumns: '90px 60px 1fr 1fr 1fr', padding: '7px 12px', fontSize: 12.5, borderTop: idx > 0 ? '1px solid var(--border-light)' : 'none', background: idx % 2 === 0 ? 'var(--surface)' : 'var(--bg)', alignItems: 'center' }}>
+              <span style={{ fontWeight: 700, fontFamily: 'monospace', fontSize: 12 }}>{label}</span>
+              <span style={{ textAlign: 'center', fontWeight: 600, color: 'var(--text-secondary)' }}>{m.count}</span>
+              <span style={{ textAlign: 'right', fontWeight: 600 }}>{m.total > 0 ? money(m.total) : '—'}</span>
+              <span style={{ textAlign: 'right', fontWeight: 700, color: 'var(--secondary)' }}>{m.paid > 0 ? money(m.paid) : '—'}</span>
+              <span style={{ textAlign: 'right', fontWeight: 700, color: m.pending > 0 ? 'var(--danger)' : 'var(--text-muted)' }}>
+                {m.pending > 0 ? money(m.pending) : <span style={{ fontWeight: 400, fontSize: 11 }}>Nil</span>}
+              </span>
+            </div>
+          )
+        })}
+        {/* Totals */}
+        {(() => {
+          const tot = months.reduce((a, m) => ({ total: a.total + m.total, paid: a.paid + m.paid, pending: a.pending + m.pending, count: a.count + m.count }), { total: 0, paid: 0, pending: 0, count: 0 })
+          return (
+            <div style={{ display: 'grid', gridTemplateColumns: '90px 60px 1fr 1fr 1fr', padding: '8px 12px', background: 'var(--secondary-light)', fontWeight: 800, fontSize: 12.5, borderTop: '1.5px solid rgba(27,94,53,0.2)' }}>
+              <span style={{ color: 'var(--secondary)' }}>Total</span>
+              <span style={{ textAlign: 'center', color: 'var(--secondary)' }}>{tot.count}</span>
+              <span style={{ textAlign: 'right', color: 'var(--primary)' }}>{money(tot.total)}</span>
+              <span style={{ textAlign: 'right', color: 'var(--secondary)' }}>{money(tot.paid)}</span>
+              <span style={{ textAlign: 'right', color: tot.pending > 0 ? 'var(--danger)' : 'var(--secondary)' }}>
+                {tot.pending > 0 ? money(tot.pending) : 'All clear ✓'}
+              </span>
+            </div>
+          )
+        })()}
+      </div>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PICKUP LEDGER — Smart sorted pickup list within a partner
+// ══════════════════════════════════════════════════════════════════════════════
+
+function PickupLedger({ pickups, onRecordPayment, sortKey, setSortKey, sortDir, setSortDir, search, setSearch }) {
+  const enriched = useMemo(() => {
+    return pickups.map(p => {
+      const total   = Number(p.totalValue) || 0
+      const paid    = Math.min(total, Number(p.amountPaid) || 0)
+      const pending = Math.max(0, total - paid)
+      const ps      = p.paymentStatus || getPickupPayStatus(total, paid)
+      return { ...p, _total: total, _paid: paid, _pending: pending, _ps: ps }
+    })
+  }, [pickups])
+
+  // Smart sort: priority first, then by selected key
+  const sorted = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    const filtered = q
+      ? enriched.filter(r =>
+          (r.donorName || '').toLowerCase().includes(q) ||
+          (r.society   || '').toLowerCase().includes(q) ||
+          (r.sector    || '').toLowerCase().includes(q) ||
+          (r.orderId   || '').toLowerCase().includes(q))
+      : enriched
+
+    return [...filtered].sort((a, b) => {
+      // Primary: status priority
+      const ap = STATUS_PRIORITY[a._ps] ?? 99
+      const bp = STATUS_PRIORITY[b._ps] ?? 99
+      if (ap !== bp) return ap - bp
+
+      // Secondary: user's sort key
+      let av = a[sortKey] ?? '', bv = b[sortKey] ?? ''
+      if (['_total', '_paid', '_pending'].includes(sortKey)) {
+        return sortDir === 'asc' ? Number(av) - Number(bv) : Number(bv) - Number(av)
+      }
+      return sortDir === 'asc' ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av))
+    })
+  }, [enriched, search, sortKey, sortDir])
+
+  const toggleSort = k => {
+    setSortDir(d => sortKey === k ? (d === 'asc' ? 'desc' : 'asc') : 'desc')
+    setSortKey(k)
+  }
+
+  const Th = ({ k, label, align }) => (
+    <th onClick={() => toggleSort(k)} style={{ cursor: 'pointer', userSelect: 'none', textAlign: align || 'left', whiteSpace: 'nowrap' }}>
+      {label}
+      <span style={{ marginLeft: 4, opacity: sortKey === k ? 0.7 : 0.2 }}>
+        {sortKey === k ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
+      </span>
+    </th>
+  )
+
+  const totals = useMemo(() => sorted.reduce((a, r) => ({
+    total: a.total + r._total, paid: a.paid + r._paid, pending: a.pending + r._pending
+  }), { total: 0, paid: 0, pending: 0 }), [sorted])
+
+  const statusStyle = ps => ({
+    'Paid':           { bg: 'var(--secondary-light)', color: 'var(--secondary)' },
+    'Not Paid':       { bg: 'var(--danger-bg)',        color: 'var(--danger)' },
+    'Partially Paid': { bg: 'var(--warning-bg)',       color: '#92400E' },
+    'Write Off':      { bg: 'var(--border-light)',     color: 'var(--text-muted)' },
+  }[ps] || { bg: 'var(--border-light)', color: 'var(--text-muted)' })
+
+  return (
+    <div>
+      {/* Ledger search */}
+      <div style={{ marginBottom: 10, position: 'relative' }}>
+        <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Filter by donor, society, sector, order…"
+          style={{ paddingLeft: 32, fontSize: 12.5, width: '100%' }} />
+      </div>
+
+      {/* Priority legend */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+        <span style={{ fontSize: 10.5, color: 'var(--text-muted)', fontWeight: 600 }}>Sort order:</span>
+        {['Not Paid', 'Partially Paid', 'Paid', 'Write Off'].map((s, i) => {
+          const sc = statusStyle(s)
+          return (
+            <span key={s} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, padding: '2px 8px', borderRadius: 20, background: sc.bg, color: sc.color, fontWeight: 700 }}>
+              {i + 1}. {s}
+            </span>
+          )
+        })}
+      </div>
+
+      {sorted.length === 0 ? (
+        <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>No pickups match your search.</div>
+      ) : (
+        <>
+          {/* Desktop table */}
+          <div className="table-wrap" style={{ boxShadow: 'none', border: '1px solid var(--border-light)' }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Status</th>
+                  <Th k="orderId" label="Order ID" />
+                  <Th k="donorName" label="Donor" />
+                  <th>Location</th>
+                  <Th k="date" label="Pickup Date" />
+                  <th>RST Items</th>
+                  <Th k="_total" label="Value ₹" align="right" />
+                  <Th k="_paid" label="Paid ₹" align="right" />
+                  <Th k="_pending" label="Pending ₹" align="right" />
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map(r => {
+                  const sc = statusStyle(r._ps)
+                  const isPending = r._ps === 'Not Paid' || r._ps === 'Partially Paid'
+                  return (
+                    <tr key={r.id || r.orderId} style={{ background: r._pending > 0 ? 'rgba(239,68,68,0.025)' : 'transparent' }}>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <StatusDot status={r._ps} />
+                          <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 20, background: sc.bg, color: sc.color, fontWeight: 700 }}>{r._ps}</span>
+                        </div>
+                      </td>
+                      <td><OrderIdChip id={r.orderId || r.id} /></td>
+                      <td>
+                        <div style={{ fontWeight: 600, fontSize: 13 }}>{r.donorName || '—'}</div>
+                        {r.mobile && <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'monospace' }}>{r.mobile}</div>}
+                      </td>
+                      <td style={{ fontSize: 12, color: 'var(--text-secondary)', maxWidth: 130 }}>
+                        <div style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.society || '—'}</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{r.sector || ''}</div>
+                      </td>
+                      <td style={{ whiteSpace: 'nowrap', fontSize: 12.5, fontWeight: 600 }}>{fmtDate(r.date)}</td>
+                      <td>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2, maxWidth: 130 }}>
+                          {(r.rstItems || []).slice(0, 3).map(item => (
+                            <span key={item} style={{ fontSize: 9.5, padding: '1px 5px', borderRadius: 20, background: 'var(--secondary-light)', color: 'var(--secondary)', fontWeight: 600, whiteSpace: 'nowrap' }}>{item}</span>
+                          ))}
+                          {(r.rstItems || []).length > 3 && <span style={{ fontSize: 9.5, color: 'var(--text-muted)' }}>+{r.rstItems.length - 3}</span>}
+                          {!(r.rstItems || []).length && <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>SKS only</span>}
+                        </div>
+                      </td>
+                      <td style={{ textAlign: 'right', fontWeight: 800, color: r._total > 0 ? 'var(--primary)' : 'var(--text-muted)' }}>
+                        {r._total > 0 ? money(r._total) : '—'}
+                      </td>
+                      <td style={{ textAlign: 'right', fontWeight: 700, color: r._paid > 0 ? 'var(--secondary)' : 'var(--text-muted)' }}>
+                        {r._paid > 0 ? money(r._paid) : '—'}
+                      </td>
+                      <td style={{ textAlign: 'right', fontWeight: 800, color: r._pending > 0 ? 'var(--danger)' : 'var(--text-muted)' }}>
+                        {r._pending > 0 ? money(r._pending) : '—'}
+                      </td>
+                      <td>
+                        {isPending && r._pending > 0 ? (
+                          <button className="btn btn-outline btn-sm"
+                            onClick={() => onRecordPayment({ pickup: r, isPartnerLevel: false })}
+                            style={{ fontSize: 11.5, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px' }}>
+                            <Plus size={11} /> Pay
+                          </button>
+                        ) : (
+                          <span style={{ fontSize: 11, color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                            {r._ps === 'Paid' ? '✓ Paid' : r._ps === 'Write Off' ? 'Written off' : '—'}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+              {sorted.length > 1 && (
+                <tfoot>
+                  <tr style={{ background: 'var(--secondary-light)', fontWeight: 800 }}>
+                    <td colSpan={6} style={{ fontWeight: 700 }}>Totals ({sorted.length} pickups)</td>
+                    <td style={{ textAlign: 'right', color: 'var(--primary)' }}>{money(totals.total)}</td>
+                    <td style={{ textAlign: 'right', color: 'var(--secondary)' }}>{money(totals.paid)}</td>
+                    <td style={{ textAlign: 'right', color: totals.pending > 0 ? 'var(--danger)' : 'var(--secondary)' }}>
+                      {totals.pending > 0 ? money(totals.pending) : 'All clear ✓'}
+                    </td>
+                    <td />
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+
+          {/* Mobile cards */}
+          <div className="mobile-cards">
+            {sorted.map(r => {
+              const sc = statusStyle(r._ps)
+              const isPending = r._ps === 'Not Paid' || r._ps === 'Partially Paid'
+              return (
+                <div key={r.id || r.orderId} className="card" style={{ marginBottom: 8, padding: 12, borderLeft: `3px solid ${sc.color}` }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+                    <div>
+                      <OrderIdChip id={r.orderId || r.id} />
+                      <div style={{ fontWeight: 700, fontSize: 13.5, marginTop: 4 }}>{r.donorName || '—'}</div>
+                    </div>
+                    <span style={{ fontSize: 10.5, padding: '3px 9px', borderRadius: 20, background: sc.bg, color: sc.color, fontWeight: 700, alignSelf: 'flex-start', whiteSpace: 'nowrap' }}>{r._ps}</span>
+                  </div>
+                  {(r.society || r.sector) && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 3 }}><MapPin size={10} /> {[r.society, r.sector].filter(Boolean).join(', ')}</div>}
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>📅 {fmtDate(r.date)}</div>
+                  <div style={{ display: 'flex', gap: 10, fontSize: 12.5, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      {r._total > 0 && <span style={{ color: 'var(--primary)', fontWeight: 700 }}>{money(r._total)}</span>}
+                      {r._paid  > 0 && <span style={{ color: 'var(--secondary)', fontWeight: 700 }}>Paid {money(r._paid)}</span>}
+                      {r._pending > 0 && <span style={{ color: 'var(--danger)', fontWeight: 700 }}>Due {money(r._pending)}</span>}
+                    </div>
+                    {isPending && r._pending > 0 && (
+                      <button className="btn btn-outline btn-sm" onClick={() => onRecordPayment({ pickup: r, isPartnerLevel: false })} style={{ fontSize: 11, padding: '4px 10px' }}>
+                        <Plus size={10} /> Record
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PARTNER CARD — Collapsible partner view
+// ══════════════════════════════════════════════════════════════════════════════
+
+function PartnerCard({ partner, onRecordPayment, onViewHistory, isAdmin }) {
+  const [open,      setOpen]     = useState(false)
+  const [sortKey,   setSortKey]  = useState('date')
+  const [sortDir,   setSortDir]  = useState('desc')
+  const [ledSearch, setLedSearch] = useState('')
+
+  const statusCounts = useMemo(() => {
+    const c = { 'Not Paid': 0, 'Partially Paid': 0, 'Paid': 0, 'Write Off': 0 }
+    partner.records.forEach(p => {
+      const ps = p.paymentStatus || getPickupPayStatus(p.totalValue, p.amountPaid)
+      c[ps] = (c[ps] || 0) + 1
+    })
+    return c
+  }, [partner.records])
+
+  const urgentCount = (statusCounts['Not Paid'] || 0) + (statusCounts['Partially Paid'] || 0)
+
+  return (
+    <div className="card" style={{ marginBottom: 16, borderLeft: `4px solid ${urgentCount > 0 ? 'var(--danger)' : 'var(--secondary)'}`, transition: 'box-shadow 0.15s' }}>
+
+      {/* ── Partner Header ── */}
+      <div style={{ padding: '16px 20px' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, flexWrap: 'wrap' }}>
+
+          {/* Avatar */}
+          <div style={{ width: 48, height: 48, borderRadius: 12, background: urgentCount > 0 ? 'var(--danger-bg)' : 'var(--secondary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 800, color: urgentCount > 0 ? 'var(--danger)' : 'var(--secondary)', flexShrink: 0 }}>
+            {(partner.partnerName || '?')[0].toUpperCase()}
+          </div>
+
+          {/* Info */}
+          <div style={{ flex: '1 1 180px', minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
+              {partner.kabId && <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 800, color: 'white', background: 'var(--secondary)', padding: '2px 8px', borderRadius: 5 }}>{partner.kabId}</span>}
+              <div style={{ fontWeight: 800, fontSize: 15.5, color: 'var(--text-primary)' }}>{partner.partnerName}</div>
+              {urgentCount > 0 && (
+                <span style={{ fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'var(--danger-bg)', color: 'var(--danger)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                  ⚠ {urgentCount} pending
+                </span>
+              )}
+            </div>
+            {partner.mobile && (
+              <div style={{ fontSize: 12.5, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 3 }}>
+                <Phone size={11} /> {partner.mobile}
+              </div>
+            )}
+            {/* Status distribution pills */}
+            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 6 }}>
+              {Object.entries(statusCounts).filter(([, c]) => c > 0).map(([s, c]) => {
+                const colors = { 'Not Paid': ['var(--danger-bg)', 'var(--danger)'], 'Partially Paid': ['var(--warning-bg)', '#92400E'], 'Paid': ['var(--secondary-light)', 'var(--secondary)'], 'Write Off': ['var(--border-light)', 'var(--text-muted)'] }
+                const [bg, color] = colors[s] || ['var(--border-light)', 'var(--text-muted)']
+                return (
+                  <span key={s} style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 20, background: bg, color, fontWeight: 700 }}>
+                    {c} {s}
+                  </span>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Financial summary */}
+          <div style={{ display: 'flex', gap: 0, flexShrink: 0, borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border-light)' }}>
+            {[
+              { label: 'Total', val: money(partner.total), color: 'var(--primary)', bg: 'var(--primary-light)' },
+              { label: 'Received', val: money(partner.paid), color: 'var(--secondary)', bg: 'var(--secondary-light)' },
+              { label: 'Pending', val: money(partner.pending), color: partner.pending > 0 ? 'var(--danger)' : 'var(--secondary)', bg: partner.pending > 0 ? 'var(--danger-bg)' : 'var(--surface)' },
+            ].map((item, i) => (
+              <div key={item.label} style={{ padding: '10px 16px', textAlign: 'center', background: item.bg, borderLeft: i > 0 ? '1px solid var(--border-light)' : 'none' }}>
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: item.color, lineHeight: 1, whiteSpace: 'nowrap' }}>{item.val}</div>
+                <div style={{ fontSize: 9.5, color: item.color, opacity: 0.75, textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 3, fontWeight: 700 }}>{item.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Collection progress bar */}
+        {partner.total > 0 && (
+          <div style={{ marginTop: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', marginBottom: 4, fontWeight: 600 }}>
+              <span>Collection progress</span>
+              <span style={{ color: 'var(--secondary)', fontWeight: 700 }}>{Math.round((partner.paid / partner.total) * 100)}%</span>
+            </div>
+            <div style={{ height: 6, background: 'var(--border-light)', borderRadius: 4, overflow: 'hidden' }}>
+              <div style={{ height: '100%', borderRadius: 4, width: `${Math.min(100, (partner.paid / partner.total) * 100)}%`, background: partner.pending === 0 ? 'var(--secondary)' : partner.paid / partner.total > 0.7 ? 'var(--warning)' : 'var(--danger)', transition: 'width 0.5s ease' }} />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Action Bar ── */}
+      <div style={{ padding: '10px 20px', borderTop: '1px solid var(--border-light)', background: 'var(--bg)', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', flex: 1 }}>
+          <strong style={{ color: 'var(--text-primary)' }}>{partner.records.length}</strong> pickup{partner.records.length !== 1 ? 's' : ''}
+          {partner.lastPaymentDate && <span> · Last payment: <strong>{fmtDate(partner.lastPaymentDate)}</strong></span>}
+        </div>
+        <button className="btn btn-ghost btn-sm" onClick={() => onViewHistory(partner)} style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+          <History size={12} /> History
+        </button>
+        <button
+          className={`btn btn-sm ${open ? 'btn-outline' : 'btn-ghost'}`}
+          onClick={() => setOpen(o => !o)}
+          style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+          {open ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+          {open ? 'Collapse' : 'View Pickups'}
+        </button>
+        {partner.pending > 0 && (
+          <button className="btn btn-primary btn-sm" onClick={() => onRecordPayment({ partner, isPartnerLevel: true })} style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Plus size={12} /> Record Payment
+          </button>
+        )}
+        {partner.pending === 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 700, color: 'var(--secondary)', padding: '6px 12px', background: 'var(--secondary-light)', borderRadius: 8 }}>
+            <CheckCircle size={13} /> All Clear
+          </div>
+        )}
+      </div>
+
+      {/* ── Expanded: Monthly Breakdown + Pickup Ledger ── */}
+      {open && (
+        <div style={{ padding: '16px 20px', borderTop: '1px solid var(--border-light)', background: 'var(--surface)' }}>
+          <MonthlyBreakdown pickups={partner.records} />
+          <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Truck size={13} color="var(--primary)" />
+            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Pickup Ledger — {partner.records.length} records
+            </span>
+          </div>
+          <PickupLedger
+            pickups={partner.records}
+            onRecordPayment={onRecordPayment}
+            sortKey={sortKey} setSortKey={setSortKey}
+            sortDir={sortDir} setSortDir={setSortDir}
+            search={ledSearch} setSearch={setLedSearch}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PARTNER PAYMENT HUB — Main enhanced tracking view
+// ══════════════════════════════════════════════════════════════════════════════
+
+function PartnerPaymentHub({ pickups, kabadiwalas, recordKabadiwalaPayment, clearPartnerBalance }) {
+  const { role } = useRole()
+  const isAdmin  = role === 'admin'
+
+  // Filters
+  const [datePreset,   setDatePreset]   = useState('all')
+  const [customFrom,   setCustomFrom]   = useState('')
+  const [customTo,     setCustomTo]     = useState('')
+  const [filterKab,    setFilterKab]    = useState('All')
+  const [filterStatus, setFilterStatus] = useState('All')
+  const [globalSearch, setGlobalSearch] = useState('')
+  const [showFilters,  setShowFilters]  = useState(false)
+
+  // Modals
+  const [payContext,    setPayContext]    = useState(null)  // { partner, pickup, isPartnerLevel }
+  const [histPartner,   setHistPartner]  = useState(null)
+  const [saving,        setSaving]       = useState(false)
+
+  const { from: dateFrom, to: dateTo } = useMemo(
+    () => getDateRange(datePreset, customFrom, customTo),
+    [datePreset, customFrom, customTo]
+  )
+
+  const kabNames = useMemo(() => [...new Set(pickups.map(p => p.kabadiwala).filter(Boolean))].sort(), [pickups])
+
+  // Build partner rows from pickups
+  const partnerRows = useMemo(() => {
+    const q = globalSearch.toLowerCase().trim()
+
+    const relevantPickups = pickups.filter(p => {
+      if (p.status !== 'Completed') return false
+      if (!p.kabadiwala) return false
+      const inDate   = (!dateFrom || (p.date || '') >= dateFrom) && (!dateTo || (p.date || '') <= dateTo)
+      const inKab    = filterKab === 'All' || p.kabadiwala === filterKab
+      const ps       = p.paymentStatus || getPickupPayStatus(p.totalValue, p.amountPaid)
+      const inStatus = filterStatus === 'All' || ps === filterStatus
+      const inSearch = !q || (p.kabadiwala || '').toLowerCase().includes(q) || (p.donorName || '').toLowerCase().includes(q) || (p.society || '').toLowerCase().includes(q) || (p.orderId || '').toLowerCase().includes(q)
+      return inDate && inKab && inStatus && inSearch
+    })
+
+    const map = {}
+    relevantPickups.forEach(p => {
+      const name = p.kabadiwala
+      const kab  = kabadiwalas.find(k => k.name === name) || {}
+      if (!map[name]) {
+        map[name] = {
+          kabId: kab.id || name, partnerName: name,
+          mobile: kab.mobile || p.kabadiMobile || '',
+          rating: kab.rating, sectors: kab.sectors || [],
+          total: 0, paid: 0, pending: 0,
+          count: 0, records: [], history: [],
+          lastPaymentDate: '',
+        }
+      }
+      const total   = Number(p.totalValue) || 0
+      const paid    = Math.min(total, Number(p.amountPaid) || 0)
+      const pend    = Math.max(0, total - paid)
+      const history = (p.payHistory || []).map(h => ({ ...h, pickupId: p.id, orderId: p.orderId, donorName: p.donorName }))
+      const fallback = history.length === 0 && paid > 0
+        ? [{ date: p.date, amount: paid, refMode: 'recorded', pickupId: p.id, orderId: p.orderId, donorName: p.donorName }]
+        : []
+      const allH = [...history, ...fallback]
+
+      map[name].total   += total
+      map[name].paid    += paid
+      map[name].pending += pend
+      map[name].count   += 1
+      map[name].records.push(p)
+      map[name].history.push(...allH)
+      allH.forEach(h => {
+        if (h.date && (!map[name].lastPaymentDate || h.date > map[name].lastPaymentDate))
+          map[name].lastPaymentDate = h.date
+      })
+    })
+
+    // Sort: partners with pending first (by pending DESC), then all-paid
+    return Object.values(map)
+      .sort((a, b) => {
+        if (b.pending !== a.pending) return b.pending - a.pending
+        return a.partnerName.localeCompare(b.partnerName)
+      })
+  }, [pickups, kabadiwalas, dateFrom, dateTo, filterKab, filterStatus, globalSearch])
+
+  // Global KPIs
+  const globalKPIs = useMemo(() => ({
+    totalPartners:    partnerRows.length,
+    withPending:      partnerRows.filter(r => r.pending > 0).length,
+    totalRevenue:     partnerRows.reduce((s, r) => s + r.total, 0),
+    totalReceived:    partnerRows.reduce((s, r) => s + r.paid, 0),
+    totalPending: partnerRows.reduce((s, r) => s + r.pending, 0),
+    totalPickups:     partnerRows.reduce((s, r) => s + r.count, 0),
+  }), [partnerRows])
+
+  const openPayModal = useCallback(({ partner, pickup, isPartnerLevel }) => {
+    if (isPartnerLevel) {
+      setPayContext({
+        partnerName: partner.partnerName, kabId: partner.kabId,
+        mobile: partner.mobile, isPartnerLevel: true,
+        total: partner.total, paid: partner.paid, pending: partner.pending,
+        records: partner.records,
+      })
+    } else {
+      const total   = Number(pickup._total) || 0
+      const paid    = Number(pickup._paid)  || 0
+      const pending = Number(pickup._pending) || 0
+      const kab     = kabadiwalas.find(k => k.name === pickup.kabadiwala) || {}
+      setPayContext({
+        partnerName: pickup.kabadiwala, kabId: kab.id || pickup.kabadiwala,
+        pickupId: pickup.id, orderId: pickup.orderId,
+        donorName: pickup.donorName, isPartnerLevel: false,
+        total, paid, pending,
+      })
+    }
+  }, [kabadiwalas])
+
+  // Save payment
+  const handleSave = useCallback(async ({ amount, date, method, reference, notes, screenshot, writeOff, isFull }) => {
+    if (!payContext) return
+    setSaving(true)
+    try {
+      if (writeOff) {
+        await clearPartnerBalance(
+          { kabId: payContext.kabId, kabName: payContext.partnerName },
+          { refMode: 'writeoff', refValue: '', notes, date, writeOff: true }
+        )
+      } else if (payContext.isPartnerLevel && isFull) {
+        await clearPartnerBalance(
+          { kabId: payContext.kabId, kabName: payContext.partnerName },
+          { refMode: method, refValue: reference, notes, date, screenshot, writeOff: false }
+        )
+      } else {
+        await recordKabadiwalaPayment(payContext.kabId, {
+          pickupId:  payContext.isPartnerLevel ? undefined : payContext.pickupId,
+          amount, date, refMode: method,
+          refValue: reference, notes, screenshot,
+        })
+      }
+      setPayContext(null)
+    } finally { setSaving(false) }
+  }, [payContext, clearPartnerBalance, recordKabadiwalaPayment])
+
+  const handleExport = () => exportToExcel(
+    partnerRows.map(r => ({
+      'Pickup Partner': r.partnerName,
+      'Mobile':         r.mobile,
+      'Total (₹)':      r.total,
+      'Received (₹)':   r.paid,
+      'Pending (₹)':    r.pending,
+      'Pickups':        r.count,
+      'Last Payment':   r.lastPaymentDate || '',
+    })),
+    'Pickup_Partner_Payments'
+  )
+
+  return (
+    <div>
+      {/* ── Global KPI Strip ── */}
+      <div className="stat-grid" style={{ marginBottom: 20 }}>
+        <div className="stat-card orange">
+          <div className="stat-icon"><IndianRupee size={18} /></div>
+          <div className="stat-value">{fmtCurrency(globalKPIs.totalRevenue)}</div>
+          <div className="stat-label">Total RST Revenue</div>
+          <div className="stat-change up">{globalKPIs.totalPickups} pickups</div>
+        </div>
+        <div className="stat-card green">
+          <div className="stat-icon"><CheckCircle size={18} /></div>
+          <div className="stat-value">{fmtCurrency(globalKPIs.totalReceived)}</div>
+          <div className="stat-label">Total Received</div>
+          <div className="stat-change up">{Math.round((globalKPIs.totalReceived / (globalKPIs.totalRevenue || 1)) * 100)}% collected</div>
+        </div>
+        <div className="stat-card red">
+          <div className="stat-icon"><AlertCircle size={18} /></div>
+          <div className="stat-value">{fmtCurrency(globalKPIs.totalPending)}</div>
+          <div className="stat-label">Pending</div>
+          <div className="stat-change down">{globalKPIs.withPending} partners</div>
+        </div>
+        <div className="stat-card blue">
+          <div className="stat-icon"><Truck size={18} /></div>
+          <div className="stat-value">{globalKPIs.totalPartners}</div>
+          <div className="stat-label">Active Partners</div>
+          <div className="stat-change up">{globalKPIs.withPending} need attention</div>
+        </div>
+      </div>
+
+      {/* ── Sync indicator ── */}
+      <div style={{ marginBottom: 16, padding: '8px 14px', background: 'linear-gradient(135deg, rgba(27,94,53,0.06), rgba(232,82,26,0.06))', borderRadius: 8, border: '1px solid var(--border-light)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <RefreshCw size={12} color="var(--secondary)" />
+        <span style={{ fontSize: 11.5, color: 'var(--text-secondary)', fontWeight: 600 }}>
+          Live sync: Changes here auto-reflect in Dashboard · Raddi Master · RST Analytics
+        </span>
+        <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 'auto' }}>Source of Truth</span>
+      </div>
+
+      {/* ── Filters ── */}
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius)', padding: '12px 16px', marginBottom: 16, boxShadow: 'var(--shadow)' }}>
+        {/* Date presets */}
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
+          <Calendar size={13} color="var(--primary)" />
+          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Period:</span>
+          {DATE_PRESETS.map(p => (
+            <button key={p.id} className={`btn btn-sm ${datePreset === p.id ? 'btn-primary' : 'btn-ghost'}`} style={{ fontSize: 11.5 }} onClick={() => setDatePreset(p.id)}>
+              {p.label}
+            </button>
+          ))}
+          {datePreset === 'custom' && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} style={{ width: 138, fontSize: 12 }} />
+              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>to</span>
+              <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} style={{ width: 138, fontSize: 12 }} />
+            </div>
+          )}
+        </div>
+
+        {/* Search + dropdowns */}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ position: 'relative', flex: '2 1 200px', minWidth: 0 }}>
+            <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
+            <input value={globalSearch} onChange={e => setGlobalSearch(e.target.value)} placeholder="Search partner, donor, society…" style={{ paddingLeft: 32, fontSize: 12.5, width: '100%' }} />
+          </div>
+          <select value={filterKab} onChange={e => setFilterKab(e.target.value)} style={{ flex: '1 1 150px', fontSize: 12.5 }}>
+            <option value="All">All Partners</option>
+            {kabNames.map(n => <option key={n}>{n}</option>)}
+          </select>
+          <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ flex: '1 1 140px', fontSize: 12.5 }}>
+            <option value="All">All Statuses</option>
+            <option value="Not Paid">Not Paid</option>
+            <option value="Partially Paid">Partially Paid</option>
+            <option value="Paid">Paid</option>
+            <option value="Write Off">Write Off</option>
+          </select>
+          <button className="btn btn-ghost btn-sm" onClick={handleExport} style={{ flexShrink: 0 }}>
+            <Download size={13} /> Export
+          </button>
+        </div>
+
+        {/* Active filter summary */}
+        {(globalSearch || filterKab !== 'All' || filterStatus !== 'All') && (
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8, alignItems: 'center' }}>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 }}>Filters:</span>
+            {globalSearch && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, background: 'var(--primary-light)', color: 'var(--primary)', fontWeight: 600 }}>"{globalSearch}" <button onClick={() => setGlobalSearch('')} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--primary)', padding: 0, marginLeft: 2 }}>×</button></span>}
+            {filterKab !== 'All' && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, background: 'var(--secondary-light)', color: 'var(--secondary)', fontWeight: 600 }}>{filterKab} <button onClick={() => setFilterKab('All')} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--secondary)', padding: 0, marginLeft: 2 }}>×</button></span>}
+            {filterStatus !== 'All' && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, background: 'var(--warning-bg)', color: '#92400E', fontWeight: 600 }}>{filterStatus} <button onClick={() => setFilterStatus('All')} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#92400E', padding: 0, marginLeft: 2 }}>×</button></span>}
+          </div>
+        )}
+      </div>
+
+      {/* ── Partner count + sort info ── */}
+      <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
+        <strong style={{ color: 'var(--text-primary)' }}>{partnerRows.length}</strong> partners ·
+        <span style={{ color: 'var(--danger)', fontWeight: 600 }}>{globalKPIs.withPending}</span> with pending balance ·
+        <span style={{ fontSize: 11, color: 'var(--info)', marginLeft: 2 }}>Sorted by pending (highest first)</span>
+      </div>
+
+      {/* ── Partner Cards ── */}
+      {partnerRows.length === 0 ? (
+        <div className="empty-state">
+          <div className="empty-icon"><IndianRupee size={24} /></div>
+          <h3>No payment records found</h3>
+          <p>Try adjusting the date range or filters.</p>
+        </div>
+      ) : (
+        partnerRows.map(partner => (
+          <PartnerCard
+            key={partner.partnerName}
+            partner={partner}
+            onRecordPayment={openPayModal}
+            onViewHistory={setHistPartner}
+            isAdmin={isAdmin}
+          />
+        ))
+      )}
+
+      {/* ── Modals ── */}
+      {payContext && (
+        <RecordPaymentModal
+          context={payContext}
+          onClose={() => setPayContext(null)}
+          onSave={handleSave}
+          saving={saving}
+          isAdmin={isAdmin}
+        />
+      )}
+      {histPartner && (
+        <HistoryModal partner={histPartner} onClose={() => setHistPartner(null)} />
+      )}
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// RST REVENUE ANALYTICS (kept from existing, minor refinements)
+// ══════════════════════════════════════════════════════════════════════════════
+
 function RSTAnalytics({ raddiRecords, pickups }) {
-  const [datePreset,    setDatePreset]    = useState('all')
-  const [customFrom,    setCustomFrom]    = useState('')
-  const [customTo,      setCustomTo]      = useState('')
-  const [filterCity,    setFilterCity]    = useState('')
-  const [filterSector,  setFilterSector]  = useState('')
-  const [filterPay,     setFilterPay]     = useState('')
-  const [search,        setSearch]        = useState('')
-  const [sortKey,       setSortKey]       = useState('pickupDate')
-  const [sortDir,       setSortDir]       = useState('desc')
+  const [datePreset,   setDatePreset]   = useState('all')
+  const [customFrom,   setCustomFrom]   = useState('')
+  const [customTo,     setCustomTo]     = useState('')
+  const [filterCity,   setFilterCity]   = useState('')
+  const [filterSector, setFilterSector] = useState('')
+  const [filterPay,    setFilterPay]    = useState('')
+  const [search,       setSearch]       = useState('')
+  const [sortKey,      setSortKey]      = useState('pickupDate')
+  const [sortDir,      setSortDir]      = useState('desc')
 
   const { from: dateFrom, to: dateTo } = useMemo(
     () => getDateRange(datePreset, customFrom, customTo),
@@ -131,10 +1106,7 @@ function RSTAnalytics({ raddiRecords, pickups }) {
 
   const pickupMap = useMemo(() => {
     const map = {}
-    ;(pickups || []).forEach(p => {
-      map[p.id] = p
-      if (p.orderId) map[p.orderId] = p
-    })
+    ;(pickups || []).forEach(p => { map[p.id] = p; if (p.orderId) map[p.orderId] = p })
     return map
   }, [pickups])
 
@@ -146,29 +1118,25 @@ function RSTAnalytics({ raddiRecords, pickups }) {
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim()
     const rows = raddiRecords.map(r => {
-      const pickup        = pickupMap[r.orderId] || pickupMap[r.pickupId] || {}
-      const total         = Number(r.totalAmount) || 0
-      const collected     = Math.min(total, Number(r.amountPaid) || 0)
-      const pending       = r.paymentStatus === 'Write-off' ? 0 : Math.max(0, total - collected)
-      const lastHistory   = (pickup.payHistory || []).slice(-1)[0]
+      const pickup      = pickupMap[r.orderId] || pickupMap[r.pickupId] || {}
+      const total       = Number(r.totalAmount) || 0
+      const collected   = Math.min(total, Number(r.amountPaid) || 0)
+      const pending     = r.paymentStatus === 'Write-off' ? 0 : Math.max(0, total - collected)
+      const lastHistory = (pickup.payHistory || []).slice(-1)[0]
       return {
-        ...r,
-        total,
-        collected,
-        pending,
+        ...r, total, collected, pending,
         partnerName:     r.kabadiwalaName || pickup.kabadiwala || 'Unassigned',
         donorName:       r.name || pickup.donorName || '',
         lastPaymentDate: lastHistory?.date || (collected > 0 ? (pickup.date || r.pickupDate) : ''),
       }
     }).filter(r => {
-      const inDate    = (!dateFrom || (r.pickupDate || '') >= dateFrom) && (!dateTo || (r.pickupDate || '') <= dateTo)
-      const inCity    = !filterCity   || r.city   === filterCity
-      const inSector  = !filterSector || r.sector === filterSector
-      const inPay     = !filterPay    || r.paymentStatus === filterPay
-      const inSearch  = !q || r.partnerName.toLowerCase().includes(q) || r.donorName.toLowerCase().includes(q) || (r.society || '').toLowerCase().includes(q) || (r.orderId || '').toLowerCase().includes(q)
+      const inDate   = (!dateFrom || (r.pickupDate || '') >= dateFrom) && (!dateTo || (r.pickupDate || '') <= dateTo)
+      const inCity   = !filterCity   || r.city   === filterCity
+      const inSector = !filterSector || r.sector === filterSector
+      const inPay    = !filterPay    || r.paymentStatus === filterPay
+      const inSearch = !q || r.partnerName.toLowerCase().includes(q) || r.donorName.toLowerCase().includes(q) || (r.society || '').toLowerCase().includes(q) || (r.orderId || '').toLowerCase().includes(q)
       return inDate && inCity && inSector && inPay && inSearch
     })
-
     rows.sort((a, b) => {
       const av = a[sortKey] ?? '', bv = b[sortKey] ?? ''
       if (typeof av === 'number' || typeof bv === 'number')
@@ -191,79 +1159,93 @@ function RSTAnalytics({ raddiRecords, pickups }) {
   }
 
   const SortTh = ({ k, children, align }) => (
-    <th onClick={() => toggleSort(k)} style={{ cursor:'pointer', userSelect:'none', textAlign: align || 'left' }}>
+    <th onClick={() => toggleSort(k)} style={{ cursor: 'pointer', userSelect: 'none', textAlign: align || 'left' }}>
       {children}
-      <span style={{ marginLeft:4, opacity: sortKey === k ? 0.7 : 0.2 }}>
+      <span style={{ marginLeft: 4, opacity: sortKey === k ? 0.7 : 0.2 }}>
         {sortKey === k ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
       </span>
     </th>
   )
 
-  const exportRows = () => exportToExcel(
-    filtered.map(r => ({
-      'Pickup Partner': r.partnerName,
-      'Donor Name':     r.donorName,
-      'Order ID':       r.orderId || r.pickupId,
-      'Pickup Date':    r.pickupDate,
-      'Last Payment':   r.lastPaymentDate || '',
-      'Total (₹)':      r.total,
-      'Paid (₹)':       r.collected,
-      'Pending (₹)':    r.pending,
-      'Payment Status': r.paymentStatus,
-      'City':           r.city,
-      'Sector':         r.sector,
-      'Society':        r.society,
-    })),
-    'RST_Revenue_Analytics'
-  )
-
   return (
     <div>
-      <StatStrip items={[
-        { label:'Total Revenue',   value:money(totals.revenue),   icon:IndianRupee,  tone:'orange' },
-        { label:'Collected',       value:money(totals.collected), icon:CheckCircle,  tone:'green'  },
-        { label:'Pending',         value:money(totals.pending),   icon:AlertCircle,  tone:'red'    },
-        { label:'Weight',          value:`${totals.kg.toFixed(1)} kg`, icon:BarChart3, tone:'blue' },
-      ]}/>
+      {/* KPIs */}
+      <div className="stat-grid" style={{ marginBottom: 16 }}>
+        {[
+          { label: 'Total Revenue',   val: money(totals.revenue),   icon: IndianRupee, tone: 'orange' },
+          { label: 'Collected',       val: money(totals.collected), icon: CheckCircle, tone: 'green'  },
+          { label: 'Pending',         val: money(totals.pending),   icon: AlertCircle, tone: 'red'    },
+          { label: 'Weight (kg)',     val: `${totals.kg.toFixed(1)} kg`, icon: Package, tone: 'blue' },
+        ].map(item => {
+          const Icon = item.icon
+          return (
+            <div key={item.label} className={`stat-card ${item.tone}`}>
+              <div className="stat-icon"><Icon size={18} /></div>
+              <div className="stat-value">{item.val}</div>
+              <div className="stat-label">{item.label}</div>
+            </div>
+          )
+        })}
+      </div>
 
-      <div style={{ background:'var(--surface)', border:'1px solid var(--border-light)', borderRadius:'var(--radius)', padding:'14px 16px', marginBottom:16, boxShadow:'var(--shadow)' }}>
-        <DateBar preset={datePreset} setPreset={setDatePreset} customFrom={customFrom} setCustomFrom={setCustomFrom} customTo={customTo} setCustomTo={setCustomTo}/>
-        <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center', marginTop:10 }}>
-          <div style={{ position:'relative', flex:'2 1 200px', minWidth:0 }}>
-            <Search size={13} style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', color:'var(--text-muted)', pointerEvents:'none' }}/>
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search partner, donor, society, order…" style={{ paddingLeft:32, fontSize:12.5, width:'100%' }}/>
+      {/* Filters */}
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius)', padding: '14px 16px', marginBottom: 16, boxShadow: 'var(--shadow)' }}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
+          <Calendar size={13} color="var(--primary)" />
+          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Pickup Date:</span>
+          {DATE_PRESETS.map(p => (
+            <button key={p.id} className={`btn btn-sm ${datePreset === p.id ? 'btn-primary' : 'btn-ghost'}`} style={{ fontSize: 11.5 }} onClick={() => setDatePreset(p.id)}>
+              {p.label}
+            </button>
+          ))}
+          {datePreset === 'custom' && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} style={{ width: 138, fontSize: 12 }} />
+              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>to</span>
+              <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} style={{ width: 138, fontSize: 12 }} />
+            </div>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ position: 'relative', flex: '2 1 200px', minWidth: 0 }}>
+            <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search partner, donor, society, order…" style={{ paddingLeft: 32, fontSize: 12.5, width: '100%' }} />
           </div>
-          <select value={filterCity} onChange={e => { setFilterCity(e.target.value); setFilterSector('') }} style={{ flex:'1 1 130px', fontSize:12.5 }}>
+          <select value={filterCity} onChange={e => { setFilterCity(e.target.value); setFilterSector('') }} style={{ flex: '1 1 130px', fontSize: 12.5 }}>
             <option value="">All Cities</option>
             {CITIES.map(c => <option key={c}>{c}</option>)}
           </select>
-          <select value={filterSector} onChange={e => setFilterSector(e.target.value)} style={{ flex:'1 1 140px', fontSize:12.5 }} disabled={!filterCity}>
+          <select value={filterSector} onChange={e => setFilterSector(e.target.value)} style={{ flex: '1 1 140px', fontSize: 12.5 }} disabled={!filterCity}>
             <option value="">{filterCity ? 'All Sectors' : 'Select city first'}</option>
             {uniqueSectors.map(s => <option key={s}>{s}</option>)}
           </select>
-          <select value={filterPay} onChange={e => setFilterPay(e.target.value)} style={{ flex:'1 1 140px', fontSize:12.5 }}>
+          <select value={filterPay} onChange={e => setFilterPay(e.target.value)} style={{ flex: '1 1 140px', fontSize: 12.5 }}>
             <option value="">All Statuses</option>
             <option value="Received">Received</option>
             <option value="Yet to Receive">Yet to Receive</option>
             <option value="Write-off">Write-off</option>
           </select>
-          <button className="btn btn-ghost btn-sm" onClick={exportRows}><Download size={13}/> Export</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => exportToExcel(
+            filtered.map(r => ({ 'Partner': r.partnerName, 'Donor': r.donorName, 'Order ID': r.orderId, 'Date': r.pickupDate, 'Total (₹)': r.total, 'Paid (₹)': r.collected, 'Pending (₹)': r.pending, 'Status': r.paymentStatus, 'City': r.city, 'Sector': r.sector })),
+            'RST_Revenue_Analytics'
+          )}>
+            <Download size={13} /> Export
+          </button>
         </div>
       </div>
 
-      <div style={{ fontSize:12.5, color:'var(--text-muted)', marginBottom:10, display:'flex', alignItems:'center', gap:8 }}>
-        <strong style={{ color:'var(--text-primary)' }}>{filtered.length}</strong> records
+      <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <strong style={{ color: 'var(--text-primary)' }}>{filtered.length}</strong> records
         {(search || filterCity || filterPay) && (
-          <button className="btn btn-ghost btn-sm" style={{ fontSize:11 }}
-            onClick={() => { setSearch(''); setFilterCity(''); setFilterSector(''); setFilterPay('') }}>
-            <X size={10}/> Clear filters
+          <button className="btn btn-ghost btn-sm" style={{ fontSize: 11 }} onClick={() => { setSearch(''); setFilterCity(''); setFilterSector(''); setFilterPay('') }}>
+            <X size={10} /> Clear filters
           </button>
         )}
       </div>
 
       {filtered.length === 0 ? (
         <div className="empty-state">
-          <div className="empty-icon"><BarChart3 size={24}/></div>
+          <div className="empty-icon"><BarChart3 size={24} /></div>
           <h3>No records found</h3>
           <p>Try a different date range or filter.</p>
         </div>
@@ -287,33 +1269,33 @@ function RSTAnalytics({ raddiRecords, pickups }) {
                 {filtered.map(r => (
                   <tr key={r.orderId || r.pickupId}>
                     <td>
-                      <div style={{ fontWeight:700, fontSize:13 }}>{r.partnerName}</div>
-                      <OrderIdChip orderId={r.orderId} id={r.pickupId}/>
+                      <div style={{ fontWeight: 700, fontSize: 13 }}>{r.partnerName}</div>
+                      <OrderIdChip id={r.orderId || r.pickupId} />
                     </td>
                     <td>
-                      <div style={{ fontWeight:600, fontSize:13 }}>{r.donorName || '—'}</div>
-                      <div style={{ fontSize:11.5, color:'var(--text-muted)' }}>{[r.society, r.sector].filter(Boolean).join(', ')}</div>
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>{r.donorName || '—'}</div>
+                      <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>{[r.society, r.sector].filter(Boolean).join(', ')}</div>
                     </td>
-                    <td style={{ whiteSpace:'nowrap', fontSize:12.5 }}>{fmtDate(r.pickupDate)}</td>
-                    <td style={{ whiteSpace:'nowrap', fontSize:12.5 }}>{r.lastPaymentDate ? fmtDate(r.lastPaymentDate) : <span style={{ color:'var(--text-muted)' }}>—</span>}</td>
-                    <td style={{ textAlign:'right', fontWeight:800, color:'var(--primary)' }}>{money(r.total)}</td>
-                    <td style={{ textAlign:'right', fontWeight:700, color:'var(--secondary)' }}>{r.collected > 0 ? money(r.collected) : <span style={{ color:'var(--text-muted)', fontWeight:400 }}>—</span>}</td>
-                    <td style={{ textAlign:'right', fontWeight:700, color: r.pending > 0 ? 'var(--danger)' : 'var(--text-muted)' }}>
+                    <td style={{ whiteSpace: 'nowrap', fontSize: 12.5 }}>{fmtDate(r.pickupDate)}</td>
+                    <td style={{ whiteSpace: 'nowrap', fontSize: 12.5 }}>{r.lastPaymentDate ? fmtDate(r.lastPaymentDate) : <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 800, color: 'var(--primary)' }}>{money(r.total)}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--secondary)' }}>{r.collected > 0 ? money(r.collected) : <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>—</span>}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 700, color: r.pending > 0 ? 'var(--danger)' : 'var(--text-muted)' }}>
                       {r.pending > 0 ? money(r.pending) : '—'}
                     </td>
-                    <td><PayBadge status={r.paymentStatus}/></td>
+                    <td><PayBadge status={r.paymentStatus} /></td>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
-                <tr style={{ background:'var(--secondary-light)', fontWeight:800 }}>
-                  <td colSpan={4} style={{ fontWeight:700 }}>Totals ({filtered.length} records)</td>
-                  <td style={{ textAlign:'right', color:'var(--primary)' }}>{money(totals.revenue)}</td>
-                  <td style={{ textAlign:'right', color:'var(--secondary)' }}>{money(totals.collected)}</td>
-                  <td style={{ textAlign:'right', color: totals.pending > 0 ? 'var(--danger)' : 'var(--secondary)' }}>
+                <tr style={{ background: 'var(--secondary-light)', fontWeight: 800 }}>
+                  <td colSpan={4} style={{ fontWeight: 700 }}>Totals ({filtered.length} records)</td>
+                  <td style={{ textAlign: 'right', color: 'var(--primary)' }}>{money(totals.revenue)}</td>
+                  <td style={{ textAlign: 'right', color: 'var(--secondary)' }}>{money(totals.collected)}</td>
+                  <td style={{ textAlign: 'right', color: totals.pending > 0 ? 'var(--danger)' : 'var(--secondary)' }}>
                     {totals.pending > 0 ? money(totals.pending) : 'All clear ✓'}
                   </td>
-                  <td/>
+                  <td />
                 </tr>
               </tfoot>
             </table>
@@ -321,23 +1303,21 @@ function RSTAnalytics({ raddiRecords, pickups }) {
 
           <div className="mobile-cards">
             {filtered.map(r => (
-              <div key={r.orderId || r.pickupId} className="card" style={{ marginBottom:10, padding:14 }}>
-                <div style={{ display:'flex', justifyContent:'space-between', gap:10, marginBottom:8 }}>
+              <div key={r.orderId || r.pickupId} className="card" style={{ marginBottom: 10, padding: 14 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
                   <div>
-                    <div style={{ fontWeight:800, fontSize:14 }}>{r.partnerName}</div>
-                    <div style={{ fontSize:12, color:'var(--text-muted)' }}>{r.donorName || '—'}</div>
-                    <OrderIdChip orderId={r.orderId} id={r.pickupId}/>
+                    <div style={{ fontWeight: 800, fontSize: 14 }}>{r.partnerName}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{r.donorName || '—'}</div>
+                    <OrderIdChip id={r.orderId || r.pickupId} />
                   </div>
-                  <PayBadge status={r.paymentStatus}/>
+                  <PayBadge status={r.paymentStatus} />
                 </div>
-                <div style={{ fontSize:12, color:'var(--text-secondary)', marginBottom:4 }}>
-                  {[r.society, r.sector, r.city].filter(Boolean).join(', ')}
-                </div>
-                <div style={{ display:'flex', gap:8, flexWrap:'wrap', fontSize:12.5, alignItems:'center' }}>
-                  <span style={{ color:'var(--text-muted)' }}>{fmtDate(r.pickupDate)}</span>
-                  <span style={{ color:'var(--primary)', fontWeight:800 }}>{money(r.total)}</span>
-                  {r.collected > 0 && <span style={{ color:'var(--secondary)', fontWeight:700 }}>Paid {money(r.collected)}</span>}
-                  {r.pending > 0 && <span style={{ color:'var(--danger)', fontWeight:700 }}>Due {money(r.pending)}</span>}
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4 }}>{[r.society, r.sector, r.city].filter(Boolean).join(', ')}</div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', fontSize: 12.5, alignItems: 'center' }}>
+                  <span style={{ color: 'var(--text-muted)' }}>{fmtDate(r.pickupDate)}</span>
+                  <span style={{ color: 'var(--primary)', fontWeight: 800 }}>{money(r.total)}</span>
+                  {r.collected > 0 && <span style={{ color: 'var(--secondary)', fontWeight: 700 }}>Paid {money(r.collected)}</span>}
+                  {r.pending > 0 && <span style={{ color: 'var(--danger)', fontWeight: 700 }}>Due {money(r.pending)}</span>}
                 </div>
               </div>
             ))}
@@ -348,878 +1328,54 @@ function RSTAnalytics({ raddiRecords, pickups }) {
   )
 }
 
-// ── Payment form hook ──────────────────────────────────────────────────────────
-function usePaymentForm() {
-  const [amount,     setAmount]     = useState('')
-  const [date,       setDate]       = useState(() => new Date().toISOString().slice(0, 10))
-  const [method,     setMethod]     = useState('cash')
-  const [reference,  setReference]  = useState('')
-  const [notes,      setNotes]      = useState('')
-  const [screenshot, setScreenshot] = useState(null)
-  const [writeOff,   setWriteOff]   = useState(false)
-  const [error,      setError]      = useState('')
+// ══════════════════════════════════════════════════════════════════════════════
+// MAIN PAYMENTS PAGE
+// ══════════════════════════════════════════════════════════════════════════════
 
-  const reset = (nextAmount = '') => {
-    setAmount(nextAmount); setDate(new Date().toISOString().slice(0, 10))
-    setMethod('cash'); setReference(''); setNotes('')
-    setScreenshot(null); setWriteOff(false); setError('')
-  }
-
-  const handleScreenshot = (e) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = ev => setScreenshot(ev.target.result)
-    reader.readAsDataURL(file)
-  }
-
-  return {
-    amount, setAmount, date, setDate, method, setMethod,
-    reference, setReference, notes, setNotes,
-    screenshot, setScreenshot, writeOff, setWriteOff,
-    error, setError, reset, handleScreenshot,
-  }
-}
-
-function PaymentMethodPicker({ value, onChange }) {
-  return (
-    <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginTop:4 }}>
-      {REF_MODES.map(mode => {
-        const Icon   = mode.icon
-        const active = value === mode.value
-        return (
-          <button key={mode.value} type="button" onClick={() => onChange(mode.value)}
-            style={{ display:'flex', alignItems:'center', gap:5, padding:'7px 12px', borderRadius:8, fontSize:12.5, cursor:'pointer', fontWeight:active?700:400, border:`1.5px solid ${active?'var(--primary)':'var(--border)'}`, background:active?'var(--primary-light)':'transparent', color:active?'var(--primary)':'var(--text-secondary)' }}>
-            <Icon size={13}/>{mode.label}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
-// ── Partner Payment Modal ─────────────────────────────────────────────────────
-function PartnerPaymentModal({ partner, form, onClose, onSave, onWriteOff, saving, canWriteOff }) {
-  const pending      = partner?.pending || 0
-  const entered      = Number(form.amount) || 0
-  const afterPending = Math.max(0, pending - entered)
-  const selectedMethod = REF_MODES.find(r => r.value === form.method)
-
-  return (
-    <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal" style={{ maxWidth:580 }}>
-        <div className="modal-header">
-          <IndianRupee size={18} color="var(--primary)"/>
-          <div className="modal-title">Record Payment — {partner.partnerName}</div>
-          <button className="btn btn-ghost btn-icon btn-sm" onClick={onClose}><X size={16}/></button>
-        </div>
-
-        <div className="modal-body" style={{ overflowY:'auto', maxHeight:'72vh' }}>
-          <div style={{ background:'var(--bg)', borderRadius:10, padding:16, marginBottom:18, display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(100px,1fr))', gap:12 }}>
-            <div><div style={{ fontSize:11, color:'var(--text-muted)', fontWeight:700 }}>Total Amount</div><div style={{ fontWeight:800 }}>{money(partner.total)}</div></div>
-            <div><div style={{ fontSize:11, color:'var(--text-muted)', fontWeight:700 }}>Paid So Far</div><div style={{ fontWeight:800, color:'var(--secondary)' }}>{money(partner.paid)}</div></div>
-            <div><div style={{ fontSize:11, color:'var(--text-muted)', fontWeight:700 }}>Pending</div><div style={{ fontWeight:800, color: pending > 0 ? 'var(--danger)' : 'var(--secondary)' }}>{money(pending)}</div></div>
-          </div>
-
-          {pending <= 0 && !form.writeOff && (
-            <div className="alert-strip alert-success" style={{ marginBottom:16 }}>
-              <CheckCircle size={14}/> This partner has no pending dues.
-            </div>
-          )}
-
-          {canWriteOff && pending > 0 && (
-            <div style={{ marginBottom:16, padding:'12px 14px', background: form.writeOff ? 'var(--danger-bg)' : 'var(--bg)', borderRadius:10, border:`1.5px solid ${form.writeOff ? 'var(--danger)' : 'var(--border-light)'}`, transition:'all 0.15s' }}>
-              <div style={{ display:'flex', alignItems:'center', gap:10, justifyContent:'space-between', flexWrap:'wrap' }}>
-                <div>
-                  <div style={{ fontSize:13, fontWeight:700, color: form.writeOff ? 'var(--danger)' : 'var(--text-primary)' }}>Write Off Balance</div>
-                  <div style={{ fontSize:12, color:'var(--text-muted)', marginTop:2 }}>Mark {money(pending)} as non-recoverable. This cannot be undone.</div>
-                </div>
-                <button type="button" onClick={() => { form.setWriteOff(wo => !wo); form.setError('') }}
-                  style={{ padding:'6px 14px', borderRadius:8, fontSize:12.5, cursor:'pointer', fontWeight:700, border:`1.5px solid ${form.writeOff ? 'var(--danger)' : 'var(--border)'}`, background: form.writeOff ? 'var(--danger)' : 'transparent', color: form.writeOff ? 'white' : 'var(--danger)', transition:'all 0.15s' }}>
-                  {form.writeOff ? '✓ Write Off Selected' : 'Select Write Off'}
-                </button>
-              </div>
-              {form.writeOff && (
-                <div className="alert-strip alert-danger" style={{ marginTop:10, marginBottom:0 }}>
-                  <AlertTriangle size={13}/> All pending transactions will be marked as <strong>Write Off</strong>.
-                </div>
-              )}
-            </div>
-          )}
-
-          {!form.writeOff && (
-            <div className="form-grid">
-              <div className="form-group full">
-                <label>Amount Received Now (₹) <span className="required">*</span></label>
-                <input type="number" min={0} max={pending} inputMode="decimal"
-                  value={form.amount} onChange={e => { form.setAmount(e.target.value); form.setError('') }}
-                  placeholder={`Max ${money(pending)}`} disabled={pending <= 0} autoFocus/>
-                {entered > 0 && (
-                  <div style={{ marginTop:8, padding:'9px 12px', background:'var(--surface)', border:'1px solid var(--border-light)', borderRadius:8, fontSize:12.5, display:'flex', gap:12, flexWrap:'wrap' }}>
-                    <span>Remaining: <strong style={{ color: afterPending > 0 ? 'var(--danger)' : 'var(--secondary)' }}>{money(afterPending)}</strong></span>
-                    <span>Status: <strong>{afterPending > 0 ? 'Partial' : 'Completed'}</strong></span>
-                  </div>
-                )}
-              </div>
-              <div className="form-group">
-                <label>Payment Date <span className="required">*</span></label>
-                <input type="date" value={form.date} onChange={e => form.setDate(e.target.value)}/>
-              </div>
-              <div className="form-group full">
-                <label>Payment Method <span className="required">*</span></label>
-                <PaymentMethodPicker value={form.method} onChange={m => { form.setMethod(m); form.setReference(''); form.setScreenshot(null); form.setError('') }}/>
-              </div>
-              <div className="form-group full">
-                <label>{refModeLabel(form.method)} Reference {form.method !== 'cash' && <span className="required">*</span>}</label>
-                <input value={form.reference} onChange={e => { form.setReference(e.target.value); form.setError('') }}
-                  placeholder={selectedMethod?.placeholder || 'Reference'}/>
-              </div>
-              {form.method === 'upi' && (
-                <div className="form-group full">
-                  <label style={{ display:'flex', alignItems:'center', gap:6 }}><Image size={13} color="var(--info)"/>UPI Screenshot</label>
-                  {form.screenshot ? (
-                    <div style={{ position:'relative', display:'inline-block' }}>
-                      <img src={form.screenshot} alt="UPI screenshot" style={{ maxWidth:220, maxHeight:180, borderRadius:8, border:'1px solid var(--border)', display:'block' }}/>
-                      <button type="button" onClick={() => form.setScreenshot(null)} style={{ position:'absolute', top:6, right:6, width:24, height:24, borderRadius:8, border:'none', background:'var(--danger)', color:'#fff', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}><X size={12}/></button>
-                    </div>
-                  ) : (
-                    <label className="btn btn-ghost" style={{ width:'100%', justifyContent:'center', borderStyle:'dashed' }}>
-                      <Upload size={15}/> Upload Screenshot
-                      <input type="file" accept="image/*" style={{ display:'none' }} onChange={form.handleScreenshot}/>
-                    </label>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          <div className="form-group" style={{ marginTop: form.writeOff ? 0 : 8 }}>
-            <label>Notes {form.writeOff && <span style={{ fontSize:11, fontWeight:400, color:'var(--danger)' }}>(required for write-off)</span>}</label>
-            <textarea value={form.notes} onChange={e => form.setNotes(e.target.value)}
-              placeholder={form.writeOff ? 'Reason for writing off this balance…' : 'Payment notes…'}
-              style={{ minHeight:70 }}/>
-          </div>
-
-          {form.error && (
-            <div style={{ fontSize:12, color:'var(--danger)', marginTop:8, display:'flex', alignItems:'center', gap:6 }}>
-              <AlertCircle size={13}/>{form.error}
-            </div>
-          )}
-        </div>
-
-        <div className="modal-footer">
-          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-          {form.writeOff ? (
-            <button className="btn btn-danger" onClick={onWriteOff} disabled={saving || !form.notes.trim()}>
-              {saving ? 'Processing…' : `✗ Write Off ${money(pending)}`}
-            </button>
-          ) : (
-            <button className="btn btn-primary" onClick={onSave} disabled={saving || pending <= 0 || entered <= 0}>
-              {saving ? 'Saving…' : afterPending === 0 ? '✓ Clear Partner Balance' : 'Record Payment'}
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ── Payment History Modal ─────────────────────────────────────────────────────
-function PaymentHistoryModal({ partner, onClose }) {
-  const entries = partner.history || []
-  return (
-    <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal" style={{ maxWidth:620 }}>
-        <div className="modal-header">
-          <History size={18} color="var(--info)"/>
-          <div className="modal-title">Payment History — {partner.partnerName}</div>
-          <button className="btn btn-ghost btn-icon btn-sm" onClick={onClose}><X size={16}/></button>
-        </div>
-        <div className="modal-body">
-          {entries.length === 0 ? (
-            <div className="empty-state" style={{ padding:28 }}><p>No payment history recorded.</p></div>
-          ) : entries.map((entry, i) => (
-            <div key={`${entry.pickupId}-${entry.date}-${i}`} style={{ display:'flex', gap:12, padding:'12px 0', borderBottom: i < entries.length-1 ? '1px solid var(--border-light)' : 'none' }}>
-              <div style={{ width:38, height:38, borderRadius:8, background: entry.refMode === 'writeoff' ? 'var(--danger-bg)' : 'var(--secondary-light)', color: entry.refMode === 'writeoff' ? 'var(--danger)' : 'var(--secondary)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                {entry.refMode === 'writeoff' ? <AlertTriangle size={16}/> : <IndianRupee size={16}/>}
-              </div>
-              <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
-                  <strong style={{ color: entry.refMode === 'writeoff' ? 'var(--danger)' : 'var(--secondary)' }}>
-                    {entry.refMode === 'writeoff' ? 'Write-off' : money(entry.amount)}
-                  </strong>
-                  <span className="badge badge-muted">{entry.refMode === 'writeoff' ? 'Write Off' : refModeLabel(entry.refMode)}</span>
-                  <OrderIdChip orderId={entry.orderId} id={entry.pickupId}/>
-                </div>
-                <div style={{ fontSize:12, color:'var(--text-muted)', marginTop:4 }}>
-                  {entry.donorName || 'Unknown donor'}{entry.refValue ? ` — Ref: ${entry.refValue}` : ''}
-                </div>
-                {entry.notes && <div style={{ fontSize:12, color:'var(--text-secondary)', marginTop:4 }}>{entry.notes}</div>}
-              </div>
-              <div style={{ fontSize:12, color:'var(--text-muted)', whiteSpace:'nowrap' }}>{fmtDate(entry.date)}</div>
-            </div>
-          ))}
-        </div>
-        <div className="modal-footer"><button className="btn btn-ghost" onClick={onClose}>Close</button></div>
-      </div>
-    </div>
-  )
-}
-
-// ── NEW: Partner Detail Modal — per-pickup breakdown ──────────────────────────
-function PartnerDetailModal({ partner, onClose }) {
-  const [sortKey,      setSortKey]      = useState('date')
-  const [sortDir,      setSortDir]      = useState('desc')
-  const [filterStatus, setFilterStatus] = useState('')
-  const [search,       setSearch]       = useState('')
-
-  const records = partner.records || []
-
-  const enriched = useMemo(() => {
-    const q = search.toLowerCase().trim()
-    return records
-      .map(p => {
-        const total   = Number(p.totalValue) || 0
-        const paid    = Math.min(total, Number(p.amountPaid) || 0)
-        const pending = Math.max(0, total - paid)
-        const ps      = p.paymentStatus || (total === 0 ? 'Not Paid' : paid >= total ? 'Paid' : paid > 0 ? 'Partially Paid' : 'Not Paid')
-        return { ...p, _total: total, _paid: paid, _pending: pending, _ps: ps }
-      })
-      .filter(r => {
-        const mS = !q ||
-          (r.donorName || '').toLowerCase().includes(q) ||
-          (r.society   || '').toLowerCase().includes(q) ||
-          (r.sector    || '').toLowerCase().includes(q) ||
-          (r.orderId   || '').toLowerCase().includes(q) ||
-          (r.mobile    || '').includes(q)
-        const mP = !filterStatus || r._ps === filterStatus
-        return mS && mP
-      })
-      .sort((a, b) => {
-        const av = a[sortKey] ?? '', bv = b[sortKey] ?? ''
-        if (['_total','_paid','_pending'].includes(sortKey))
-          return sortDir === 'asc' ? Number(av) - Number(bv) : Number(bv) - Number(av)
-        return sortDir === 'asc'
-          ? String(av).localeCompare(String(bv))
-          : String(bv).localeCompare(String(av))
-      })
-  }, [records, search, filterStatus, sortKey, sortDir])
-
-  const totals = useMemo(() => ({
-    total:   enriched.reduce((s, r) => s + r._total,   0),
-    paid:    enriched.reduce((s, r) => s + r._paid,    0),
-    pending: enriched.reduce((s, r) => s + r._pending, 0),
-  }), [enriched])
-
-  const pendingCount = enriched.filter(r => r._pending > 0).length
-
-  const toggleSort = k => {
-    setSortDir(d => sortKey === k ? (d === 'asc' ? 'desc' : 'asc') : 'desc')
-    setSortKey(k)
-  }
-
-  const SortTh = ({ k, children, align }) => (
-    <th onClick={() => toggleSort(k)} style={{ cursor:'pointer', userSelect:'none', textAlign: align || 'left' }}>
-      {children}
-      <span style={{ marginLeft:4, opacity: sortKey === k ? 0.7 : 0.2 }}>
-        {sortKey === k ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
-      </span>
-    </th>
-  )
-
-  // Status color map for inline badge
-  const statusStyle = (ps) => ({
-    'Paid':           { bg:'var(--secondary-light)', color:'var(--secondary)' },
-    'Not Paid':       { bg:'var(--danger-bg)',        color:'var(--danger)' },
-    'Partially Paid': { bg:'var(--warning-bg)',       color:'#92400E' },
-    'Write Off':      { bg:'var(--border-light)',     color:'var(--text-muted)' },
-  }[ps] || { bg:'var(--border-light)', color:'var(--text-muted)' })
-
-  const exportDetail = () => exportToExcel(
-    enriched.map(r => ({
-      'Order ID':       r.orderId || r.id || '—',
-      'Donor Name':     r.donorName || '—',
-      'Mobile':         r.mobile || '—',
-      'Society':        r.society || '—',
-      'Sector':         r.sector || '—',
-      'City':           r.city || '—',
-      'Pickup Date':    r.date || '—',
-      'RST Items':      (r.rstItems || []).join(', ') || '—',
-      'SKS Items':      (r.sksItems || []).join(', ') || '—',
-      'Total (₹)':      r._total,
-      'Paid (₹)':       r._paid,
-      'Pending (₹)':    r._pending,
-      'Payment Status': r._ps,
-    })),
-    `${partner.partnerName}_Pickup_Details`
-  )
-
-  return (
-    <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal modal-lg" style={{ maxWidth: 960, width: '96vw' }}>
-        {/* Header */}
-        <div className="modal-header">
-          <BarChart3 size={18} color="var(--primary)" />
-          <div className="modal-title">Pickup Details — {partner.partnerName}</div>
-          {partner.mobile && (
-            <span style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'monospace' }}>{partner.mobile}</span>
-          )}
-          <button className="btn btn-ghost btn-icon btn-sm" style={{ marginLeft: 'auto' }} onClick={onClose}><X size={16}/></button>
-        </div>
-
-        {/* Summary strip */}
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:1, background:'var(--border-light)', borderBottom:'1px solid var(--border-light)' }}>
-          {[
-            { label:'Total RST Value',  val: money(partner.total),   color:'var(--primary)',   bg:'var(--primary-light)' },
-            { label:'Amount Received',  val: money(partner.paid),    color:'var(--secondary)', bg:'var(--secondary-light)' },
-            { label:'Outstanding',      val: money(partner.pending), color: partner.pending > 0 ? 'var(--danger)' : 'var(--secondary)', bg: partner.pending > 0 ? 'var(--danger-bg)' : 'var(--secondary-light)' },
-          ].map(item => (
-            <div key={item.label} style={{ padding:'14px 18px', background: item.bg, textAlign:'center' }}>
-              <div style={{ fontSize:10.5, color: item.color, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:4, opacity:0.8 }}>
-                {item.label}
-              </div>
-              <div style={{ fontSize:22, fontWeight:800, color: item.color, fontFamily:'var(--font-display)' }}>
-                {item.val}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Alert if pending exists */}
-        {partner.pending > 0 && (
-          <div style={{ padding:'10px 18px', background:'var(--danger-bg)', borderBottom:'1px solid rgba(239,68,68,0.2)', display:'flex', alignItems:'center', gap:8, fontSize:12.5, color:'var(--danger)' }}>
-            <AlertCircle size={13} style={{ flexShrink:0 }}/>
-            <span><strong>{pendingCount} pickup{pendingCount !== 1 ? 's' : ''}</strong> with outstanding amounts — totalling {money(partner.pending)}</span>
-          </div>
-        )}
-
-        {/* Filters */}
-        <div style={{ display:'flex', gap:8, padding:'10px 16px', borderBottom:'1px solid var(--border-light)', flexWrap:'wrap', alignItems:'center', background:'var(--surface)' }}>
-          <div style={{ position:'relative', flex:'1 1 200px', minWidth:0 }}>
-            <Search size={13} style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', color:'var(--text-muted)', pointerEvents:'none' }}/>
-            <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search donor, society, sector, order ID…"
-              style={{ paddingLeft:32, fontSize:12.5, width:'100%' }}
-            />
-          </div>
-          <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ fontSize:12.5 }}>
-            <option value="">All Payment Statuses</option>
-            <option value="Paid">Paid</option>
-            <option value="Not Paid">Not Paid</option>
-            <option value="Partially Paid">Partially Paid</option>
-            <option value="Write Off">Write Off</option>
-          </select>
-          <button className="btn btn-ghost btn-sm" onClick={exportDetail} style={{ flexShrink:0 }}>
-            <Download size={13}/> Export
-          </button>
-          <span style={{ fontSize:12, color:'var(--text-muted)', fontWeight:600, marginLeft:'auto' }}>
-            {enriched.length} of {records.length} records
-          </span>
-        </div>
-
-        {/* Table */}
-        <div className="modal-body" style={{ padding:0, overflowY:'auto', maxHeight:'52vh' }}>
-          {enriched.length === 0 ? (
-            <div className="empty-state" style={{ padding:36 }}><p>No records match your search or filters.</p></div>
-          ) : (
-            <>
-              {/* Desktop table */}
-              <div className="table-wrap" style={{ border:'none', boxShadow:'none', borderRadius:0 }}>
-                <table>
-                  <thead>
-                    <tr>
-                      <SortTh k="orderId">Order ID</SortTh>
-                      <SortTh k="donorName">Donor</SortTh>
-                      <SortTh k="society">Society</SortTh>
-                      <SortTh k="sector">Sector</SortTh>
-                      <SortTh k="date">Pickup Date</SortTh>
-                      <th>RST Items</th>
-                      <SortTh k="_total" align="right">Total ₹</SortTh>
-                      <SortTh k="_paid" align="right">Paid ₹</SortTh>
-                      <SortTh k="_pending" align="right">Pending ₹</SortTh>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {enriched.map(r => {
-                      const sc = statusStyle(r._ps)
-                      return (
-                        <tr key={r.id || r.orderId} style={{ background: r._pending > 0 ? 'rgba(239,68,68,0.03)' : 'transparent' }}>
-                          <td>
-                            <span style={{ fontFamily:'monospace', fontSize:10.5, fontWeight:700, color:'var(--primary)', background:'var(--primary-light)', padding:'2px 7px', borderRadius:5, whiteSpace:'nowrap' }}>
-                              {r.orderId || r.id || '—'}
-                            </span>
-                          </td>
-                          <td>
-                            <div style={{ fontWeight:600, fontSize:13 }}>{r.donorName || '—'}</div>
-                            {r.mobile && <div style={{ fontSize:11, color:'var(--text-muted)', fontFamily:'monospace' }}>{r.mobile}</div>}
-                          </td>
-                          <td style={{ fontSize:12.5, fontWeight:500, maxWidth:130, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                            {r.society || '—'}
-                          </td>
-                          <td style={{ fontSize:12, color:'var(--text-secondary)', whiteSpace:'nowrap' }}>{r.sector || '—'}</td>
-                          <td style={{ whiteSpace:'nowrap', fontSize:12.5, fontWeight:600 }}>{fmtDate(r.date)}</td>
-                          <td>
-                            <div style={{ display:'flex', flexWrap:'wrap', gap:3, maxWidth:140 }}>
-                              {(r.rstItems || []).slice(0,3).map(item => (
-                                <span key={item} style={{ fontSize:9.5, padding:'1px 5px', borderRadius:20, background:'var(--secondary-light)', color:'var(--secondary)', fontWeight:600, whiteSpace:'nowrap' }}>{item}</span>
-                              ))}
-                              {(r.rstItems || []).length > 3 && <span style={{ fontSize:9.5, color:'var(--text-muted)' }}>+{r.rstItems.length - 3}</span>}
-                              {!(r.rstItems || []).length && <span style={{ fontSize:11.5, color:'var(--text-muted)' }}>—</span>}
-                            </div>
-                          </td>
-                          <td style={{ textAlign:'right', fontWeight:800, color: r._total > 0 ? 'var(--primary)' : 'var(--text-muted)' }}>
-                            {r._total > 0 ? money(r._total) : '—'}
-                          </td>
-                          <td style={{ textAlign:'right', fontWeight:700, color: r._paid > 0 ? 'var(--secondary)' : 'var(--text-muted)' }}>
-                            {r._paid > 0 ? money(r._paid) : '—'}
-                          </td>
-                          <td style={{ textAlign:'right', fontWeight:800, color: r._pending > 0 ? 'var(--danger)' : 'var(--text-muted)' }}>
-                            {r._pending > 0 ? money(r._pending) : '—'}
-                          </td>
-                          <td>
-                            <span style={{ display:'inline-flex', alignItems:'center', padding:'3px 9px', borderRadius:20, fontSize:11, fontWeight:700, whiteSpace:'nowrap', background:sc.bg, color:sc.color }}>
-                              {r._ps}
-                            </span>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                  <tfoot>
-                    <tr style={{ background:'var(--secondary-light)', fontWeight:800 }}>
-                      <td colSpan={6}>Totals ({enriched.length} records)</td>
-                      <td style={{ textAlign:'right', color:'var(--primary)' }}>{money(totals.total)}</td>
-                      <td style={{ textAlign:'right', color:'var(--secondary)' }}>{money(totals.paid)}</td>
-                      <td style={{ textAlign:'right', color: totals.pending > 0 ? 'var(--danger)' : 'var(--secondary)' }}>
-                        {totals.pending > 0 ? money(totals.pending) : 'All clear ✓'}
-                      </td>
-                      <td/>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-
-              {/* Mobile cards */}
-              <div className="mobile-cards" style={{ padding:'10px 12px' }}>
-                {enriched.map(r => {
-                  const sc = statusStyle(r._ps)
-                  return (
-                    <div key={r.id || r.orderId} className="card" style={{ marginBottom:10, padding:12, borderLeft:`3px solid ${sc.color}` }}>
-                      <div style={{ display:'flex', justifyContent:'space-between', gap:8, marginBottom:6 }}>
-                        <div>
-                          <span style={{ fontFamily:'monospace', fontSize:10.5, fontWeight:700, color:'var(--primary)', background:'var(--primary-light)', padding:'1px 6px', borderRadius:4 }}>
-                            {r.orderId || r.id}
-                          </span>
-                          <div style={{ fontWeight:700, fontSize:13.5, marginTop:4 }}>{r.donorName || '—'}</div>
-                          {r.mobile && <div style={{ fontSize:11, color:'var(--text-muted)', fontFamily:'monospace' }}>{r.mobile}</div>}
-                        </div>
-                        <span style={{ display:'inline-flex', alignItems:'center', padding:'3px 9px', borderRadius:20, fontSize:10.5, fontWeight:700, whiteSpace:'nowrap', background:sc.bg, color:sc.color, alignSelf:'flex-start' }}>
-                          {r._ps}
-                        </span>
-                      </div>
-                      {(r.society || r.sector) && (
-                        <div style={{ fontSize:12, color:'var(--text-secondary)', display:'flex', alignItems:'center', gap:4, marginBottom:4 }}>
-                          <MapPin size={10}/>{[r.society, r.sector].filter(Boolean).join(', ')}
-                        </div>
-                      )}
-                      <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:6 }}>📅 {fmtDate(r.date)}</div>
-                      {(r.rstItems || []).length > 0 && (
-                        <div style={{ display:'flex', flexWrap:'wrap', gap:3, marginBottom:6 }}>
-                          {r.rstItems.map(item => (
-                            <span key={item} style={{ fontSize:9.5, padding:'1px 6px', borderRadius:20, background:'var(--secondary-light)', color:'var(--secondary)', fontWeight:600 }}>{item}</span>
-                          ))}
-                        </div>
-                      )}
-                      <div style={{ display:'flex', gap:10, fontSize:12.5, flexWrap:'wrap' }}>
-                        {r._total > 0 && <span style={{ color:'var(--primary)', fontWeight:700 }}>{money(r._total)}</span>}
-                        {r._paid  > 0 && <span style={{ color:'var(--secondary)', fontWeight:700 }}>Paid {money(r._paid)}</span>}
-                        {r._pending > 0 && <span style={{ color:'var(--danger)', fontWeight:700 }}>Due {money(r._pending)}</span>}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </>
-          )}
-        </div>
-
-        <div className="modal-footer">
-          <button className="btn btn-ghost" onClick={onClose}>Close</button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ── Kabadiwala Payment Tracking ───────────────────────────────────────────────
-function KabadiwalaTracking({ pickups, kabadiwalas, recordKabadiwalaPayment, clearPartnerBalance }) {
-  const { role } = useRole()
-  const isAdmin  = role === 'admin'
-
-  const [datePreset,    setDatePreset]    = useState('all')
-  const [customFrom,    setCustomFrom]    = useState('')
-  const [customTo,      setCustomTo]      = useState('')
-  const [filterKab,     setFilterKab]     = useState('All')
-  const [filterStatus,  setFilterStatus]  = useState('All')
-  const [search,        setSearch]        = useState('')
-  const [modalPartner,  setModalPartner]  = useState(null)
-  const [historyPartner,setHistPart]      = useState(null)
-  const [detailPartner, setDetailPartner] = useState(null)   // ← NEW
-  const [saving,        setSaving]        = useState(false)
-  const form = usePaymentForm()
-
-  const { from: dateFrom, to: dateTo } = useMemo(
-    () => getDateRange(datePreset, customFrom, customTo),
-    [datePreset, customFrom, customTo]
-  )
-
-  const kabNames = useMemo(() =>
-    [...new Set(pickups.map(p => p.kabadiwala).filter(Boolean))].sort(),
-    [pickups]
-  )
-
-  function pickupPayStatus(total, paid) {
-    const t = Number(total)||0, p = Number(paid)||0
-    if (t === 0) return 'Not Paid'
-    if (p >= t)  return 'Paid'
-    if (p > 0)   return 'Partially Paid'
-    return 'Not Paid'
-  }
-
-  function partnerStatus(total, paid) {
-    if ((Number(total)||0) <= 0) return 'Pending'
-    if ((Number(paid)||0) >= (Number(total)||0)) return 'Completed'
-    if ((Number(paid)||0) > 0) return 'Partial'
-    return 'Pending'
-  }
-
-  const partnerRows = useMemo(() => {
-    const q = search.toLowerCase().trim()
-    const filteredPickups = pickups.filter(p => {
-      if (p.status !== 'Completed') return false
-      if (!p.kabadiwala) return false
-      if ((Number(p.totalValue)||0) <= 0 && (Number(p.amountPaid)||0) <= 0) return false
-      const inDate   = (!dateFrom || (p.date||'') >= dateFrom) && (!dateTo || (p.date||'') <= dateTo)
-      const inKab    = filterKab === 'All' || p.kabadiwala === filterKab
-      const status   = pickupPayStatus(p.totalValue, p.amountPaid)
-      const inStatus = filterStatus === 'All' || status === filterStatus
-      const inSearch = !q || (p.kabadiwala||'').toLowerCase().includes(q) || (p.donorName||'').toLowerCase().includes(q) || (p.society||'').toLowerCase().includes(q) || (p.orderId||'').toLowerCase().includes(q)
-      return inDate && inKab && inStatus && inSearch
-    })
-
-    const map = {}
-    filteredPickups.forEach(p => {
-      const name = p.kabadiwala || 'Unassigned'
-      const kab  = kabadiwalas.find(k => k.name === name) || {}
-      if (!map[name]) {
-        map[name] = { kabId:name, partnerName:name, mobile:kab.mobile||p.kabadiMobile||'', total:0, paid:0, pending:0, lastPaymentDate:'', count:0, records:[], history:[] }
-        if (kab.id) map[name].kabId = kab.id
-      }
-      const total = Number(p.totalValue)||0
-      const paid  = Math.min(total, Number(p.amountPaid)||0)
-      const pend  = Math.max(0, total - paid)
-      const history = (p.payHistory||[]).map(h => ({ ...h, pickupId:p.id, orderId:p.orderId, donorName:p.donorName }))
-      const fallback = history.length===0 && paid>0
-        ? [{ date:p.date, amount:paid, refMode:'recorded', pickupId:p.id, orderId:p.orderId, donorName:p.donorName }]
-        : []
-      const allH = [...history, ...fallback]
-
-      map[name].total   += total
-      map[name].paid    += paid
-      map[name].pending += pend
-      map[name].count   += 1
-      map[name].records.push(p)
-      map[name].history.push(...allH)
-      allH.forEach(h => {
-        if (h.date && (!map[name].lastPaymentDate || h.date > map[name].lastPaymentDate))
-          map[name].lastPaymentDate = h.date
-      })
-    })
-
-    return Object.values(map)
-      .map(row => ({ ...row, status:partnerStatus(row.total, row.paid), history:row.history.sort((a,b)=>(b.date||'').localeCompare(a.date||'')) }))
-      .sort((a,b) => { if (b.pending!==a.pending) return b.pending-a.pending; return a.partnerName.localeCompare(b.partnerName) })
-  }, [pickups, kabadiwalas, dateFrom, dateTo, filterKab, filterStatus, search])
-
-  const totals = useMemo(() => ({
-    total:   partnerRows.reduce((s,r)=>s+r.total,0),
-    paid:    partnerRows.reduce((s,r)=>s+r.paid,0),
-    pending: partnerRows.reduce((s,r)=>s+r.pending,0),
-  }), [partnerRows])
-
-  const openPayment = (partner) => {
-    setModalPartner(partner)
-    form.reset(partner.pending > 0 ? String(partner.pending) : '')
-  }
-
-  const savePayment = async () => {
-    if (!modalPartner) return
-    const amount = Number(form.amount) || 0
-    if (modalPartner.pending <= 0)            { form.setError('No pending amount for this partner.'); return }
-    if (amount <= 0)                          { form.setError('Enter a valid payment amount.'); return }
-    if (amount > modalPartner.pending + 0.01) { form.setError('Amount cannot exceed pending balance.'); return }
-    if (form.method !== 'cash' && !form.reference.trim()) { form.setError(`Enter ${refModeLabel(form.method)} reference.`); return }
-
-    setSaving(true)
-    try {
-      const isFullClear = amount >= modalPartner.pending
-      if (isFullClear) {
-        await clearPartnerBalance(
-          { kabId: modalPartner.kabId, kabName: modalPartner.partnerName },
-          { refMode:form.method, refValue:form.reference.trim(), notes:form.notes.trim(), date:form.date, screenshot:form.screenshot, writeOff:false }
-        )
-      } else {
-        await recordKabadiwalaPayment(modalPartner.kabId, {
-          amount, date:form.date, refMode:form.method,
-          refValue:form.reference.trim(), notes:form.notes.trim(), screenshot:form.screenshot,
-        })
-      }
-      setModalPartner(null)
-    } catch (e) {
-      form.setError('Failed to save payment. Please try again.')
-    } finally { setSaving(false) }
-  }
-
-  const handleWriteOff = async () => {
-    if (!modalPartner || !isAdmin) return
-    if (!form.notes.trim()) { form.setError('Please provide a reason for the write-off.'); return }
-    setSaving(true)
-    try {
-      await clearPartnerBalance(
-        { kabId: modalPartner.kabId, kabName: modalPartner.partnerName },
-        { refMode:'writeoff', refValue:'', notes:form.notes.trim(), date:form.date, writeOff:true }
-      )
-      setModalPartner(null)
-    } catch (e) {
-      form.setError('Write-off failed. Please try again.')
-    } finally { setSaving(false) }
-  }
-
-  const exportRows = () => exportToExcel(
-    partnerRows.map(r => ({
-      'Pickup Partner': r.partnerName,
-      'Total (₹)':      r.total,
-      'Paid (₹)':       r.paid,
-      'Pending (₹)':    r.pending,
-      'Last Payment':   r.lastPaymentDate || '',
-      'Status':         r.status,
-      'Records':        r.count,
-      'Mobile':         r.mobile,
-    })),
-    'Pickup_Partner_Payments'
-  )
-
-  const pBadge = (s) => ({ Completed:'badge-success', Partial:'badge-warning', Pending:'badge-danger' }[s] || 'badge-muted')
-
-  return (
-    <div>
-      {/* Filter bar */}
-      <div style={{ background:'var(--surface)', border:'1px solid var(--border-light)', borderRadius:'var(--radius)', padding:'14px 16px', marginBottom:16, boxShadow:'var(--shadow)' }}>
-        <DateBar preset={datePreset} setPreset={setDatePreset} customFrom={customFrom} setCustomFrom={setCustomFrom} customTo={customTo} setCustomTo={setCustomTo}/>
-        <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center', marginTop:10 }}>
-          <div style={{ position:'relative', flex:'2 1 200px', minWidth:0 }}>
-            <Search size={13} style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', color:'var(--text-muted)', pointerEvents:'none' }}/>
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search partner, donor…" style={{ paddingLeft:32, fontSize:12.5, width:'100%' }}/>
-          </div>
-          <select value={filterKab} onChange={e => setFilterKab(e.target.value)} style={{ flex:'1 1 150px', fontSize:12.5 }}>
-            <option value="All">All Partners</option>
-            {kabNames.map(n => <option key={n}>{n}</option>)}
-          </select>
-          <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ flex:'1 1 140px', fontSize:12.5 }}>
-            <option value="All">All Statuses</option>
-            <option value="Not Paid">Pending</option>
-            <option value="Partially Paid">Partial</option>
-            <option value="Paid">Completed</option>
-          </select>
-          <button className="btn btn-ghost btn-sm" onClick={exportRows}><Download size={13}/> Export</button>
-        </div>
-      </div>
-
-      {/* Totals strip */}
-      <div style={{ display:'flex', gap:12, flexWrap:'wrap', fontSize:12.5, color:'var(--text-muted)', marginBottom:10 }}>
-        <span><strong style={{ color:'var(--text-primary)' }}>{partnerRows.length}</strong> partners</span>
-        <span>Total {money(totals.total)}</span>
-        <span style={{ color:'var(--secondary)', fontWeight:700 }}>Paid {money(totals.paid)}</span>
-        <span style={{ color: totals.pending > 0 ? 'var(--danger)' : 'var(--secondary)', fontWeight:700 }}>Pending {money(totals.pending)}</span>
-      </div>
-
-      {partnerRows.length === 0 ? (
-        <div className="empty-state">
-          <div className="empty-icon"><IndianRupee size={24}/></div>
-          <h3>No payment records</h3>
-          <p>Try adjusting the date range or filters.</p>
-        </div>
-      ) : (
-        <>
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Pickup Partner</th>
-                  <th style={{ textAlign:'right' }}>Total ₹</th>
-                  <th style={{ textAlign:'right' }}>Paid ₹</th>
-                  <th style={{ textAlign:'right' }}>Pending ₹</th>
-                  <th>Last Payment</th>
-                  <th>Status</th>
-                  <th style={{ textAlign:'center' }}>Pickups</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {partnerRows.map(row => {
-                  const paidOut = row.status === 'Completed'
-                  return (
-                    <tr key={row.partnerName}>
-                      {/* Clickable partner name → opens detail modal */}
-                      <td
-                        onClick={() => setDetailPartner(row)}
-                        style={{ cursor:'pointer' }}
-                        title="Click to see pickup breakdown"
-                      >
-                        <div style={{ fontWeight:800, fontSize:13.5, color:'var(--primary)', textDecoration:'underline', textDecorationStyle:'dotted', textUnderlineOffset:3 }}>
-                          {row.partnerName}
-                        </div>
-                        <div style={{ fontSize:11.5, color:'var(--text-muted)' }}>{row.mobile || '—'}</div>
-                      </td>
-                      <td style={{ textAlign:'right', fontWeight:800, color:'var(--primary)' }}>{money(row.total)}</td>
-                      <td style={{ textAlign:'right', fontWeight:700, color:'var(--secondary)' }}>{money(row.paid)}</td>
-                      <td style={{ textAlign:'right', fontWeight:800, color: row.pending > 0 ? 'var(--danger)' : 'var(--text-muted)' }}>
-                        {row.pending > 0 ? money(row.pending) : '—'}
-                      </td>
-                      <td>{row.lastPaymentDate ? fmtDate(row.lastPaymentDate) : '—'}</td>
-                      <td><span className={`badge ${pBadge(row.status)}`}>{row.status}</span></td>
-                      <td style={{ textAlign:'center' }}>{row.count}</td>
-                      <td>
-                        <div style={{ display:'flex', gap:6 }}>
-                          {/* View Details button */}
-                          <button
-                            className="btn btn-ghost btn-icon btn-sm"
-                            title="View pickup breakdown"
-                            onClick={() => setDetailPartner(row)}
-                          >
-                            <BarChart3 size={13}/>
-                          </button>
-                          <button className="btn btn-ghost btn-icon btn-sm" title="History" onClick={() => setHistPart(row)}>
-                            <History size={13}/>
-                          </button>
-                          <button
-                            className="btn btn-outline btn-sm"
-                            onClick={() => openPayment(row)}
-                            disabled={paidOut && !isAdmin}
-                            style={{ fontSize:11.5 }}
-                          >
-                            <Plus size={11}/> Record Payment
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-              <tfoot>
-                <tr style={{ background:'var(--secondary-light)', fontWeight:800 }}>
-                  <td>Total</td>
-                  <td style={{ textAlign:'right', color:'var(--primary)' }}>{money(totals.total)}</td>
-                  <td style={{ textAlign:'right', color:'var(--secondary)' }}>{money(totals.paid)}</td>
-                  <td style={{ textAlign:'right', color: totals.pending > 0 ? 'var(--danger)' : 'var(--secondary)' }}>
-                    {totals.pending > 0 ? money(totals.pending) : 'All clear ✓'}
-                  </td>
-                  <td colSpan={4}/>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-
-          <div className="mobile-cards">
-            {partnerRows.map(row => (
-              <div key={row.partnerName} className="card" style={{ marginBottom:10, padding:14 }}>
-                <div style={{ display:'flex', justifyContent:'space-between', gap:10, marginBottom:10 }}>
-                  <div>
-                    <div
-                      style={{ fontWeight:800, fontSize:14, color:'var(--primary)', cursor:'pointer', textDecoration:'underline', textDecorationStyle:'dotted', textUnderlineOffset:3 }}
-                      onClick={() => setDetailPartner(row)}
-                    >
-                      {row.partnerName}
-                    </div>
-                    <div style={{ fontSize:12, color:'var(--text-muted)' }}>{row.count} pickups</div>
-                  </div>
-                  <span className={`badge ${pBadge(row.status)}`}>{row.status}</span>
-                </div>
-                <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginBottom:10 }}>
-                  <div><div style={{ fontSize:10, color:'var(--text-muted)' }}>Total</div><strong>{money(row.total)}</strong></div>
-                  <div><div style={{ fontSize:10, color:'var(--text-muted)' }}>Paid</div><strong style={{ color:'var(--secondary)' }}>{money(row.paid)}</strong></div>
-                  <div><div style={{ fontSize:10, color:'var(--text-muted)' }}>Pending</div><strong style={{ color: row.pending > 0 ? 'var(--danger)' : 'var(--text-muted)' }}>{row.pending > 0 ? money(row.pending) : '—'}</strong></div>
-                </div>
-                <div style={{ display:'flex', gap:8 }}>
-                  <button className="btn btn-ghost btn-sm" onClick={() => setDetailPartner(row)} style={{ flex:1, justifyContent:'center' }}>
-                    <BarChart3 size={12}/> View Details
-                  </button>
-                  <button className="btn btn-ghost btn-sm" onClick={() => setHistPart(row)}><History size={12}/> History</button>
-                  <button className="btn btn-outline btn-sm" onClick={() => openPayment(row)} style={{ flex:1, justifyContent:'center' }}>
-                    <Plus size={12}/> Payment
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
-
-      {modalPartner && (
-        <PartnerPaymentModal
-          partner={modalPartner}
-          form={form}
-          onClose={() => setModalPartner(null)}
-          onSave={savePayment}
-          onWriteOff={handleWriteOff}
-          saving={saving}
-          canWriteOff={isAdmin}
-        />
-      )}
-      {historyPartner && <PaymentHistoryModal partner={historyPartner} onClose={() => setHistPart(null)}/>}
-
-      {/* ← NEW: Partner Detail Modal */}
-      {detailPartner && (
-        <PartnerDetailModal
-          partner={detailPartner}
-          onClose={() => setDetailPartner(null)}
-        />
-      )}
-    </div>
-  )
-}
-
-// ── Main Payments page ────────────────────────────────────────────────────────
 export default function Payments() {
   const { pickups, raddiRecords, kabadiwalas, recordKabadiwalaPayment, clearPartnerBalance } = useApp()
-  const [view, setView] = useState('analytics')
+  const { role, can } = useRole()
+  const [view, setView] = useState('partners')
+
+  // ── Role guard: Executives cannot access this page ──────────────────────────
+  if (role === 'executive') {
+    return (
+      <div className="page-body" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
+        <div className="empty-state">
+          <div className="empty-icon" style={{ background: 'var(--danger-bg)', color: 'var(--danger)' }}>
+            <Lock size={24} />
+          </div>
+          <h3>Access Restricted</h3>
+          <p>Payment Tracking is available to Managers and Admins only. Contact your manager for financial information.</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="page-body">
-      <div style={{ marginBottom:24 }}>
-        <div className="tabs" style={{ marginBottom:0 }}>
-          <button className={`tab ${view==='analytics'?'active':''}`} onClick={() => setView('analytics')}>
-            <BarChart3 size={13} style={{ marginRight:4 }}/> RST Revenue Analytics
+      {/* ── Tab Strip ── */}
+      <div style={{ marginBottom: 24 }}>
+        <div className="tabs" style={{ marginBottom: 0 }}>
+          <button className={`tab ${view === 'partners' ? 'active' : ''}`} onClick={() => setView('partners')}>
+            <IndianRupee size={13} style={{ marginRight: 4 }} /> Partner Payments
           </button>
-          <button className={`tab ${view==='kabadiwala'?'active':''}`} onClick={() => setView('kabadiwala')}>
-            <IndianRupee size={13} style={{ marginRight:4 }}/> Pickup Partner Payments
+          <button className={`tab ${view === 'analytics' ? 'active' : ''}`} onClick={() => setView('analytics')}>
+            <BarChart3 size={13} style={{ marginRight: 4 }} /> RST Revenue Analytics
           </button>
         </div>
       </div>
 
-      {view === 'analytics' && (
-        <RSTAnalytics raddiRecords={raddiRecords} pickups={pickups}/>
-      )}
-      {view === 'kabadiwala' && (
-        <KabadiwalaTracking
+      {view === 'partners' && (
+        <PartnerPaymentHub
           pickups={pickups}
           kabadiwalas={kabadiwalas}
           recordKabadiwalaPayment={recordKabadiwalaPayment}
           clearPartnerBalance={clearPartnerBalance}
         />
+      )}
+      {view === 'analytics' && (
+        <RSTAnalytics raddiRecords={raddiRecords} pickups={pickups} />
       )}
     </div>
   )
