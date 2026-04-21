@@ -101,39 +101,39 @@ export async function deletePickup(id) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// KABADIWALAS
+// PickupPartnerS
 // ═══════════════════════════════════════════════════════════════════════════
-let _kabs = null
+let _pickuppartners = null
 
-export async function fetchKabadiwalas() {
-  if (!USE_MOCK_DATA) return apiFetch('/kabadiwalas')
+export async function fetchPickupPartners() {
+  if (!USE_MOCK_DATA) return apiFetch('/PickupPartners')
   await delay()
-  const { kabadiwalas } = await getMock()
-  if (!_kabs) _kabs = [...kabadiwalas]
-  return [..._kabs]
+  const { PickupPartners } = await getMock()
+  if (!_pickuppartners) _pickuppartners = [...PickupPartners]
+  return [..._pickuppartners]
 }
 
-export async function createKabadiwala(data) {
-  if (!USE_MOCK_DATA) return apiFetch('/kabadiwalas', { method: 'POST', body: JSON.stringify(data) })
+export async function createPickupPartner(data) {
+  if (!USE_MOCK_DATA) return apiFetch('/PickupPartners', { method: 'POST', body: JSON.stringify(data) })
   await delay()
-  const { kabadiwalas } = await getMock()
-  if (!_kabs) _kabs = [...kabadiwalas]
+  const { PickupPartners } = await getMock()
+  if (!_pickuppartners) _pickuppartners = [...PickupPartners]
   const newK = { ...data, id: `K${Date.now()}`, rating: 4.0, totalPickups: 0, totalValue: 0, amountReceived: 0, pendingAmount: 0, transactions: [] }
-  _kabs = [..._kabs, newK]
+  _pickuppartners = [..._pickuppartners, newK]
   return newK
 }
 
-export async function updateKabadiwala(id, data) {
-  if (!USE_MOCK_DATA) return apiFetch(`/kabadiwalas/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
+export async function updatePickupPartner(id, data) {
+  if (!USE_MOCK_DATA) return apiFetch(`/PickupPartners/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
   await delay()
-  _kabs = _kabs.map(k => k.id === id ? { ...k, ...data } : k)
-  return _kabs.find(k => k.id === id)
+  _pickuppartners = _pickuppartners.map(k => k.id === id ? { ...k, ...data } : k)
+  return _pickuppartners.find(k => k.id === id)
 }
 
-export async function deleteKabadiwala(id) {
-  if (!USE_MOCK_DATA) return apiFetch(`/kabadiwalas/${id}`, { method: 'DELETE' })
+export async function deletePickupPartner(id) {
+  if (!USE_MOCK_DATA) return apiFetch(`/PickupPartners/${id}`, { method: 'DELETE' })
   await delay()
-  _kabs = _kabs.filter(k => k.id !== id)
+  _pickuppartners = _pickuppartners.filter(k => k.id !== id)
   return { success: true }
 }
 

@@ -37,7 +37,7 @@ export const DEFAULT_RATE_CHART = {
 export const DONOR_STATUSES    = ['Active', 'Postponed', 'Lost']
 export const PICKUP_STATUSES   = ['Completed', 'Postponed', 'Pending', 'Did Not Open Door']
 export const PAYMENT_STATUSES  = ['Paid', 'Not Paid', 'Partially Paid', 'Write Off']
-export const POSTPONE_REASONS  = ['Donor unavailable', 'Rescheduled', 'Kabadiwala unavailable', 'Other']
+export const POSTPONE_REASONS  = ['Donor unavailable', 'Rescheduled', 'PickupPartner unavailable', 'Other']
 export const LOST_REASONS      = ['Not interested', 'Shifted', 'Society restriction', 'No Raddi', 'Other']
 export const PICKUP_MODES      = ['Individual', 'Drive']
 export const CITIES            = ['Delhi', 'Noida', 'Gurgaon', 'Faridabad', 'Ghaziabad']
@@ -274,8 +274,8 @@ export const donors = [
   },
 ]
 
-// ── Kabadiwalas — K-001 format IDs ────────────────────────────────────────────
-export const kabadiwalas = [
+// ── PickupPartners — K-001 format IDs ────────────────────────────────────────────
+export const PickupPartners = [
   {
     id: 'K-001', name: 'Suresh Bhai', mobile: '9765432100',
     email: 'suresh@example.com',
@@ -297,7 +297,7 @@ export const kabadiwalas = [
     ],
   },
   {
-    id: 'K-002', name: 'Raju Kabadiwalah', mobile: '9654321009',
+    id: 'K-002', name: 'Raju PickupPartnerh', mobile: '9654321009',
     email: '',
     sectors: ['Sector 5', 'Sector 15'],
     societies: ['Patel Enclave', 'Shanti Nagar'],
@@ -342,7 +342,7 @@ export const pickups = [
     date: '2026-03-10', status: 'Completed', type: 'RST', pickupMode: 'Individual',
     rstItems: ['Paper', 'Cardboard Box', 'Plastic Bottle / Box'], sksItems: [],
     totalKgs: 12.5, totalValue: 250, amountPaid: 250, paymentStatus: 'Paid',
-    kabadiwala: 'Suresh Bhai', kabadiMobile: '9765432100',
+    PickupPartner: 'Suresh Bhai', pickuppartneradiMobile: '9765432100',
     nextDate: '2026-04-08', notes: '',
   },
   {
@@ -351,7 +351,7 @@ export const pickups = [
     date: '2026-03-01', status: 'Completed', type: 'RST+SKS', pickupMode: 'Individual',
     rstItems: ['Iron', 'E-Waste'], sksItems: ['Kids Clothes', 'Toys'],
     totalKgs: 8.0, totalValue: 180, amountPaid: 100, paymentStatus: 'Partially Paid',
-    kabadiwala: 'Raju Kabadiwalah', kabadiMobile: '9654321009',
+    PickupPartner: 'Raju PickupPartnerh', pickuppartneradiMobile: '9654321009',
     nextDate: '2026-04-02', notes: '',
   },
   {
@@ -360,7 +360,7 @@ export const pickups = [
     date: '2026-02-28', status: 'Completed', type: 'SKS', pickupMode: 'Drive',
     rstItems: [], sksItems: ['Adult Clothes', 'Adult Shoes', 'Utensils', 'Furniture'],
     totalKgs: 0, totalValue: 0, amountPaid: 0, paymentStatus: 'Paid',
-    kabadiwala: 'Suresh Bhai', kabadiMobile: '9765432100',
+    PickupPartner: 'Suresh Bhai', pickuppartneradiMobile: '9765432100',
     nextDate: '2026-03-30', notes: 'Drive organized by society RWA',
   },
   {
@@ -369,7 +369,7 @@ export const pickups = [
     date: '2026-04-15', status: 'Postponed', type: 'RST', pickupMode: 'Individual',
     rstItems: ['Paper', 'Glass Bottle'], sksItems: [],
     totalKgs: 0, totalValue: 0, amountPaid: 0, paymentStatus: 'Not Paid',
-    kabadiwala: '', kabadiMobile: '',
+    PickupPartner: '', pickuppartneradiMobile: '',
     nextDate: '2026-04-15', postponeReason: 'Donor unavailable', notes: '',
   },
   {
@@ -379,7 +379,7 @@ export const pickups = [
     rstItems: ['Cardboard Box', 'Plastic Bottle / Box'],
     sksItems: ['Kids Shoes', 'New Stationery'],
     totalKgs: 0, totalValue: 0, amountPaid: 0, paymentStatus: 'Not Paid',
-    kabadiwala: 'Pappu Ji', kabadiMobile: '9543210098',
+    PickupPartner: 'Pappu Ji', pickuppartneradiMobile: '9543210098',
     nextDate: '2026-04-18', notes: '',
   },
   {
@@ -388,7 +388,7 @@ export const pickups = [
     date: '2026-03-30', status: 'Pending', type: 'RST+SKS', pickupMode: 'Drive',
     rstItems: ['Paper', 'Iron', 'Wood'], sksItems: ['Adult Clothes'],
     totalKgs: 0, totalValue: 0, amountPaid: 0, paymentStatus: 'Not Paid',
-    kabadiwala: 'Suresh Bhai', kabadiMobile: '9765432100',
+    PickupPartner: 'Suresh Bhai', pickuppartneradiMobile: '9765432100',
     nextDate: '2026-03-30', notes: 'Community drive — Shanti Nagar block B',
   },
   {
@@ -397,7 +397,7 @@ export const pickups = [
     date: '2026-04-09', status: 'Pending', type: 'RST', pickupMode: 'Individual',
     rstItems: [], sksItems: [],
     totalKgs: 0, totalValue: 0, amountPaid: 0, paymentStatus: 'Not Paid',
-    kabadiwala: 'Suresh Bhai', kabadiMobile: '9765432100',
+    PickupPartner: 'Suresh Bhai', pickuppartneradiMobile: '9765432100',
     nextDate: '2026-04-09', notes: '',
   },
 ]
@@ -407,7 +407,7 @@ export const waTemplates = [
     id: 'T-001',
     name: 'Pickup Confirmation',
     trigger: 'After Completed Pickup',
-    message: `🙏 Thank you {Donor Name}!\n\nYour Raddi donation has been successfully collected by our team.\n\n♻️ RST Scrap Value: ₹{Amount} (paid by Kabadiwala to FreePathshala)\n📅 Next Pickup: {Next Pickup Date}\n\nYour donation helps educate a child for {Days} more days!\n\n— Team FreePathshala`,
+    message: `🙏 Thank you {Donor Name}!\n\nYour Raddi donation has been successfully collected by our team.\n\n♻️ RST Scrap Value: ₹{Amount} (paid by PickupPartner to FreePathshala)\n📅 Next Pickup: {Next Pickup Date}\n\nYour donation helps educate a child for {Days} more days!\n\n— Team FreePathshala`,
   },
   {
     id: 'T-002',

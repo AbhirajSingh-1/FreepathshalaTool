@@ -30,7 +30,7 @@ const buildNav = (role) => {
     { section: 'Management' },
     { id: 'donors',          label: 'Donors Status',    icon: Users },
     { id: 'supporters',      label: 'Supporters',       icon: Heart },
-    { id: 'pickups',         label: 'Pickups',          icon: Truck },
+    { id: 'pickups',         label: 'Record Pickups',          icon: Truck },
     { id: 'pickuppartners',  label: 'Pickup Partners',  icon: UserCheck },
     { section: 'Finance' },
     { id: 'payments',        label: 'Payment Tracking', icon: IndianRupee },

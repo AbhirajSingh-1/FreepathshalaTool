@@ -71,8 +71,8 @@ function buildMonthlyChart(pickups, from, to) {
 }
 
 // ── Filters Panel ─────────────────────────────────────────────────────────────
-function FiltersPanel({ filters, onChange, kabadiwalas, pickups }) {
-  const { period, customFrom, customTo, city, sector, kabadiwala } = filters
+function FiltersPanel({ filters, onChange, PickupPartners, pickups }) {
+  const { period, customFrom, customTo, city, sector, PickupPartner } = filters
   const PERIOD_OPTIONS = [
     { id: 'current_month', label: 'This Month' },
     { id: 'last_month',    label: 'Last Month' },
@@ -81,7 +81,7 @@ function FiltersPanel({ filters, onChange, kabadiwalas, pickups }) {
     { id: 'custom',        label: 'Custom' },
   ]
   const sectorOptions = city ? (CITY_SECTORS[city] || []) : []
-  const kabNames = [...new Set(pickups.map(p => p.kabadiwala).filter(Boolean))].sort()
+  const pickuppartnerNames = [...new Set(pickups.map(p => p.PickupPartner).filter(Boolean))].sort()
 
   return (
     <div style={{ background: 'var(--surface)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius)', padding: '14px 16px', marginBottom: 20, boxShadow: 'var(--shadow)' }}>
@@ -90,7 +90,7 @@ function FiltersPanel({ filters, onChange, kabadiwalas, pickups }) {
         <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Dashboard Filters</span>
         <span style={{ fontSize: 11, color: 'var(--info)', marginLeft: 4 }}>— All charts and cards update with selection</span>
         <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto', fontSize: 11 }}
-          onClick={() => onChange({ period: 'current_month', customFrom: '', customTo: '', city: '', sector: '', kabadiwala: '' })}>
+          onClick={() => onChange({ period: 'current_month', customFrom: '', customTo: '', city: '', sector: '', PickupPartner: '' })}>
           <RefreshCw size={10} /> Reset
         </button>
       </div>
@@ -136,14 +136,14 @@ function FiltersPanel({ filters, onChange, kabadiwalas, pickups }) {
         </div>
         <div className="form-group" style={{ margin: 0, minWidth: 160 }}>
           <label style={{ fontSize: 11, fontWeight: 600 }}>Pickup Partner</label>
-          <select value={kabadiwala} onChange={e => onChange({ ...filters, kabadiwala: e.target.value })} style={{ fontSize: 12.5 }}>
+          <select value={PickupPartner} onChange={e => onChange({ ...filters, PickupPartner: e.target.value })} style={{ fontSize: 12.5 }}>
             <option value="">All Partners</option>
-            {kabNames.map(k => <option key={k}>{k}</option>)}
+            {pickuppartnerNames.map(k => <option key={k}>{k}</option>)}
           </select>
         </div>
-        {(city || sector || kabadiwala) && (
+        {(city || sector || PickupPartner) && (
           <button className="btn btn-ghost btn-sm" style={{ fontSize: 11.5, color: 'var(--danger)' }}
-            onClick={() => onChange({ ...filters, city: '', sector: '', kabadiwala: '' })}>
+            onClick={() => onChange({ ...filters, city: '', sector: '', PickupPartner: '' })}>
             <X size={11} /> Clear Location
           </button>
         )}
@@ -301,7 +301,7 @@ function SKSBreakdown({ pickups }) {
 }
 
 // ── Financial Summary ─────────────────────────────────────────────────────────
-function FinancialSummary({ raddiRecords, kabadiwalas }) {
+function FinancialSummary({ raddiRecords, PickupPartners }) {
   const totalRevenue   = raddiRecords.reduce((s, r) => s + (r.totalAmount || 0), 0)
   const totalReceived  = raddiRecords.filter(r => r.paymentStatus === 'Received').reduce((s, r) => s + (r.totalAmount || 0), 0)
   const totalPending   = raddiRecords.filter(r => r.paymentStatus === 'Yet to Receive').reduce((s, r) => s + (r.totalAmount || 0), 0)
@@ -310,7 +310,7 @@ function FinancialSummary({ raddiRecords, kabadiwalas }) {
   const partnerBreakdown = useMemo(() => {
     const map = {}
     raddiRecords.forEach(r => {
-      const n = r.kabadiwalaName || 'Unassigned'
+      const n = r.PickupPartnerName || 'Unassigned'
       if (!map[n]) map[n] = { name: n, total: 0, received: 0, pending: 0 }
       map[n].total    += r.totalAmount || 0
       if (r.paymentStatus === 'Received')       map[n].received += r.totalAmount || 0
@@ -375,11 +375,11 @@ function FinancialSummary({ raddiRecords, kabadiwalas }) {
 
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 export default function Dashboard({ onNav }) {
-  const { donors, pickups, raddiRecords, kabadiwalas, partners } = useApp()
+  const { donors, pickups, raddiRecords, PickupPartners, partners } = useApp()
 
   const [filters, setFilters] = useState({
     period: 'current_month', customFrom: '', customTo: '',
-    city: '', sector: '', kabadiwala: '',
+    city: '', sector: '', PickupPartner: '',
   })
 
   const { from: pFrom, to: pTo } = useMemo(
@@ -393,8 +393,8 @@ export default function Dashboard({ onNav }) {
     const inDate = (!pFrom || d >= pFrom) && (!pTo || d <= pTo)
     const inCity = !filters.city || p.city === filters.city
     const inSect = !filters.sector || p.sector === filters.sector
-    const inKab  = !filters.kabadiwala || p.kabadiwala === filters.kabadiwala
-    return inDate && inCity && inSect && inKab
+    const inpickuppartner  = !filters.PickupPartner || p.PickupPartner === filters.PickupPartner
+    return inDate && inCity && inSect && inpickuppartner
   }), [pickups, pFrom, pTo, filters])
 
   // ── Apply ALL filters to raddiRecords ─────────────────────────────────────
@@ -403,8 +403,8 @@ export default function Dashboard({ onNav }) {
     const inDate = (!pFrom || d >= pFrom) && (!pTo || d <= pTo)
     const inCity = !filters.city || r.city === filters.city
     const inSect = !filters.sector || r.sector === filters.sector
-    const inKab  = !filters.kabadiwala || r.kabadiwalaName === filters.kabadiwala
-    return inDate && inCity && inSect && inKab
+    const inpickuppartner  = !filters.PickupPartner || r.PickupPartnerName === filters.PickupPartner
+    return inDate && inCity && inSect && inpickuppartner
   }), [raddiRecords, pFrom, pTo, filters])
 
   // ── Period stats ──────────────────────────────────────────────────────────
@@ -439,7 +439,7 @@ export default function Dashboard({ onNav }) {
     return 'Custom'
   }, [filters.period, pFrom, pTo])
 
-  const activeFilters = [filters.city, filters.sector, filters.kabadiwala].filter(Boolean)
+  const activeFilters = [filters.city, filters.sector, filters.PickupPartner].filter(Boolean)
   const activePartners = (partners || []).filter(k => (k.totalPickups || 0) > 0).length
 
   // ── Custom tooltip ────────────────────────────────────────────────────────
@@ -458,7 +458,7 @@ export default function Dashboard({ onNav }) {
     <div className="page-body">
 
       {/* ── Filters ── */}
-      <FiltersPanel filters={filters} onChange={setFilters} kabadiwalas={kabadiwalas} pickups={pickups} />
+      <FiltersPanel filters={filters} onChange={setFilters} PickupPartners={PickupPartners} pickups={pickups} />
 
       {/* ── Active filter chips ── */}
       {activeFilters.length > 0 && (
@@ -476,10 +476,10 @@ export default function Dashboard({ onNav }) {
               <button onClick={() => setFilters(f => ({ ...f, sector: '' }))} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--info)', padding: 0, lineHeight: 1 }}>×</button>
             </span>
           )}
-          {filters.kabadiwala && (
+          {filters.PickupPartner && (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, padding: '2px 9px', borderRadius: 20, background: 'var(--secondary-light)', color: 'var(--secondary)', fontWeight: 600 }}>
-              🤝 {filters.kabadiwala}
-              <button onClick={() => setFilters(f => ({ ...f, kabadiwala: '' }))} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--secondary)', padding: 0, lineHeight: 1 }}>×</button>
+              🤝 {filters.PickupPartner}
+              <button onClick={() => setFilters(f => ({ ...f, PickupPartner: '' }))} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--secondary)', padding: 0, lineHeight: 1 }}>×</button>
             </span>
           )}
         </div>
@@ -615,7 +615,7 @@ export default function Dashboard({ onNav }) {
             <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>{periodLabel}</span>
           </div>
           <div className="card-body" style={{ paddingTop: 10 }}>
-            <FinancialSummary raddiRecords={filteredRaddi} kabadiwalas={kabadiwalas} />
+            <FinancialSummary raddiRecords={filteredRaddi} PickupPartners={PickupPartners} />
           </div>
         </div>
       </div>

@@ -8,7 +8,7 @@ import { generateOrderId, initOrderSeq } from '../utils/helpers'
 import {
   donors      as _initDonors,
   pickups     as _initPickups,
-  kabadiwalas as _initKabs,
+  PickupPartners as _initpickuppartners,
 } from '../data/mockData'
 
 const AppContext = createContext(null)
@@ -45,7 +45,7 @@ function nextDonorId(existing) {
   return `D-${String(existing.length + 1).padStart(3, '0')}`
 }
 
-function nextKabId(existing) {
+function nextpickuppartnerId(existing) {
   return `K-${String(existing.length + 1).padStart(3, '0')}`
 }
 
@@ -55,7 +55,7 @@ function toKg(value, unit) {
   return unit === 'gm' ? n / 1000 : n
 }
 
-function buildRaddiRow({ pickup, donor = {}, kabObj = {}, data = {} }) {
+function buildRaddiRow({ pickup, donor = {}, pickuppartnerObj = {}, data = {} }) {
   const totalValue = Number(data.totalValue ?? pickup.totalValue) || 0
   const amountPaid = Number(data.amountPaid ?? pickup.amountPaid) || 0
   const ps         = derivePaymentStatus(totalValue, amountPaid)
@@ -84,16 +84,16 @@ function buildRaddiRow({ pickup, donor = {}, kabObj = {}, data = {} }) {
     city:            donor.city    || pickup.city     || '',
     pickupDate:      data.date     || pickup.date     || today(),
     orderDate:       pickup.createdAt                  || today(),
-    kabadiwalaName:  data.kabadiwala   || pickup.kabadiwala   || '',
-    kabadiwalaPhone: kabObj.mobile     || data.kabadiMobile   || pickup.kabadiMobile || '',
+    PickupPartnerName:  data.PickupPartner   || pickup.PickupPartner   || '',
+    PickupPartnerPhone: pickuppartnerObj.mobile     || data.pickuppartneradiMobile   || pickup.pickuppartneradiMobile || '',
     donorStatus:     deriveDonorStatus(data.date || pickup.date),
     rstItems:        data.rstItems || pickup.rstItems || [],
     sksItems:        data.sksItems || pickup.sksItems || [],
     // Per-item kg breakdown
     itemKgMap,
     rstOthers,
-    // Rate chart from kabadiwala for per-item ₹ calculation
-    kabRateChart:    kabObj.rateChart || {},
+    // Rate chart from PickupPartner for per-item ₹ calculation
+    pickuppartnerRateChart:    pickuppartnerObj.rateChart || {},
     totalKg:         Number(data.totalKg || pickup.totalKgs || pickup.totalKg)   || 0,
     totalAmount:     totalValue,
     amountPaid:      amountPaid,
@@ -107,13 +107,13 @@ function buildRaddiRow({ pickup, donor = {}, kabObj = {}, data = {} }) {
   }
 }
 
-function initRaddiFromPickups(pickups, donors, kabs) {
+function initRaddiFromPickups(pickups, donors, pickuppartners) {
   return pickups
     .filter(p => p.status === 'Completed')
     .map(p => {
       const donor  = donors.find(d => d.id === p.donorId) || {}
-      const kabObj = kabs.find(k => k.name === p.kabadiwala) || {}
-      return buildRaddiRow({ pickup: p, donor, kabObj, data: p })
+      const pickuppartnerObj = pickuppartners.find(k => k.name === p.PickupPartner) || {}
+      return buildRaddiRow({ pickup: p, donor, pickuppartnerObj, data: p })
     })
 }
 
@@ -121,9 +121,9 @@ export function AppProvider({ children }) {
 
   const [donors,       setDonors]  = useState(() => _initDonors)
   const [pickups,      setPickups] = useState(() => _initPickups)
-  const [kabadiwalas,  setKabs]    = useState(() => _initKabs)
+  const [PickupPartners,  setpickuppartners]    = useState(() => _initpickuppartners)
   const [raddiRecords, setRaddi]   = useState(() =>
-    initRaddiFromPickups(_initPickups, _initDonors, _initKabs)
+    initRaddiFromPickups(_initPickups, _initDonors, _initpickuppartners)
   )
 
   useEffect(() => {
@@ -187,17 +187,17 @@ export function AppProvider({ children }) {
 
     if (pickup.status === 'Completed') {
       setDonors(prevD => {
-        setKabs(prevK => {
+        setpickuppartners(prevK => {
           const donor  = prevD.find(d => d.id === pickup.donorId) || {}
-          const kabObj = prevK.find(k => k.name === pickup.kabadiwala) || {}
+          const pickuppartnerObj = prevK.find(k => k.name === pickup.PickupPartner) || {}
           setRaddi(prev => {
             const exists = prev.some(r => r.orderId === pickup.orderId || r.pickupId === pickup.id)
             if (exists) return prev.map(r =>
               (r.orderId === pickup.orderId || r.pickupId === pickup.id)
-                ? buildRaddiRow({ pickup, donor, kabObj, data: pickup })
+                ? buildRaddiRow({ pickup, donor, pickuppartnerObj, data: pickup })
                 : r
             )
-            return [buildRaddiRow({ pickup, donor, kabObj, data: pickup }), ...prev]
+            return [buildRaddiRow({ pickup, donor, pickuppartnerObj, data: pickup }), ...prev]
           })
           return prevK
         })
@@ -243,12 +243,12 @@ export function AppProvider({ children }) {
       p.id === id ? { ...p, ...data, status: 'Completed', paymentStatus } : p
     ))
     setDonors(prevD => {
-      setKabs(prevK => {
+      setpickuppartners(prevK => {
         setPickups(prevP => {
           const pickup = prevP.find(p => p.id === id) || {}
           const donor  = prevD.find(d => d.id === (pickup.donorId || data.donorId)) || {}
-          const kabObj = prevK.find(k => k.name === data.kabadiwala) || {}
-          const row    = buildRaddiRow({ pickup, donor, kabObj, data: { ...data, paymentStatus } })
+          const pickuppartnerObj = prevK.find(k => k.name === data.PickupPartner) || {}
+          const row    = buildRaddiRow({ pickup, donor, pickuppartnerObj, data: { ...data, paymentStatus } })
           setRaddi(prev => {
             const idx = prev.findIndex(r => r.pickupId === id || r.orderId === (pickup.orderId || id))
             return idx >= 0 ? prev.map((r, i) => i === idx ? row : r) : [row, ...prev]
@@ -258,7 +258,7 @@ export function AppProvider({ children }) {
         const val  = Number(data.totalValue) || 0
         const paid = Number(data.amountPaid)  || 0
         return prevK.map(k => {
-          if (k.name !== data.kabadiwala) return k
+          if (k.name !== data.PickupPartner) return k
           return {
             ...k,
             totalPickups:   (k.totalPickups   || 0) + 1,
@@ -297,13 +297,13 @@ export function AppProvider({ children }) {
     setPickups(prevPickups => {
       const oldPickup = prevPickups.find(p => p.id === id)
 
-      if (data.amountPaid !== undefined && oldPickup?.kabadiwala) {
+      if (data.amountPaid !== undefined && oldPickup?.PickupPartner) {
         const oldPaid = Number(oldPickup.amountPaid) || 0
         const newPaid = Number(data.amountPaid) || 0
         const delta   = newPaid - oldPaid
         if (delta !== 0) {
-          setKabs(prevK => prevK.map(k => {
-            if (k.name !== oldPickup.kabadiwala) return k
+          setpickuppartners(prevK => prevK.map(k => {
+            if (k.name !== oldPickup.PickupPartner) return k
             return {
               ...k,
               amountReceived: (k.amountReceived || 0) + delta,
@@ -341,12 +341,12 @@ export function AppProvider({ children }) {
     setRaddi(prev => prev.filter(r => r.pickupId !== id && r.orderId !== id))
   }, [])
 
-  // ── KABADIWALA CRUD ───────────────────────────────────────────────────────
-  const addKabadiwala = useCallback(async (data) => {
+  // ── PickupPartner CRUD ───────────────────────────────────────────────────────
+  const addPickupPartner = useCallback(async (data) => {
     await delay()
     let newK
-    setKabs(prev => {
-      const id = nextKabId(prev)
+    setpickuppartners(prev => {
+      const id = nextpickuppartnerId(prev)
       newK = { ...data, id, rating: 4.0, totalPickups: 0, totalValue: 0, amountReceived: 0, pendingAmount: 0, transactions: [] }
       return [...prev, newK]
     })
@@ -354,23 +354,23 @@ export function AppProvider({ children }) {
     return newK
   }, [])
 
-  const updateKabadiwala = useCallback(async (id, data) => {
+  const updatePickupPartner = useCallback(async (id, data) => {
     await delay()
-    setKabs(prev => prev.map(k => k.id === id ? { ...k, ...data } : k))
+    setpickuppartners(prev => prev.map(k => k.id === id ? { ...k, ...data } : k))
   }, [])
 
-  const deleteKabadiwala = useCallback(async (id) => {
+  const deletePickupPartner = useCallback(async (id) => {
     await delay()
-    setKabs(prev => prev.filter(k => k.id !== id))
+    setpickuppartners(prev => prev.filter(k => k.id !== id))
   }, [])
 
-  const recordKabadiwalaPayment = useCallback(async (kabId, {
+  const recordPickupPartnerPayment = useCallback(async (pickuppartnerId, {
     pickupId, amount, refMode, refValue, notes, date, screenshot,
   }) => {
     await delay()
     const additional = Number(amount) || 0
-    setKabs(prev => prev.map(k => {
-      if (k.id !== kabId) return k
+    setpickuppartners(prev => prev.map(k => {
+      if (k.id !== pickuppartnerId) return k
       return {
         ...k,
         amountReceived: (k.amountReceived || 0) + additional,
@@ -413,7 +413,7 @@ export function AppProvider({ children }) {
   }, [])
 
   // ── CLEAR PARTNER BALANCE (supports paid + write-off modes) ───────────────
-  const clearPartnerBalance = useCallback(async ({ kabId, kabName }, paymentInfo) => {
+  const clearPartnerBalance = useCallback(async ({ pickuppartnerId, pickuppartnerName }, paymentInfo) => {
     await delay()
     const {
       refMode    = 'cash',
@@ -434,14 +434,14 @@ export function AppProvider({ children }) {
         ? 0  // No money received in write-off
         : prevPickups
             .filter(p =>
-              p.kabadiwala === kabName &&
+              p.PickupPartner === pickuppartnerName &&
               (p.paymentStatus === 'Not Paid' || p.paymentStatus === 'Partially Paid') &&
               (p.totalValue || 0) > 0
             )
             .reduce((s, p) => s + Math.max(0, (p.totalValue || 0) - (p.amountPaid || 0)), 0)
 
-      setKabs(prevKabs => prevKabs.map(k => {
-        if (k.id !== kabId) return k
+      setpickuppartners(prevpickuppartners => prevpickuppartners.map(k => {
+        if (k.id !== pickuppartnerId) return k
         return {
           ...k,
           // Write-off: pending zeroed but amountReceived does NOT increase
@@ -458,7 +458,7 @@ export function AppProvider({ children }) {
       }))
 
       setRaddi(prevRaddi => prevRaddi.map(r => {
-        if (r.kabadiwalaName !== kabName) return r
+        if (r.PickupPartnerName !== pickuppartnerName) return r
         if (r.paymentStatus === 'Received' || r.paymentStatus === 'Write-off') return r
         return {
           ...r,
@@ -468,7 +468,7 @@ export function AppProvider({ children }) {
       }))
 
       return prevPickups.map(p => {
-        if (p.kabadiwala !== kabName) return p
+        if (p.PickupPartner !== pickuppartnerName) return p
         if (p.paymentStatus === 'Paid' || p.paymentStatus === 'Write Off') return p
         const rem    = Math.max(0, (p.totalValue || 0) - (p.amountPaid || 0))
         if (rem <= 0) return p
@@ -550,28 +550,28 @@ export function AppProvider({ children }) {
       individualPickups:     pickups.filter(p => p.pickupMode === 'Individual').length,
       totalRaddiKg:          raddiRecords.reduce((s, r) => s + (r.totalKg     || 0), 0),
       totalRevenue:          raddiRecords.reduce((s, r) => s + (r.totalAmount || 0), 0),
-      amountReceived:        kabadiwalas.reduce((s, k) => s + (k.amountReceived || 0), 0),
-      pendingFromKabs:       kabadiwalas.reduce((s, k) => s + (k.pendingAmount  || 0), 0),
+      amountReceived:        PickupPartners.reduce((s, k) => s + (k.amountReceived || 0), 0),
+      pendingFrompickuppartners:       PickupPartners.reduce((s, k) => s + (k.pendingAmount  || 0), 0),
     }
-  }, [donors, pickups, raddiRecords, kabadiwalas])
+  }, [donors, pickups, raddiRecords, PickupPartners])
 
   const value = useMemo(() => ({
-    donors, pickups, kabadiwalas, raddiRecords,
-    partners: kabadiwalas,
+    donors, pickups, PickupPartners, raddiRecords,
+    partners: PickupPartners,
     dashboardStats, schedulerTabData,
     addDonor, updateDonor, deleteDonor,
     createPickup, schedulePickup, recordPickup, updatePickup, deletePickup,
-    addKabadiwala, updateKabadiwala, deleteKabadiwala,
-    recordKabadiwalaPayment, clearPartnerBalance,
-    addPartner:    addKabadiwala,
-    updatePartner: updateKabadiwala,
-    deletePartner: deleteKabadiwala,
+    addPickupPartner, updatePickupPartner, deletePickupPartner,
+    recordPickupPartnerPayment, clearPartnerBalance,
+    addPartner:    addPickupPartner,
+    updatePartner: updatePickupPartner,
+    deletePartner: deletePickupPartner,
   }), [
-    donors, pickups, kabadiwalas, raddiRecords, dashboardStats, schedulerTabData,
+    donors, pickups, PickupPartners, raddiRecords, dashboardStats, schedulerTabData,
     addDonor, updateDonor, deleteDonor,
     createPickup, schedulePickup, recordPickup, updatePickup, deletePickup,
-    addKabadiwala, updateKabadiwala, deleteKabadiwala,
-    recordKabadiwalaPayment, clearPartnerBalance,
+    addPickupPartner, updatePickupPartner, deletePickupPartner,
+    recordPickupPartnerPayment, clearPartnerBalance,
   ])
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>

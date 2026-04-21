@@ -793,7 +793,7 @@ function PartnerCard({ partner, onRecordPayment, onWriteOffEntry, onWriteOffPart
 
           <div style={{ flex: '1 1 180px', minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
-              {partner.kabId && <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 800, color: 'white', background: 'var(--secondary)', padding: '2px 8px', borderRadius: 5 }}>{partner.kabId}</span>}
+              {partner.pickuppartnerId && <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 800, color: 'white', background: 'var(--secondary)', padding: '2px 8px', borderRadius: 5 }}>{partner.pickuppartnerId}</span>}
               <div style={{ fontWeight: 800, fontSize: 15.5 }}>{partner.partnerName}</div>
               {urgentCount > 0 && (
                 <span style={{ fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'var(--danger-bg)', color: 'var(--danger)', border: '1px solid rgba(239,68,68,0.2)' }}>
@@ -937,7 +937,7 @@ function PartnerCard({ partner, onRecordPayment, onWriteOffEntry, onWriteOffPart
 // PARTNER PAYMENT HUB — main view
 // ══════════════════════════════════════════════════════════════════════════════
 
-function PartnerPaymentHub({ pickups, kabadiwalas, recordKabadiwalaPayment, clearPartnerBalance }) {
+function PartnerPaymentHub({ pickups, PickupPartners, recordPickupPartnerPayment, clearPartnerBalance }) {
   const { role } = useRole()
   const isAdmin      = role === 'admin'
   const canWriteOff  = role === 'admin' || role === 'manager'  // managers can also write off
@@ -945,7 +945,7 @@ function PartnerPaymentHub({ pickups, kabadiwalas, recordKabadiwalaPayment, clea
   const [datePreset,   setDatePreset]   = useState('all')
   const [customFrom,   setCustomFrom]   = useState('')
   const [customTo,     setCustomTo]     = useState('')
-  const [filterKab,    setFilterKab]    = useState('All')
+  const [filterpickuppartner,    setFilterpickuppartner]    = useState('All')
   const [filterStatus, setFilterStatus] = useState('All')
   const [globalSearch, setGlobalSearch] = useState('')
 
@@ -960,27 +960,27 @@ function PartnerPaymentHub({ pickups, kabadiwalas, recordKabadiwalaPayment, clea
     [datePreset, customFrom, customTo]
   )
 
-  const kabNames = useMemo(() => [...new Set(pickups.map(p => p.kabadiwala).filter(Boolean))].sort(), [pickups])
+  const pickuppartnerNames = useMemo(() => [...new Set(pickups.map(p => p.PickupPartner).filter(Boolean))].sort(), [pickups])
 
   const partnerRows = useMemo(() => {
     const q = globalSearch.toLowerCase().trim()
     const relevantPickups = pickups.filter(p => {
       if (p.status !== 'Completed') return false
-      if (!p.kabadiwala) return false
+      if (!p.PickupPartner) return false
       const inDate   = (!dateFrom || (p.date || '') >= dateFrom) && (!dateTo || (p.date || '') <= dateTo)
-      const inKab    = filterKab === 'All' || p.kabadiwala === filterKab
+      const inpickuppartner    = filterpickuppartner === 'All' || p.PickupPartner === filterpickuppartner
       const ps       = p.paymentStatus || getPickupPayStatus(p.totalValue, p.amountPaid)
       const inStatus = filterStatus === 'All' || ps === filterStatus
-      const inSearch = !q || (p.kabadiwala || '').toLowerCase().includes(q) || (p.donorName || '').toLowerCase().includes(q) || (p.orderId || '').toLowerCase().includes(q)
-      return inDate && inKab && inStatus && inSearch
+      const inSearch = !q || (p.PickupPartner || '').toLowerCase().includes(q) || (p.donorName || '').toLowerCase().includes(q) || (p.orderId || '').toLowerCase().includes(q)
+      return inDate && inpickuppartner && inStatus && inSearch
     })
 
     const map = {}
     relevantPickups.forEach(p => {
-      const name = p.kabadiwala
-      const kab  = kabadiwalas.find(k => k.name === name) || {}
+      const name = p.PickupPartner
+      const pickuppartner  = PickupPartners.find(k => k.name === name) || {}
       if (!map[name]) {
-        map[name] = { kabId: kab.id || name, partnerName: name, mobile: kab.mobile || p.kabadiMobile || '', total: 0, paid: 0, pending: 0, count: 0, records: [], history: [], lastPaymentDate: '' }
+        map[name] = { pickuppartnerId: pickuppartner.id || name, partnerName: name, mobile: pickuppartner.mobile || p.pickuppartneradiMobile || '', total: 0, paid: 0, pending: 0, count: 0, records: [], history: [], lastPaymentDate: '' }
       }
       const total   = Number(p.totalValue) || 0
       const paid    = Math.min(total, Number(p.amountPaid) || 0)
@@ -1000,7 +1000,7 @@ function PartnerPaymentHub({ pickups, kabadiwalas, recordKabadiwalaPayment, clea
       if (b.pending !== a.pending) return b.pending - a.pending
       return a.partnerName.localeCompare(b.partnerName)
     })
-  }, [pickups, kabadiwalas, dateFrom, dateTo, filterKab, filterStatus, globalSearch])
+  }, [pickups, PickupPartners, dateFrom, dateTo, filterpickuppartner, filterStatus, globalSearch])
 
   const globalKPIs = useMemo(() => ({
     totalPartners: partnerRows.length,
@@ -1015,32 +1015,32 @@ function PartnerPaymentHub({ pickups, kabadiwalas, recordKabadiwalaPayment, clea
   const openPayModal = useCallback(({ partner, pickup }) => {
     if (partner) {
       setPayContext({
-        partnerName: partner.partnerName, kabId: partner.kabId,
+        partnerName: partner.partnerName, pickuppartnerId: partner.pickuppartnerId,
         mobile: partner.mobile, isPartnerLevel: true,
         total: partner.total, paid: partner.paid, pending: partner.pending,
       })
     } else {
-      const kab = kabadiwalas.find(k => k.name === pickup.kabadiwala) || {}
+      const pickuppartner = PickupPartners.find(k => k.name === pickup.PickupPartner) || {}
       setPayContext({
-        partnerName: pickup.kabadiwala, kabId: kab.id || pickup.kabadiwala,
+        partnerName: pickup.PickupPartner, pickuppartnerId: pickuppartner.id || pickup.PickupPartner,
         pickupId: pickup.id, orderId: pickup.orderId,
         donorName: pickup.donorName, isPartnerLevel: false,
         total: pickup._total, paid: pickup._paid, pending: pickup._pending,
       })
     }
-  }, [kabadiwalas])
+  }, [PickupPartners])
 
   // Open write-off for a single pickup entry
   const openWriteOffEntry = useCallback((pickup) => {
-    const kab = kabadiwalas.find(k => k.name === pickup.kabadiwala) || {}
+    const pickuppartner = PickupPartners.find(k => k.name === pickup.PickupPartner) || {}
     setWriteOffCtx({
       mode: 'entry',
-      partnerName: pickup.kabadiwala, kabId: kab.id || pickup.kabadiwala,
+      partnerName: pickup.PickupPartner, pickuppartnerId: pickuppartner.id || pickup.PickupPartner,
       pickupId: pickup.id, orderId: pickup.orderId,
       donorName: pickup.donorName,
       pending: pickup._pending,
     })
-  }, [kabadiwalas])
+  }, [PickupPartners])
 
   // Open write-off for all pending of a partner
   const openWriteOffPartner = useCallback((partner) => {
@@ -1050,7 +1050,7 @@ function PartnerPaymentHub({ pickups, kabadiwalas, recordKabadiwalaPayment, clea
     })
     setWriteOffCtx({
       mode: 'partner',
-      partnerName: partner.partnerName, kabId: partner.kabId,
+      partnerName: partner.partnerName, pickuppartnerId: partner.pickuppartnerId,
       pending: partner.pending,
       pickupCount: pendingPickups.length,
     })
@@ -1063,18 +1063,18 @@ function PartnerPaymentHub({ pickups, kabadiwalas, recordKabadiwalaPayment, clea
     try {
       if (payContext.isPartnerLevel && isFull) {
         await clearPartnerBalance(
-          { kabId: payContext.kabId, kabName: payContext.partnerName },
+          { pickuppartnerId: payContext.pickuppartnerId, pickuppartnerName: payContext.partnerName },
           { refMode: method, refValue: reference, notes, date, screenshot, writeOff: false }
         )
       } else {
-        await recordKabadiwalaPayment(payContext.kabId, {
+        await recordPickupPartnerPayment(payContext.pickuppartnerId, {
           pickupId:  payContext.isPartnerLevel ? undefined : payContext.pickupId,
           amount, date, refMode: method, refValue: reference, notes, screenshot,
         })
       }
       setPayContext(null)
     } finally { setSaving(false) }
-  }, [payContext, clearPartnerBalance, recordKabadiwalaPayment])
+  }, [payContext, clearPartnerBalance, recordPickupPartnerPayment])
 
   // Confirm write-off
   const handleWriteOffConfirm = useCallback(async ({ reason }) => {
@@ -1084,12 +1084,12 @@ function PartnerPaymentHub({ pickups, kabadiwalas, recordKabadiwalaPayment, clea
       if (writeOffCtx.mode === 'partner') {
         // Write off all pending for this partner
         await clearPartnerBalance(
-          { kabId: writeOffCtx.kabId, kabName: writeOffCtx.partnerName },
+          { pickuppartnerId: writeOffCtx.pickuppartnerId, pickuppartnerName: writeOffCtx.partnerName },
           { refMode: 'writeoff', refValue: '', notes: reason, date: new Date().toISOString().slice(0, 10), writeOff: true }
         )
       } else {
         // Write off only this specific pickup entry
-        await recordKabadiwalaPayment(writeOffCtx.kabId, {
+        await recordPickupPartnerPayment(writeOffCtx.pickuppartnerId, {
           pickupId: writeOffCtx.pickupId,
           amount: 0, date: new Date().toISOString().slice(0, 10),
           refMode: 'writeoff', refValue: '', notes: reason, screenshot: null,
@@ -1098,7 +1098,7 @@ function PartnerPaymentHub({ pickups, kabadiwalas, recordKabadiwalaPayment, clea
       }
       setWriteOffCtx(null)
     } finally { setSaving(false) }
-  }, [writeOffCtx, clearPartnerBalance, recordKabadiwalaPayment])
+  }, [writeOffCtx, clearPartnerBalance, recordPickupPartnerPayment])
 
   const handleExport = () => exportToExcel(
     partnerRows.map(r => ({
@@ -1186,9 +1186,9 @@ function PartnerPaymentHub({ pickups, kabadiwalas, recordKabadiwalaPayment, clea
             <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
             <input value={globalSearch} onChange={e => setGlobalSearch(e.target.value)} placeholder="Search partner, donor, order…" style={{ paddingLeft: 32, fontSize: 12.5, width: '100%' }} />
           </div>
-          <select value={filterKab} onChange={e => setFilterKab(e.target.value)} style={{ flex: '1 1 150px', fontSize: 12.5 }}>
+          <select value={filterpickuppartner} onChange={e => setFilterpickuppartner(e.target.value)} style={{ flex: '1 1 150px', fontSize: 12.5 }}>
             <option value="All">All Partners</option>
-            {kabNames.map(n => <option key={n}>{n}</option>)}
+            {pickuppartnerNames.map(n => <option key={n}>{n}</option>)}
           </select>
           <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ flex: '1 1 140px', fontSize: 12.5 }}>
             <option value="All">All Statuses</option>
@@ -1294,7 +1294,7 @@ function RSTAnalytics({ raddiRecords, pickups }) {
       const lastH     = (pickup.payHistory || []).slice(-1)[0]
       return {
         ...r, total, collected, pending,
-        partnerName: r.kabadiwalaName || pickup.kabadiwala || 'Unassigned',
+        partnerName: r.PickupPartnerName || pickup.PickupPartner || 'Unassigned',
         donorName:   r.name || pickup.donorName || '',
         lastPaymentDate: lastH?.date || (collected > 0 ? (pickup.date || r.pickupDate) : ''),
       }
@@ -1500,7 +1500,7 @@ function RSTAnalytics({ raddiRecords, pickups }) {
 // ══════════════════════════════════════════════════════════════════════════════
 
 export default function Payments() {
-  const { pickups, raddiRecords, kabadiwalas, recordKabadiwalaPayment, clearPartnerBalance } = useApp()
+  const { pickups, raddiRecords, PickupPartners, recordPickupPartnerPayment, clearPartnerBalance } = useApp()
   const { role } = useRole()
   const [view, setView] = useState('partners')
 
@@ -1534,8 +1534,8 @@ export default function Payments() {
       {view === 'partners' && (
         <PartnerPaymentHub
           pickups={pickups}
-          kabadiwalas={kabadiwalas}
-          recordKabadiwalaPayment={recordKabadiwalaPayment}
+          PickupPartners={PickupPartners}
+          recordPickupPartnerPayment={recordPickupPartnerPayment}
           clearPartnerBalance={clearPartnerBalance}
         />
       )}

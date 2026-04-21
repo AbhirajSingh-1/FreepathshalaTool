@@ -3,7 +3,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  * • Single clean tabular view — no toggle to alternate layouts
  * • All required columns: Order ID, Mobile, Name, House No, Society, Sector,
- *   City, Pickup Date, Order Date, Kabadiwala, Kab Phone, Donor Status,
+ *   City, Pickup Date, Order Date, PickupPartner, pickuppartner Phone, Donor Status,
  *   RST Items (with per-item kg in expandable), SKS Items, Total KG, Total ₹,
  *   Amount Paid, Payment Status, Order Status
  * • Date filter strictly on Pickup Date
@@ -84,7 +84,7 @@ function RowDetail({ record }) {
   const rstItems     = record.rstItems     || []
   const sksItems     = record.sksItems     || []
   const itemKgMap    = record.itemKgMap    || {}
-  const kabRateChart = record.kabRateChart || {}
+  const pickuppartnerRateChart = record.pickuppartnerRateChart || {}
   const rstOthers    = record.rstOthers    || []
 
   const paid      = record.amountPaid   || 0
@@ -111,7 +111,7 @@ function RowDetail({ record }) {
                 </div>
                 {rstItems.filter(i => i !== 'Others').map((item, idx) => {
                   const kg   = itemKgMap[item] || 0
-                  const rate = kabRateChart[item] ?? null
+                  const rate = pickuppartnerRateChart[item] ?? null
                   const est  = rate !== null && kg > 0 ? Math.round(kg * rate) : null
                   return (
                     <div key={item} style={{ display: 'grid', gridTemplateColumns: '1fr 70px 70px', padding: '6px 10px', fontSize: 12.5, borderTop: idx > 0 ? '1px solid var(--border-light)' : 'none', background: idx % 2 === 0 ? 'var(--surface)' : 'var(--bg)' }}>
@@ -194,7 +194,7 @@ export default function RaddiMaster() {
   const [search,       setSearch]      = useState('')
   const [filterPay,    setFPay]        = useState('')
   const [filterOrder,  setFOrder]      = useState('')
-  const [filterKab,    setFKab]        = useState('')
+  const [filterpickuppartner,    setFpickuppartner]        = useState('')
   const [filterType,   setFType]       = useState('')
   const [filterSector, setFSector]     = useState('')
   const [filterStatus, setFStatus]     = useState('')
@@ -207,7 +207,7 @@ export default function RaddiMaster() {
   const [sortDir,      setSortDir]     = useState('desc')
   const [expanded,     setExpanded]    = useState({})
 
-  const kabNames = useMemo(() => [...new Set(raddiRecords.map(r => r.kabadiwalaName).filter(Boolean))].sort(), [raddiRecords])
+  const pickuppartnerNames = useMemo(() => [...new Set(raddiRecords.map(r => r.PickupPartnerName).filter(Boolean))].sort(), [raddiRecords])
   const sectors  = useMemo(() => [...new Set(raddiRecords.map(r => r.sector).filter(Boolean))].sort(), [raddiRecords])
 
   const applyPreset = (p) => {
@@ -228,17 +228,17 @@ export default function RaddiMaster() {
   const q = search.toLowerCase().trim()
   const filtered = useMemo(() => {
     const rows = raddiRecords.filter(r => {
-      const mQ   = !q || r.name?.toLowerCase().includes(q) || r.mobile?.includes(q) || r.society?.toLowerCase().includes(q) || r.kabadiwalaName?.toLowerCase().includes(q) || r.orderId?.toLowerCase().includes(q) || r.houseNo?.toLowerCase().includes(q)
+      const mQ   = !q || r.name?.toLowerCase().includes(q) || r.mobile?.includes(q) || r.society?.toLowerCase().includes(q) || r.PickupPartnerName?.toLowerCase().includes(q) || r.orderId?.toLowerCase().includes(q) || r.houseNo?.toLowerCase().includes(q)
       const mPay = !filterPay    || r.paymentStatus  === filterPay
       const mOrd = !filterOrder  || r.orderStatus    === filterOrder
-      const mKab = !filterKab    || r.kabadiwalaName === filterKab
+      const mpickuppartner = !filterpickuppartner    || r.PickupPartnerName === filterpickuppartner
       const mTyp = !filterType   || r.type           === filterType
       const mSec = !filterSector || r.sector         === filterSector
       const mSts = !filterStatus || r.donorStatus    === filterStatus
       // Date filter strictly on pickupDate
       const mF   = !dateFrom || (r.pickupDate || '') >= dateFrom
       const mT   = !dateTo   || (r.pickupDate || '') <= dateTo
-      return mQ && mPay && mOrd && mKab && mTyp && mSec && mSts && mF && mT
+      return mQ && mPay && mOrd && mpickuppartner && mTyp && mSec && mSts && mF && mT
     })
     rows.sort((a, b) => {
       let av = a[sortKey] ?? '', bv = b[sortKey] ?? ''
@@ -249,7 +249,7 @@ export default function RaddiMaster() {
       return 0
     })
     return rows
-  }, [raddiRecords, q, filterPay, filterOrder, filterKab, filterType, filterSector, filterStatus, dateFrom, dateTo, sortKey, sortDir])
+  }, [raddiRecords, q, filterPay, filterOrder, filterpickuppartner, filterType, filterSector, filterStatus, dateFrom, dateTo, sortKey, sortDir])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const pageRows   = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
@@ -263,7 +263,7 @@ export default function RaddiMaster() {
     pending:  filtered.filter(r => r.paymentStatus === 'Yet to Receive').reduce((s, r) => s + (r.totalAmount || 0), 0),
   }), [filtered])
 
-  const hasFilters = filterPay || filterOrder || filterKab || filterType || filterSector || filterStatus
+  const hasFilters = filterPay || filterOrder || filterpickuppartner || filterType || filterSector || filterStatus
 
   const SortTh = ({ k, children, style: s }) => (
     <th onClick={() => toggleSort(k)} style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap', ...s }}>
@@ -288,8 +288,8 @@ export default function RaddiMaster() {
         'City':              r.city    || '—',
         'Raddi Pickup Date': r.pickupDate || '—',
         'Order Date':        r.orderDate  || '—',
-        'Kabadiwala Name':   r.kabadiwalaName  || '—',
-        'Kabadiwala Phone':  r.kabadiwalaPhone || '—',
+        'PickupPartner Name':   r.PickupPartnerName  || '—',
+        'PickupPartner Phone':  r.PickupPartnerPhone || '—',
         'Donor Status':      r.donorStatus || '—',
       }
       // Per-item KG columns (RST_ITEMS)
@@ -297,7 +297,7 @@ export default function RaddiMaster() {
       RST_ITEMS.forEach(item => {
         const kg = itemKgMap[item] || 0
         base[`${item} (KG)`] = kg > 0 ? kg.toFixed(3) : ''
-        const rate = (r.kabRateChart || {})[item]
+        const rate = (r.pickuppartnerRateChart || {})[item]
         const est  = rate && kg > 0 ? Math.round(kg * rate) : ''
         base[`${item} (₹ Est.)`] = est || ''
       })
@@ -401,7 +401,7 @@ export default function RaddiMaster() {
         <div className="search-wrap" style={{ flex: '1 1 220px', minWidth: 0 }}>
           <Search className="icon" />
           <input
-            placeholder="Search name, mobile, society, order ID, kabadiwala…"
+            placeholder="Search name, mobile, society, order ID, PickupPartner…"
             value={search}
             onChange={e => { setSearch(e.target.value); setPage(1) }}
           />
@@ -414,7 +414,7 @@ export default function RaddiMaster() {
           <SlidersHorizontal size={13} />
           {hasFilters
             ? <span style={{ background: 'var(--primary)', color: '#fff', borderRadius: '50%', width: 16, height: 16, fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                {[filterPay, filterOrder, filterKab, filterType, filterSector, filterStatus].filter(Boolean).length}
+                {[filterPay, filterOrder, filterpickuppartner, filterType, filterSector, filterStatus].filter(Boolean).length}
               </span>
             : 'Filters'}
         </button>
@@ -441,9 +441,9 @@ export default function RaddiMaster() {
             <option value="SKS">SKS</option>
             <option value="RST+SKS">RST+SKS</option>
           </select>
-          <select value={filterKab} onChange={e => { setFKab(e.target.value); setPage(1) }} style={{ fontSize: 12.5 }}>
-            <option value="">All Kabadiwalas</option>
-            {kabNames.map(k => <option key={k}>{k}</option>)}
+          <select value={filterpickuppartner} onChange={e => { setFpickuppartner(e.target.value); setPage(1) }} style={{ fontSize: 12.5 }}>
+            <option value="">All PickupPartners</option>
+            {pickuppartnerNames.map(k => <option key={k}>{k}</option>)}
           </select>
           <select value={filterSector} onChange={e => { setFSector(e.target.value); setPage(1) }} style={{ fontSize: 12.5 }}>
             <option value="">All Sectors</option>
@@ -458,7 +458,7 @@ export default function RaddiMaster() {
           </select>
           {hasFilters && (
             <button className="btn btn-ghost btn-sm" style={{ fontSize: 11.5 }}
-              onClick={() => { setFPay(''); setFOrder(''); setFKab(''); setFType(''); setFSector(''); setFStatus(''); setPage(1) }}>
+              onClick={() => { setFPay(''); setFOrder(''); setFpickuppartner(''); setFType(''); setFSector(''); setFStatus(''); setPage(1) }}>
               <X size={11} /> Clear All
             </button>
           )}
@@ -500,8 +500,8 @@ export default function RaddiMaster() {
                   <SortTh k="city">City</SortTh>
                   <SortTh k="pickupDate">Pickup Date</SortTh>
                   <SortTh k="orderDate">Order Date</SortTh>
-                  <th>Kabadiwala</th>
-                  <th>Kab. Phone</th>
+                  <th>Pickup Partner</th>
+                  <th>pickup partner PhoneNo.</th>
                   <SortTh k="donorStatus">Donor Status</SortTh>
                   <th>RST Items</th>
                   <th>SKS Items</th>
@@ -557,10 +557,10 @@ export default function RaddiMaster() {
                       <td style={{ whiteSpace: 'nowrap', fontSize: 12.5, fontWeight: 600 }}>{fmtDate(r.pickupDate)}</td>
                       {/* Order Date */}
                       <td style={{ whiteSpace: 'nowrap', fontSize: 12 }}>{fmtDate(r.orderDate)}</td>
-                      {/* Kabadiwala */}
-                      <td style={{ fontSize: 12.5 }}>{r.kabadiwalaName || '—'}</td>
-                      {/* Kab Phone */}
-                      <td style={{ fontSize: 12, fontFamily: 'monospace' }}>{r.kabadiwalaPhone || '—'}</td>
+                      {/* PickupPartner */}
+                      <td style={{ fontSize: 12.5 }}>{r.PickupPartnerName || '—'}</td>
+                      {/* pickuppartner Phone */}
+                      <td style={{ fontSize: 12, fontFamily: 'monospace' }}>{r.PickupPartnerPhone || '—'}</td>
                       {/* Donor Status */}
                       <td>
                         <Badge label={r.donorStatus || 'Active'} cfg={DONOR_STATUS_BADGE[r.donorStatus] || DONOR_STATUS_BADGE['Active']} />
@@ -631,7 +631,7 @@ export default function RaddiMaster() {
                     {[r.houseNo, r.society, r.sector, r.city].filter(Boolean).join(', ')}
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
-                    Pickup: {fmtDate(r.pickupDate)} · Kabadiwala: {r.kabadiwalaName || '—'}
+                    Pickup: {fmtDate(r.pickupDate)} · PickupPartner: {r.PickupPartnerName || '—'}
                   </div>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                     <Badge label={r.donorStatus || 'Active'} cfg={DONOR_STATUS_BADGE[r.donorStatus] || DONOR_STATUS_BADGE['Active']} />

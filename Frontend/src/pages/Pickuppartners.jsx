@@ -311,7 +311,7 @@ function ExecutiveSectorSearch({ partners, onAddNew }) {
 function PartnerPaymentSummaryCards({ partner, raddiRecords }) {
   const stats = useMemo(() => {
     if (!partner?.name || !Array.isArray(raddiRecords)) return { totalPickups:0, totalAmount:0, received:0, pending:0 }
-    const records = raddiRecords.filter(r => r.kabadiwalaName === partner.name)
+    const records = raddiRecords.filter(r => r.PickupPartnerName === partner.name)
     const totalAmount = records.reduce((s, r) => s + (r.totalAmount||0), 0)
     const received    = records.filter(r => r.paymentStatus === 'Received').reduce((s, r) => s + (r.totalAmount||0), 0)
     return { totalPickups:records.length, totalAmount, received, pending: totalAmount - received }
@@ -371,7 +371,7 @@ function DocUpload({ label, icon: Icon, value, accept, onChange, onRemove, previ
 
 // ════════════════════════════════════════════════════════════════════════════
 export default function PickupPartners() {
-  const { kabadiwalas: rawPartners, raddiRecords, addPartner, updatePartner, deletePartner } = useApp()
+  const { PickupPartners: rawPartners, raddiRecords, addPartner, updatePartner, deletePartner } = useApp()
   const { can, role } = useRole()
 
   const partners = useMemo(() => Array.isArray(rawPartners) ? rawPartners : [], [rawPartners])

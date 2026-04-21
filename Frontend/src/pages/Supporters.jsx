@@ -1,7 +1,7 @@
 // Frontend/src/pages/Supporters.jsx
 // Simplified Supporters Management Page
 // • Status is auto-calculated from Date (no manual edit)
-// • Stat cards are clickable to filter by status
+// • Stat cards are clicpickuppartnerle to filter by status
 // • Contribution is free-text input (no dropdown)
 // • Date field simplified label
 import { useState, useMemo } from 'react'
@@ -71,7 +71,7 @@ function StatusBadge({ status }) {
   )
 }
 
-// ── Clickable KPI stat card ───────────────────────────────────────────────────
+// ── Clicpickuppartnerle KPI stat card ───────────────────────────────────────────────────
 function KpiCard({ tone, icon: Icon, value, label, sub, isActive, onClick }) {
   return (
     <div
@@ -266,7 +266,7 @@ export default function Supporters() {
         </div>
       </div>
 
-      {/* ── Clickable KPI Cards — click to filter by status ── */}
+      {/* ── Clicpickuppartnerle KPI Cards — click to filter by status ── */}
       <div className="stat-grid" style={{ marginBottom: 20 }}>
         <KpiCard
           tone="orange" icon={Heart}

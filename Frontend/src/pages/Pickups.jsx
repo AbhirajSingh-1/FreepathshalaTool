@@ -24,7 +24,7 @@ const nextOtherId = () => ++_otherId
 
 const EMPTY_FORM = {
   donorId: '', pickupMode: 'Drive',
-  kabadiwala: '', kabadiMobile: '',
+  PickupPartner: '', pickuppartneradiMobile: '',
   rstItems: [], rstItemWeights: {},
   rstOthers: [],
   sksItems: [], sksOtherText: '',
@@ -500,7 +500,7 @@ export default function Pickups({
   onPickupApplied,   // callback after applying
 }) {
   const {
-    donors, kabadiwalas: partners, pickups,
+    donors, PickupPartners: partners, pickups,
     addDonor, createPickup, recordPickup,
   } = useApp()
 
@@ -520,8 +520,8 @@ export default function Pickups({
 const activeDonors   = useMemo(() => (donors || []).filter(d => d.status !== 'Lost'), [donors])
 const selectedDonor  = useMemo(() => activeDonors.find(d => d.id === form.donorId) || null, [activeDonors, form.donorId])
 const activePartners = useMemo(() => (partners || []).filter(k => k.isActive !== false), [partners])
-const selectedKab    = useMemo(() => activePartners.find(k => k.name === form.kabadiwala) || null, [activePartners, form.kabadiwala])
-const rateChart      = selectedKab?.rateChart || null
+const selectedpickuppartner    = useMemo(() => activePartners.find(k => k.name === form.PickupPartner) || null, [activePartners, form.PickupPartner])
+const rateChart      = selectedpickuppartner?.rateChart || null
 
   const rstTotalWeight = useMemo(() =>
     form.rstItems.filter(i => i !== 'Others').reduce((sum, item) => {
@@ -573,8 +573,8 @@ const rateChart      = selectedKab?.rateChart || null
         ...f,
         donorId:      existing.donorId      || f.donorId,
         pickupMode:   existing.pickupMode   || f.pickupMode,
-        kabadiwala:   existing.kabadiwala   || '',
-        kabadiMobile: existing.kabadiMobile || '',
+        PickupPartner:   existing.PickupPartner   || '',
+        pickuppartneradiMobile: existing.pickuppartneradiMobile || '',
         rstItems:     existing.rstItems     || [],
         sksItems:     existing.sksItems     || [],
         notes:        existing.notes        || '',
@@ -612,8 +612,8 @@ const rateChart      = selectedKab?.rateChart || null
       setForm(f => ({
         ...f,
         pickupMode:   todayLinked.pickupMode   || f.pickupMode,
-        kabadiwala:   todayLinked.kabadiwala   || f.kabadiwala,
-        kabadiMobile: todayLinked.kabadiMobile || f.kabadiMobile,
+        PickupPartner:   todayLinked.PickupPartner   || f.PickupPartner,
+        pickuppartneradiMobile: todayLinked.pickuppartneradiMobile || f.pickuppartneradiMobile,
         rstItems:     todayLinked.rstItems?.length ? todayLinked.rstItems : f.rstItems,
         sksItems:     todayLinked.sksItems?.length ? todayLinked.sksItems : f.sksItems,
         notes:        todayLinked.notes || f.notes,
@@ -626,9 +626,9 @@ const rateChart      = selectedKab?.rateChart || null
   const set = useCallback((key, val) => {
     setForm(f => {
       const next = { ...f, [key]: val }
-      if (key === 'kabadiwala') {
-        const kab = (partners || []).find(k => k.name === val)
-        next.kabadiMobile = kab?.mobile || ''
+      if (key === 'PickupPartner') {
+        const pickuppartner = (partners || []).find(k => k.name === val)
+        next.pickuppartneradiMobile = pickuppartner?.mobile || ''
       }
       return next
     })
@@ -693,7 +693,7 @@ const rateChart      = selectedKab?.rateChart || null
         rstTotalWeight: combinedKg > 0 ? combinedKg.toFixed(3) : '',
         rstWeightUnit: 'kg', totalKg: combinedKg,
         totalValue, amountPaid, paymentStatus,
-        kabadiwala: form.kabadiwala || '', kabadiMobile: form.kabadiMobile || '',
+        PickupPartner: form.PickupPartner || '', pickuppartneradiMobile: form.pickuppartneradiMobile || '',
         notes: form.notes,
       }
 
@@ -816,16 +816,16 @@ const rateChart      = selectedKab?.rateChart || null
               <PartnerSearch
                 partners={activePartners}
                 donorSector={selectedDonor?.sector || ''}
-                value={form.kabadiwala}
+                value={form.PickupPartner}
                 onChange={val => {
-                  const kab = (partners || []).find(k => k.name === val)
-                  setForm(f => ({ ...f, kabadiwala: val, kabadiMobile: kab?.mobile || '' }))
+                  const pickuppartner = (partners || []).find(k => k.name === val)
+                  setForm(f => ({ ...f, PickupPartner: val, pickuppartneradiMobile: pickuppartner?.mobile || '' }))
                 }}
               />
-              {selectedKab && (
+              {selectedpickuppartner && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, padding: '7px 12px', background: 'var(--secondary-light)', borderRadius: 8, fontSize: 12, color: 'var(--secondary)' }}>
                   <Phone size={11} />
-                  <span>{selectedKab.mobile}</span>
+                  <span>{selectedpickuppartner.mobile}</span>
                   <span style={{ marginLeft: 'auto', background: 'var(--secondary)', color: '#fff', borderRadius: 6, padding: '2px 8px', fontSize: 10, fontWeight: 700 }}>Rates loaded · Auto-fill ON</span>
                 </div>
               )}
@@ -837,7 +837,7 @@ const rateChart      = selectedKab?.rateChart || null
               <RSTItemChips items={RST_ITEMS} selected={form.rstItems} weights={form.rstItemWeights} onToggle={toggleRSTItem} onWeight={updateRstWeight} rstOthers={form.rstOthers} onOthersChange={others => setForm(f => ({ ...f, rstOthers: others }))} />
               {rateChart && form.rstItems.length > 0 && (
                 <>
-                  <div style={{ marginTop: 10, fontSize: 11.5, fontWeight: 600, color: 'var(--secondary)' }}>Rate breakdown — {selectedKab?.name}</div>
+                  <div style={{ marginTop: 10, fontSize: 11.5, fontWeight: 600, color: 'var(--secondary)' }}>Rate breakdown — {selectedpickuppartner?.name}</div>
                   <RateBreakdown rstItems={form.rstItems} rstItemWeights={form.rstItemWeights} rateChart={rateChart} rstOthers={form.rstOthers} />
                 </>
               )}
