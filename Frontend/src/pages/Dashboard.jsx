@@ -1,336 +1,635 @@
 // Frontend/src/pages/Dashboard.jsx
+// Enhanced: global filters, RST/SKS item breakdowns, connected to all modules
 import { useState, useMemo } from 'react'
 import {
   Users, Truck, IndianRupee, TrendingUp,
   Weight, Car, CalendarDays, ChevronDown, ChevronUp,
-  UserCheck, PackageCheck,
+  UserCheck, PackageCheck, AlertCircle, CheckCircle,
+  Filter, X, RefreshCw,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell,
+  PieChart, Pie, Cell, Legend,
 } from 'recharts'
 import { useApp }  from '../context/AppContext'
-import { itemBreakdown } from '../data/mockData'
 import { fmtCurrency } from '../utils/helpers'
+import { CITIES, CITY_SECTORS, RST_ITEMS, SKS_ITEMS } from '../data/mockData'
 
-const PIE_COLORS = ['#E8521A', '#1B5E35', '#F5B942', '#3B82F6', '#8B5CF6', '#EC4899']
+const RST_PIE_COLORS  = ['#E8521A','#1B5E35','#F5B942','#3B82F6','#8B5CF6','#EC4899','#14B8A6','#F97316','#84CC16','#EF4444']
+const SKS_PIE_COLORS  = ['#3B82F6','#8B5CF6','#F5B942','#1B5E35','#EC4899','#14B8A6','#F97316','#E8521A','#84CC16','#06B6D4','#A78BFA','#FB923C','#4ADE80','#F472B6']
+
 const padM = (n) => String(n).padStart(2, '0')
 
-// ── Period range helpers ──────────────────────────────────────────────────────
+// ── Period helpers ─────────────────────────────────────────────────────────
 function getPeriodRange(type, customFrom, customTo) {
   const now = new Date()
-  const y   = now.getFullYear()
-  const m   = now.getMonth() // 0-indexed
-
+  const y = now.getFullYear()
+  const m = now.getMonth()
   if (type === 'current_month') {
     const last = new Date(y, m + 1, 0).getDate()
     return { from: `${y}-${padM(m + 1)}-01`, to: `${y}-${padM(m + 1)}-${padM(last)}` }
   }
   if (type === 'last_month') {
-    const lm  = m === 0 ? 11 : m - 1
-    const ly  = m === 0 ? y - 1 : y
+    const lm = m === 0 ? 11 : m - 1; const ly = m === 0 ? y - 1 : y
     const last = new Date(ly, lm + 1, 0).getDate()
     return { from: `${ly}-${padM(lm + 1)}-01`, to: `${ly}-${padM(lm + 1)}-${padM(last)}` }
   }
   if (type === 'last_quarter') {
-    // Calendar quarters: Q1=Jan-Mar, Q2=Apr-Jun, Q3=Jul-Sep, Q4=Oct-Dec
-    const curQStart = Math.floor(m / 3) * 3          // 0-indexed start of current quarter
-    let lqStart = curQStart - 3
-    let lqYear  = y
+    const curQStart = Math.floor(m / 3) * 3
+    let lqStart = curQStart - 3; let lqYear = y
     if (lqStart < 0) { lqStart += 12; lqYear = y - 1 }
     const lqEnd  = lqStart + 2
     const lqLast = new Date(lqYear, lqEnd + 1, 0).getDate()
-    return {
-      from: `${lqYear}-${padM(lqStart + 1)}-01`,
-      to:   `${lqYear}-${padM(lqEnd + 1)}-${padM(lqLast)}`,
-    }
+    return { from: `${lqYear}-${padM(lqStart + 1)}-01`, to: `${lqYear}-${padM(lqEnd + 1)}-${padM(lqLast)}` }
   }
-  if (type === 'custom') {
-    return { from: customFrom || '', to: customTo || '' }
-  }
+  if (type === 'all_time') return { from: '', to: '' }
+  if (type === 'custom') return { from: customFrom || '', to: customTo || '' }
   return { from: '', to: '' }
 }
 
-// ── FIXED: Pre-populate every month in range so empty months still render ────
 function buildMonthlyChart(pickups, from, to) {
   const map = {}
-
   if (from && to) {
     let [y, m] = from.slice(0, 7).split('-').map(Number)
     const [ey, em] = to.slice(0, 7).split('-').map(Number)
     while (y < ey || (y === ey && m <= em)) {
       const key   = `${y}-${padM(m)}`
       const label = new Date(y, m - 1, 1).toLocaleString('default', { month: 'short' })
-      map[key]    = { month: label, value: 0, pickups: 0 }
-      m++
-      if (m > 12) { m = 1; y++ }
+      map[key] = { month: label, value: 0, pickups: 0 }
+      m++; if (m > 12) { m = 1; y++ }
     }
   }
-
-  pickups
-    .filter(p => p.status === 'Completed' && p.date >= (from || '') && p.date <= (to || '9999'))
+  pickups.filter(p => p.status === 'Completed' && (!from || (p.date || '') >= from) && (!to || (p.date || '') <= to))
     .forEach(p => {
-      const key   = (p.date || '').slice(0, 7)
-      if (!key) return
+      const key = (p.date || '').slice(0, 7); if (!key) return
       const label = new Date(key + '-01').toLocaleString('default', { month: 'short' })
-      map[key]         = map[key] || { month: label, value: 0, pickups: 0 }
+      map[key] = map[key] || { month: label, value: 0, pickups: 0 }
       map[key].value   += p.totalValue || 0
       map[key].pickups += 1
     })
-
-  return Object.entries(map)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([, v]) => v)
-    .slice(-6)
+  return Object.entries(map).sort(([a], [b]) => a.localeCompare(b)).map(([, v]) => v).slice(-7)
 }
 
-// ── Period Picker ─────────────────────────────────────────────────────────────
-function PeriodPicker({ period, onPeriod, customFrom, customTo, onCustomFrom, onCustomTo }) {
-  const OPTIONS = [
-    { id: 'current_month', label: 'Current Month' },
+// ── Filters Panel ─────────────────────────────────────────────────────────────
+function FiltersPanel({ filters, onChange, kabadiwalas, pickups }) {
+  const { period, customFrom, customTo, city, sector, kabadiwala } = filters
+  const PERIOD_OPTIONS = [
+    { id: 'current_month', label: 'This Month' },
     { id: 'last_month',    label: 'Last Month' },
     { id: 'last_quarter',  label: 'Last Quarter' },
+    { id: 'all_time',      label: 'All Time' },
     { id: 'custom',        label: 'Custom' },
   ]
+  const sectorOptions = city ? (CITY_SECTORS[city] || []) : []
+  const kabNames = [...new Set(pickups.map(p => p.kabadiwala).filter(Boolean))].sort()
+
   return (
-    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-      {OPTIONS.map(o => (
-        <button
-          key={o.id}
-          className={`btn btn-sm ${period === o.id ? 'btn-primary' : 'btn-ghost'}`}
-          style={{ fontSize: 12 }}
-          onClick={() => onPeriod(o.id)}
-        >
-          {o.label}
+    <div style={{ background: 'var(--surface)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius)', padding: '14px 16px', marginBottom: 20, boxShadow: 'var(--shadow)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+        <Filter size={14} color="var(--primary)" />
+        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Dashboard Filters</span>
+        <span style={{ fontSize: 11, color: 'var(--info)', marginLeft: 4 }}>— All charts and cards update with selection</span>
+        <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto', fontSize: 11 }}
+          onClick={() => onChange({ period: 'current_month', customFrom: '', customTo: '', city: '', sector: '', kabadiwala: '' })}>
+          <RefreshCw size={10} /> Reset
         </button>
-      ))}
-      {period === 'custom' && (
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <div className="form-group" style={{ margin: 0 }}>
-            <label style={{ fontSize: 10.5, fontWeight: 600 }}>From</label>
-            <input type="date" value={customFrom} onChange={e => onCustomFrom(e.target.value)} style={{ width: 140 }} />
+      </div>
+
+      {/* Period */}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
+        <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', flexShrink: 0 }}>Period:</span>
+        {PERIOD_OPTIONS.map(o => (
+          <button key={o.id} className={`btn btn-sm ${period === o.id ? 'btn-primary' : 'btn-ghost'}`} style={{ fontSize: 12 }}
+            onClick={() => onChange({ ...filters, period: o.id })}>
+            {o.label}
+          </button>
+        ))}
+        {period === 'custom' && (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label style={{ fontSize: 10.5, fontWeight: 600 }}>From</label>
+              <input type="date" value={customFrom} onChange={e => onChange({ ...filters, customFrom: e.target.value })} style={{ width: 140 }} />
+            </div>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label style={{ fontSize: 10.5, fontWeight: 600 }}>To</label>
+              <input type="date" value={customTo} onChange={e => onChange({ ...filters, customTo: e.target.value })} style={{ width: 140 }} />
+            </div>
           </div>
-          <div className="form-group" style={{ margin: 0 }}>
-            <label style={{ fontSize: 10.5, fontWeight: 600 }}>To</label>
-            <input type="date" value={customTo} onChange={e => onCustomTo(e.target.value)} style={{ width: 140 }} />
+        )}
+      </div>
+
+      {/* Location + Partner */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <div className="form-group" style={{ margin: 0, minWidth: 130 }}>
+          <label style={{ fontSize: 11, fontWeight: 600 }}>City</label>
+          <select value={city} onChange={e => onChange({ ...filters, city: e.target.value, sector: '' })} style={{ fontSize: 12.5 }}>
+            <option value="">All Cities</option>
+            {CITIES.map(c => <option key={c}>{c}</option>)}
+          </select>
+        </div>
+        <div className="form-group" style={{ margin: 0, minWidth: 150 }}>
+          <label style={{ fontSize: 11, fontWeight: 600 }}>Sector</label>
+          <select value={sector} onChange={e => onChange({ ...filters, sector: e.target.value })} disabled={!city} style={{ fontSize: 12.5 }}>
+            <option value="">{city ? 'All Sectors' : 'Select city first'}</option>
+            {sectorOptions.map(s => <option key={s}>{s}</option>)}
+          </select>
+        </div>
+        <div className="form-group" style={{ margin: 0, minWidth: 160 }}>
+          <label style={{ fontSize: 11, fontWeight: 600 }}>Pickup Partner</label>
+          <select value={kabadiwala} onChange={e => onChange({ ...filters, kabadiwala: e.target.value })} style={{ fontSize: 12.5 }}>
+            <option value="">All Partners</option>
+            {kabNames.map(k => <option key={k}>{k}</option>)}
+          </select>
+        </div>
+        {(city || sector || kabadiwala) && (
+          <button className="btn btn-ghost btn-sm" style={{ fontSize: 11.5, color: 'var(--danger)' }}
+            onClick={() => onChange({ ...filters, city: '', sector: '', kabadiwala: '' })}>
+            <X size={11} /> Clear Location
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Custom Pie Label ──────────────────────────────────────────────────────────
+const RADIAN = Math.PI / 180
+function CustomPieLabel({ cx, cy, midAngle, innerRadius, outerRadius, percent, name }) {
+  if (percent < 0.05) return null
+  const r  = innerRadius + (outerRadius - innerRadius) * 0.5
+  const x  = cx + r * Math.cos(-midAngle * RADIAN)
+  const y  = cy + r * Math.sin(-midAngle * RADIAN)
+  return (
+    <text x={x} y={y} fill="white" textAnchor="middle" dominantBaseline="central"
+      style={{ fontSize: 11, fontWeight: 700 }}>
+      {`${(percent * 100).toFixed(0)}%`}
+    </text>
+  )
+}
+
+// ── RST Item Breakdown ────────────────────────────────────────────────────────
+function RSTBreakdown({ raddiRecords, pickups }) {
+  const itemTotals = useMemo(() => {
+    const map = {}
+    raddiRecords.forEach(r => {
+      const itemKgMap = r.itemKgMap || {}
+      Object.entries(itemKgMap).forEach(([item, kg]) => {
+        if (kg > 0) map[item] = (map[item] || 0) + kg
+      })
+      // Also count from rstOthers
+      ;(r.rstOthers || []).forEach(o => {
+        if (o.name && o.amount > 0) map['Others'] = (map['Others'] || 0) + (parseFloat(o.weight) || 0)
+      })
+    })
+    // Fallback: count from pickups rstItems if no itemKgMap data
+    if (Object.keys(map).length === 0) {
+      pickups.filter(p => p.status === 'Completed').forEach(p => {
+        ;(p.rstItems || []).forEach(item => {
+          map[item] = (map[item] || 0) + 1
+        })
+      })
+    }
+    const total = Object.values(map).reduce((s, v) => s + v, 0)
+    return Object.entries(map)
+      .filter(([, v]) => v > 0)
+      .sort(([, a], [, b]) => b - a)
+      .map(([name, value]) => ({ name, value: parseFloat(value.toFixed(2)), pct: total > 0 ? parseFloat(((value / total) * 100).toFixed(1)) : 0 }))
+  }, [raddiRecords, pickups])
+
+  const hasKgData = raddiRecords.some(r => Object.keys(r.itemKgMap || {}).length > 0)
+  const unit = hasKgData ? 'kg' : 'pickups'
+  const total = itemTotals.reduce((s, r) => s + r.value, 0)
+
+  if (itemTotals.length === 0) return (
+    <div className="empty-state" style={{ padding: 32 }}>
+      <p style={{ fontSize: 12 }}>No RST item data for this period.</p>
+    </div>
+  )
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--secondary)' }}>Total: {total.toFixed(1)} {unit}</span>
+        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>· {itemTotals.length} item types</span>
+      </div>
+      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        <ResponsiveContainer width={170} height={170}>
+          <PieChart>
+            <Pie data={itemTotals} dataKey="value" nameKey="name" cx="50%" cy="50%"
+              outerRadius={78} innerRadius={30} labelLine={false} label={CustomPieLabel}>
+              {itemTotals.map((_, i) => <Cell key={i} fill={RST_PIE_COLORS[i % RST_PIE_COLORS.length]} />)}
+            </Pie>
+            <Tooltip formatter={(v) => [`${v} ${unit}`, '']} contentStyle={{ borderRadius: 8, fontSize: 12 }} />
+          </PieChart>
+        </ResponsiveContainer>
+        <div style={{ flex: 1, minWidth: 150 }}>
+          {itemTotals.slice(0, 8).map((item, i) => (
+            <div key={item.name} style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 6 }}>
+              <div style={{ width: 10, height: 10, borderRadius: 2, background: RST_PIE_COLORS[i % RST_PIE_COLORS.length], flexShrink: 0 }} />
+              <div style={{ flex: 1, fontSize: 12, color: 'var(--text-secondary)' }} className="truncate">{item.name}</div>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-primary)' }}>{item.value} {unit}</div>
+              <div style={{ fontSize: 10.5, color: 'var(--text-muted)', minWidth: 30, textAlign: 'right' }}>{item.pct}%</div>
+            </div>
+          ))}
+          {itemTotals.length > 8 && (
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>+{itemTotals.length - 8} more items</div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── SKS Item Breakdown ────────────────────────────────────────────────────────
+function SKSBreakdown({ pickups }) {
+  const itemCounts = useMemo(() => {
+    const map = {}
+    pickups.filter(p => p.status === 'Completed' || p.status === 'Pending').forEach(p => {
+      ;(p.sksItems || []).forEach(item => {
+        // Normalise "Others (xxx)" → "Others"
+        const key = item.startsWith('Others') ? 'Others' : item
+        map[key] = (map[key] || 0) + 1
+      })
+    })
+    const total = Object.values(map).reduce((s, v) => s + v, 0)
+    return Object.entries(map)
+      .filter(([, v]) => v > 0)
+      .sort(([, a], [, b]) => b - a)
+      .map(([name, value]) => ({ name, value, pct: total > 0 ? parseFloat(((value / total) * 100).toFixed(1)) : 0 }))
+  }, [pickups])
+
+  const totalItems = itemCounts.reduce((s, r) => s + r.value, 0)
+
+  if (itemCounts.length === 0) return (
+    <div className="empty-state" style={{ padding: 32 }}>
+      <p style={{ fontSize: 12 }}>No SKS item data for this period.</p>
+    </div>
+  )
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--info)' }}>Total: {totalItems} items collected</span>
+        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>· {itemCounts.length} item types</span>
+      </div>
+      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        <ResponsiveContainer width={170} height={170}>
+          <PieChart>
+            <Pie data={itemCounts} dataKey="value" nameKey="name" cx="50%" cy="50%"
+              outerRadius={78} innerRadius={30} labelLine={false} label={CustomPieLabel}>
+              {itemCounts.map((_, i) => <Cell key={i} fill={SKS_PIE_COLORS[i % SKS_PIE_COLORS.length]} />)}
+            </Pie>
+            <Tooltip formatter={(v) => [`${v} items`, '']} contentStyle={{ borderRadius: 8, fontSize: 12 }} />
+          </PieChart>
+        </ResponsiveContainer>
+        <div style={{ flex: 1, minWidth: 150 }}>
+          {itemCounts.slice(0, 8).map((item, i) => (
+            <div key={item.name} style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 6 }}>
+              <div style={{ width: 10, height: 10, borderRadius: 2, background: SKS_PIE_COLORS[i % SKS_PIE_COLORS.length], flexShrink: 0 }} />
+              <div style={{ flex: 1, fontSize: 12, color: 'var(--text-secondary)' }} className="truncate">{item.name}</div>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-primary)' }}>{item.value}</div>
+              <div style={{ fontSize: 10.5, color: 'var(--text-muted)', minWidth: 30, textAlign: 'right' }}>{item.pct}%</div>
+            </div>
+          ))}
+          {itemCounts.length > 8 && (
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>+{itemCounts.length - 8} more</div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Financial Summary ─────────────────────────────────────────────────────────
+function FinancialSummary({ raddiRecords, kabadiwalas }) {
+  const totalRevenue   = raddiRecords.reduce((s, r) => s + (r.totalAmount || 0), 0)
+  const totalReceived  = raddiRecords.filter(r => r.paymentStatus === 'Received').reduce((s, r) => s + (r.totalAmount || 0), 0)
+  const totalPending   = raddiRecords.filter(r => r.paymentStatus === 'Yet to Receive').reduce((s, r) => s + (r.totalAmount || 0), 0)
+  const collPct        = totalRevenue > 0 ? Math.round((totalReceived / totalRevenue) * 100) : 0
+
+  const partnerBreakdown = useMemo(() => {
+    const map = {}
+    raddiRecords.forEach(r => {
+      const n = r.kabadiwalaName || 'Unassigned'
+      if (!map[n]) map[n] = { name: n, total: 0, received: 0, pending: 0 }
+      map[n].total    += r.totalAmount || 0
+      if (r.paymentStatus === 'Received')       map[n].received += r.totalAmount || 0
+      if (r.paymentStatus === 'Yet to Receive') map[n].pending  += r.totalAmount || 0
+    })
+    return Object.values(map).sort((a, b) => b.pending - a.pending)
+  }, [raddiRecords])
+
+  return (
+    <div>
+      {/* Progress bar */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
+          <span style={{ color: 'var(--text-muted)' }}>Collection progress</span>
+          <span style={{ color: collPct >= 80 ? 'var(--secondary)' : collPct >= 50 ? 'var(--warning)' : 'var(--danger)' }}>
+            {collPct}%
+          </span>
+        </div>
+        <div style={{ height: 8, background: 'var(--border-light)', borderRadius: 4, overflow: 'hidden' }}>
+          <div style={{ height: '100%', borderRadius: 4, width: `${Math.min(100, collPct)}%`, background: collPct >= 80 ? 'var(--secondary)' : collPct >= 50 ? 'var(--warning)' : 'var(--danger)', transition: 'width 0.5s ease' }} />
+        </div>
+      </div>
+
+      {/* Summary row */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1, background: 'var(--border-light)', borderRadius: 10, overflow: 'hidden', marginBottom: 16 }}>
+        {[
+          { label: 'Total Revenue', val: fmtCurrency(totalRevenue), color: 'var(--primary)', bg: 'var(--primary-light)' },
+          { label: 'Collected', val: fmtCurrency(totalReceived), color: 'var(--secondary)', bg: 'var(--secondary-light)' },
+          { label: 'Pending', val: fmtCurrency(totalPending), color: totalPending > 0 ? 'var(--danger)' : 'var(--secondary)', bg: totalPending > 0 ? 'var(--danger-bg)' : 'var(--secondary-light)' },
+        ].map(item => (
+          <div key={item.label} style={{ padding: '12px 14px', background: item.bg, textAlign: 'center' }}>
+            <div style={{ fontSize: 9.5, color: item.color, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', opacity: 0.8, marginBottom: 3 }}>{item.label}</div>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 800, color: item.color }}>{item.val}</div>
           </div>
+        ))}
+      </div>
+
+      {/* Per-partner breakdown */}
+      {partnerBreakdown.length > 0 && (
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>By Pickup Partner</div>
+          {partnerBreakdown.slice(0, 5).map(p => (
+            <div key={p.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--border-light)' }}>
+              <div style={{ width: 28, height: 28, borderRadius: 7, background: p.pending > 0 ? 'var(--danger-bg)' : 'var(--secondary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13, color: p.pending > 0 ? 'var(--danger)' : 'var(--secondary)', flexShrink: 0 }}>
+                {p.name[0]}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 600 }} className="truncate">{p.name}</div>
+                <div style={{ display: 'flex', gap: 10, fontSize: 11 }}>
+                  <span style={{ color: 'var(--secondary)', fontWeight: 600 }}>{fmtCurrency(p.received)}</span>
+                  {p.pending > 0 && <span style={{ color: 'var(--danger)', fontWeight: 600 }}>Due: {fmtCurrency(p.pending)}</span>}
+                </div>
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--primary)', flexShrink: 0 }}>{fmtCurrency(p.total)}</div>
+            </div>
+          ))}
         </div>
       )}
     </div>
   )
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Main Dashboard ────────────────────────────────────────────────────────────
 export default function Dashboard({ onNav }) {
-  const { donors, pickups, raddiRecords, dashboardStats, partners } = useApp()
+  const { donors, pickups, raddiRecords, kabadiwalas, partners } = useApp()
 
-  const [period,     setPeriod]     = useState('current_month')
-  const [customFrom, setCustomFrom] = useState('')
-  const [customTo,   setCustomTo]   = useState('')
+  const [filters, setFilters] = useState({
+    period: 'current_month', customFrom: '', customTo: '',
+    city: '', sector: '', kabadiwala: '',
+  })
 
   const { from: pFrom, to: pTo } = useMemo(
-    () => getPeriodRange(period, customFrom, customTo),
-    [period, customFrom, customTo]
+    () => getPeriodRange(filters.period, filters.customFrom, filters.customTo),
+    [filters.period, filters.customFrom, filters.customTo]
   )
 
-  const filteredPickups = useMemo(
-    () => pickups.filter(p => {
-      const d = p.date || ''
-      return (!pFrom || d >= pFrom) && (!pTo || d <= pTo)
-    }),
-    [pickups, pFrom, pTo]
-  )
+  // ── Apply ALL filters to pickups ─────────────────────────────────────────
+  const filteredPickups = useMemo(() => pickups.filter(p => {
+    const d = p.date || ''
+    const inDate = (!pFrom || d >= pFrom) && (!pTo || d <= pTo)
+    const inCity = !filters.city || p.city === filters.city
+    const inSect = !filters.sector || p.sector === filters.sector
+    const inKab  = !filters.kabadiwala || p.kabadiwala === filters.kabadiwala
+    return inDate && inCity && inSect && inKab
+  }), [pickups, pFrom, pTo, filters])
 
-  const periodStats = useMemo(() => {
+  // ── Apply ALL filters to raddiRecords ─────────────────────────────────────
+  const filteredRaddi = useMemo(() => raddiRecords.filter(r => {
+    const d = r.pickupDate || ''
+    const inDate = (!pFrom || d >= pFrom) && (!pTo || d <= pTo)
+    const inCity = !filters.city || r.city === filters.city
+    const inSect = !filters.sector || r.sector === filters.sector
+    const inKab  = !filters.kabadiwala || r.kabadiwalaName === filters.kabadiwala
+    return inDate && inCity && inSect && inKab
+  }), [raddiRecords, pFrom, pTo, filters])
+
+  // ── Period stats ──────────────────────────────────────────────────────────
+  const stats = useMemo(() => {
     const completed  = filteredPickups.filter(p => p.status === 'Completed')
+    const sksPickups = filteredPickups.filter(p => (p.sksItems || []).length > 0)
+    const totalSKS   = filteredPickups.reduce((s, p) => s + (p.sksItems || []).length, 0)
     const totalValue = completed.reduce((s, p) => s + (p.totalValue || 0), 0)
+    const totalKg    = filteredRaddi.reduce((s, r) => s + (r.totalKg || 0), 0)
+    const received   = filteredRaddi.filter(r => r.paymentStatus === 'Received').reduce((s, r) => s + (r.totalAmount || 0), 0)
+    const pending    = filteredRaddi.filter(r => r.paymentStatus === 'Yet to Receive').reduce((s, r) => s + (r.totalAmount || 0), 0)
     const driveCount = completed.filter(p => p.pickupMode === 'Drive').length
     const indivCount = completed.filter(p => p.pickupMode === 'Individual').length
-    const totalKg    = raddiRecords
-      .filter(r => (!pFrom || (r.pickupDate || '') >= pFrom) && (!pTo || (r.pickupDate || '') <= pTo))
-      .reduce((s, r) => s + (r.totalKg || 0), 0)
-    return { completed: completed.length, totalValue, driveCount, indivCount, totalKg }
-  }, [filteredPickups, raddiRecords, pFrom, pTo])
+    return { completed: completed.length, totalValue, totalKg, received, pending, totalSKS, sksPickupsCount: sksPickups.length, driveCount, indivCount }
+  }, [filteredPickups, filteredRaddi])
 
+  // ── Monthly chart ─────────────────────────────────────────────────────────
   const monthlyChartData = useMemo(
-    () => buildMonthlyChart(pickups, pFrom, pTo),
-    [pickups, pFrom, pTo]
+    () => buildMonthlyChart(filteredPickups, pFrom, pTo),
+    [filteredPickups, pFrom, pTo]
   )
 
   const periodLabel = useMemo(() => {
-    if (period === 'current_month') return 'Current Month'
-    if (period === 'last_month')    return 'Last Month'
-    if (period === 'last_quarter') {
-      // Show actual months e.g. "Jan – Mar 2026"
-      if (pFrom && pTo) {
-        const fmt = d => new Date(d).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })
-        return `${fmt(pFrom)} – ${fmt(pTo)}`
-      }
-      return 'Last Quarter'
-    }
-    if (period === 'custom' && pFrom && pTo) {
+    if (filters.period === 'current_month') return 'This Month'
+    if (filters.period === 'last_month')    return 'Last Month'
+    if (filters.period === 'last_quarter')  return 'Last Quarter'
+    if (filters.period === 'all_time')      return 'All Time'
+    if (filters.period === 'custom' && pFrom && pTo) {
       const fmt = d => new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
       return `${fmt(pFrom)} – ${fmt(pTo)}`
     }
     return 'Custom'
-  }, [period, pFrom, pTo])
+  }, [filters.period, pFrom, pTo])
 
+  const activeFilters = [filters.city, filters.sector, filters.kabadiwala].filter(Boolean)
   const activePartners = (partners || []).filter(k => (k.totalPickups || 0) > 0).length
+
+  // ── Custom tooltip ────────────────────────────────────────────────────────
+  const CustomTooltip = ({ active, payload, label }) => {
+    if (!active || !payload?.length) return null
+    return (
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 12px', fontSize: 12 }}>
+        <div style={{ fontWeight: 700, marginBottom: 4 }}>{label}</div>
+        <div style={{ color: 'var(--primary)' }}>₹{(payload[0]?.value || 0).toLocaleString('en-IN')}</div>
+        {payload[1] && <div style={{ color: 'var(--secondary)', marginTop: 2 }}>{payload[1]?.value} pickups</div>}
+      </div>
+    )
+  }
 
   return (
     <div className="page-body">
 
-      {/* Period selector */}
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        flexWrap: 'wrap', gap: 12, marginBottom: 20,
-        padding: '12px 16px', background: 'var(--surface)',
-        border: '1px solid var(--border-light)', borderRadius: 'var(--radius)',
-        boxShadow: 'var(--shadow)',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <CalendarDays size={15} color="var(--primary)" />
-          <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--primary)' }}>{periodLabel}</span>
+      {/* ── Filters ── */}
+      <FiltersPanel filters={filters} onChange={setFilters} kabadiwalas={kabadiwalas} pickups={pickups} />
+
+      {/* ── Active filter chips ── */}
+      {activeFilters.length > 0 && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 }}>Active:</span>
+          {filters.city && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, padding: '2px 9px', borderRadius: 20, background: 'var(--primary-light)', color: 'var(--primary)', fontWeight: 600 }}>
+              📍 {filters.city}
+              <button onClick={() => setFilters(f => ({ ...f, city: '', sector: '' }))} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--primary)', padding: 0, lineHeight: 1 }}>×</button>
+            </span>
+          )}
+          {filters.sector && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, padding: '2px 9px', borderRadius: 20, background: 'var(--info-bg)', color: 'var(--info)', fontWeight: 600 }}>
+              🏘 {filters.sector}
+              <button onClick={() => setFilters(f => ({ ...f, sector: '' }))} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--info)', padding: 0, lineHeight: 1 }}>×</button>
+            </span>
+          )}
+          {filters.kabadiwala && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, padding: '2px 9px', borderRadius: 20, background: 'var(--secondary-light)', color: 'var(--secondary)', fontWeight: 600 }}>
+              🤝 {filters.kabadiwala}
+              <button onClick={() => setFilters(f => ({ ...f, kabadiwala: '' }))} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--secondary)', padding: 0, lineHeight: 1 }}>×</button>
+            </span>
+          )}
         </div>
-        <PeriodPicker
-          period={period}
-          onPeriod={setPeriod}
-          customFrom={customFrom}
-          customTo={customTo}
-          onCustomFrom={setCustomFrom}
-          onCustomTo={setCustomTo}
-        />
+      )}
+
+      {/* ── Period label strip ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18, padding: '9px 14px', background: 'var(--surface)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow)' }}>
+        <CalendarDays size={15} color="var(--primary)" />
+        <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--primary)' }}>{periodLabel}</span>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 4 }}>
+          · {stats.completed} pickups · {filteredRaddi.length} raddi records
+        </span>
+        {activeFilters.length > 0 && (
+          <span style={{ fontSize: 11, background: 'var(--warning-bg)', color: '#92400E', padding: '2px 8px', borderRadius: 20, fontWeight: 600, marginLeft: 'auto' }}>
+            Filtered view
+          </span>
+        )}
       </div>
 
-      {/* Core KPIs */}
+      {/* ── Core KPIs ── */}
       <div className="stat-grid" style={{ marginBottom: 24 }}>
         <div className="stat-card orange">
           <div className="stat-icon"><Truck size={20} /></div>
-          <div className="stat-value">{periodStats.completed}</div>
+          <div className="stat-value">{stats.completed}</div>
           <div className="stat-label">Total Pickups</div>
           <div className="stat-change up">{periodLabel}</div>
         </div>
         <div className="stat-card green">
           <div className="stat-icon"><IndianRupee size={20} /></div>
-          <div className="stat-value">{fmtCurrency(periodStats.totalValue)}</div>
+          <div className="stat-value">{fmtCurrency(stats.totalValue)}</div>
           <div className="stat-label">RST Revenue</div>
           <div className="stat-change up">{periodLabel}</div>
         </div>
         <div className="stat-card blue">
-          <div className="stat-icon"><Users size={20} /></div>
-          <div className="stat-value">{dashboardStats.activeDonors}</div>
-          <div className="stat-label">Total Donors</div>
-          <div className="stat-change up">{dashboardStats.totalDonors} total</div>
+          <div className="stat-icon"><Weight size={18} /></div>
+          <div className="stat-value">{stats.totalKg.toFixed(1)} kg</div>
+          <div className="stat-label">Total RST Collected</div>
+          <div className="stat-change up">{periodLabel}</div>
         </div>
         <div className="stat-card yellow">
-          <div className="stat-icon"><UserCheck size={20} /></div>
-          <div className="stat-value">{(partners || []).length}</div>
-          <div className="stat-label">Active Partners</div>
-          <div className="stat-change up">{activePartners} with pickups</div>
+          <div className="stat-icon"><PackageCheck size={18} /></div>
+          <div className="stat-value">{stats.totalSKS}</div>
+          <div className="stat-label">SKS Items Collected</div>
+          <div className="stat-change up">{stats.sksPickupsCount} pickups</div>
         </div>
         <div className="stat-card green">
-          <div className="stat-icon"><Weight size={18} /></div>
-          <div className="stat-value">{periodStats.totalKg.toFixed(1)} kg</div>
-          <div className="stat-label">Waste Collected</div>
-          <div className="stat-change up">{periodLabel}</div>
-        </div>
-        <div className="stat-card blue">
-          <div className="stat-icon"><Users size={20} /></div>
-          <div className="stat-value">{periodStats.driveCount}</div>
-          <div className="stat-label">Drive Pickups</div>
-          <div className="stat-change up">{periodLabel}</div>
-        </div>
-        <div className="stat-card orange">
-          <div className="stat-icon"><Car size={20} /></div>
-          <div className="stat-value">{periodStats.indivCount}</div>
-          <div className="stat-label">Individual Pickups</div>
+          <div className="stat-icon"><CheckCircle size={18} /></div>
+          <div className="stat-value">{fmtCurrency(stats.received)}</div>
+          <div className="stat-label">Payments Received</div>
           <div className="stat-change up">{periodLabel}</div>
         </div>
         <div className="stat-card red">
-          <div className="stat-icon"><TrendingUp size={18} /></div>
-          <div className="stat-value">{dashboardStats.pendingPayments}</div>
-          <div className="stat-label">Pending Payments</div>
-          <div className="stat-change down">Needs action</div>
+          <div className="stat-icon"><AlertCircle size={18} /></div>
+          <div className="stat-value">{fmtCurrency(stats.pending)}</div>
+          <div className="stat-label">Pending Amount</div>
+          <div className="stat-change down">Needs collection</div>
+        </div>
+        <div className="stat-card blue">
+          <div className="stat-icon"><Users size={20} /></div>
+          <div className="stat-value">{donors.filter(d => d.status === 'Active').length}</div>
+          <div className="stat-label">Active Donors</div>
+          <div className="stat-change up">{donors.length} total</div>
+        </div>
+        <div className="stat-card orange">
+          <div className="stat-icon"><UserCheck size={20} /></div>
+          <div className="stat-value">{(partners || []).length}</div>
+          <div className="stat-label">Pickup Partners</div>
+          <div className="stat-change up">{activePartners} active</div>
         </div>
       </div>
 
-      {/* Charts */}
+      {/* ── Monthly Chart + RST Breakdown ── */}
       <div className="two-col" style={{ marginBottom: 24 }}>
-        <div className="card page-section">
+        <div className="card">
           <div className="card-header">
             <TrendingUp size={18} color="var(--primary)" />
-            <div className="card-title">Monthly RST Value (₹)</div>
+            <div className="card-title">Monthly RST Revenue</div>
             <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>{periodLabel}</span>
           </div>
           <div className="card-body" style={{ paddingTop: 10 }}>
             {monthlyChartData.length === 0 ? (
-              <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
-                No completed pickups in this period
-              </div>
+              <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: 13 }}>No pickups in this period</div>
             ) : (
               <ResponsiveContainer width="100%" height={200}>
                 <BarChart data={monthlyChartData} barSize={28}>
                   <XAxis dataKey="month" tick={{ fontSize: 12, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fontSize: 11, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false}
                     tickFormatter={v => `₹${v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v}`} />
-                  <Tooltip formatter={v => [`₹${v.toLocaleString('en-IN')}`, 'RST Value']}
-                    contentStyle={{ borderRadius: 8, border: '1px solid var(--border)', fontSize: 12 }} />
+                  <Tooltip content={<CustomTooltip />} />
                   <Bar dataKey="value" fill="var(--primary)" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             )}
+            {monthlyChartData.length > 0 && (
+              <div style={{ display: 'flex', gap: 16, marginTop: 10, fontSize: 12, color: 'var(--text-muted)', borderTop: '1px solid var(--border-light)', paddingTop: 10 }}>
+                <span>Drive: <strong style={{ color: 'var(--info)' }}>{stats.driveCount}</strong></span>
+                <span>Individual: <strong style={{ color: 'var(--primary)' }}>{stats.indivCount}</strong></span>
+                <span style={{ marginLeft: 'auto' }}>Total: <strong style={{ color: 'var(--secondary)' }}>{stats.completed}</strong></span>
+              </div>
+            )}
           </div>
         </div>
 
-        <div className="card page-section">
+        <div className="card">
           <div className="card-header">
-            <PackageCheck size={18} color="var(--secondary)" />
+            <Weight size={18} color="var(--secondary)" />
             <div className="card-title">RST Item Breakdown</div>
+            <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--secondary)', fontWeight: 600 }}>♻️ Raddi se Tarakki</span>
           </div>
           <div className="card-body" style={{ paddingTop: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
-              <ResponsiveContainer width={130} height={130}>
-                <PieChart>
-                  <Pie data={itemBreakdown} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={58} innerRadius={28}>
-                    {itemBreakdown.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
-                  </Pie>
-                  <Tooltip contentStyle={{ borderRadius: 8, fontSize: 12 }} />
-                </PieChart>
-              </ResponsiveContainer>
-              <div style={{ flex: 1, minWidth: 120 }}>
-                {itemBreakdown.map((item, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
-                    <div style={{ width: 10, height: 10, borderRadius: 2, background: PIE_COLORS[i % PIE_COLORS.length], flexShrink: 0 }} />
-                    <div style={{ flex: 1, fontSize: 12, color: 'var(--text-secondary)' }}>{item.name}</div>
-                    <div style={{ fontSize: 12, fontWeight: 600 }}>{item.value}%</div>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <RSTBreakdown raddiRecords={filteredRaddi} pickups={filteredPickups} />
           </div>
         </div>
       </div>
 
-      {/* Quick nav cards */}
+      {/* ── SKS Breakdown + Financial ── */}
+      <div className="two-col" style={{ marginBottom: 24 }}>
+        <div className="card">
+          <div className="card-header">
+            <PackageCheck size={18} color="var(--info)" />
+            <div className="card-title">SKS Item Breakdown</div>
+            <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--info)', fontWeight: 600 }}>🎁 Sammaan Ka Saaman</span>
+          </div>
+          <div className="card-body" style={{ paddingTop: 10 }}>
+            <SKSBreakdown pickups={filteredPickups} />
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card-header">
+            <IndianRupee size={18} color="var(--primary)" />
+            <div className="card-title">Financial Insights</div>
+            <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>{periodLabel}</span>
+          </div>
+          <div className="card-body" style={{ paddingTop: 10 }}>
+            <FinancialSummary raddiRecords={filteredRaddi} kabadiwalas={kabadiwalas} />
+          </div>
+        </div>
+      </div>
+
+      {/* ── Quick nav cards ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
         {[
-          { label: 'Pickup Scheduler',   sub: 'Plan upcoming pickups',            page: 'pickupscheduler', color: 'var(--info)',       bg: 'var(--info-bg)' },
-          { label: 'Payment Tracking',   sub: `${dashboardStats.pendingPayments} pending`,  page: 'payments',  color: 'var(--warning)',   bg: 'var(--warning-bg)' },
-          { label: 'SKS Warehouse',      sub: 'Track donated goods',              page: 'sksoverview',     color: 'var(--primary)',    bg: 'var(--primary-light)' },
+          { label: 'Pickup Scheduler',  sub: 'Plan upcoming pickups',              page: 'pickupscheduler', color: 'var(--info)',       bg: 'var(--info-bg)' },
+          { label: 'Payment Tracking',  sub: `${fmtCurrency(stats.pending)} pending`, page: 'payments',     color: 'var(--warning)',   bg: 'var(--warning-bg)' },
+          { label: 'SKS Warehouse',     sub: 'Track donated goods',                page: 'sksoverview',     color: 'var(--primary)',   bg: 'var(--primary-light)' },
         ].map(card => (
-          <button
-            key={card.page}
-            onClick={() => onNav(card.page)}
-            style={{
-              display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
-              padding: '16px', borderRadius: 'var(--radius)',
-              border: `1.5px solid ${card.color}22`,
-              background: card.bg, cursor: 'pointer',
-              transition: 'all 0.15s', textAlign: 'left',
-              boxShadow: 'var(--shadow)',
-            }}
-          >
-            <div style={{ fontWeight: 700, fontSize: 14, color: card.color, marginBottom: 4 }}>{card.label}</div>
+          <button key={card.page} onClick={() => onNav(card.page)}
+            style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', padding: '14px', borderRadius: 'var(--radius)', border: `1.5px solid ${card.color}22`, background: card.bg, cursor: 'pointer', transition: 'all 0.15s', textAlign: 'left', boxShadow: 'var(--shadow)' }}>
+            <div style={{ fontWeight: 700, fontSize: 13.5, color: card.color, marginBottom: 4 }}>{card.label}</div>
             <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{card.sub}</div>
           </button>
         ))}

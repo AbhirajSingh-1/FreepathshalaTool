@@ -1,6 +1,6 @@
 // Frontend/src/pages/SKSOverview.jsx
-// SKS Warehouse — Stock In | Stock In History | In Warehouse
-import { useState, useMemo, useCallback } from 'react'
+// ENHANCED: Added toast feedback system for Stock In / Stock Out operations
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import {
   ArrowDownCircle, ArrowUpCircle, Package, Boxes,
   Plus, X, CheckCircle, Download, Trash2,
@@ -13,6 +13,77 @@ import { useApp }  from '../context/AppContext'
 import { useRole } from '../context/RoleContext'
 import { CITIES, CITY_SECTORS, GURGAON_SOCIETIES, SKS_ITEMS } from '../data/mockData'
 import { fmtDate, exportToExcel } from '../utils/helpers'
+
+// ── Toast Component ───────────────────────────────────────────────────────────
+// type: 'success' | 'error' | 'info'
+function Toast({ toasts, onRemove }) {
+  return (
+    <div style={{
+      position: 'fixed', bottom: 28, right: 24, zIndex: 9999,
+      display: 'flex', flexDirection: 'column', gap: 8,
+      pointerEvents: 'none',
+    }}>
+      {toasts.map(toast => {
+        const CONFIG = {
+          success: { bg: 'var(--secondary)', icon: CheckCircle, borderLeft: '#14532D' },
+          error:   { bg: 'var(--danger)',    icon: AlertCircle, borderLeft: '#991B1B' },
+          info:    { bg: 'var(--info)',      icon: Package,     borderLeft: '#1E3A8A' },
+        }
+        const cfg  = CONFIG[toast.type] || CONFIG.success
+        const Icon = cfg.icon
+        return (
+          <div key={toast.id}
+            style={{
+              display: 'flex', alignItems: 'flex-start', gap: 10,
+              background: cfg.bg, color: 'white',
+              padding: '12px 16px', borderRadius: 12,
+              boxShadow: 'var(--shadow-lg)',
+              minWidth: 260, maxWidth: 360,
+              animation: 'slideUp 0.25s ease',
+              borderLeft: `3px solid ${cfg.borderLeft}`,
+              pointerEvents: 'auto',
+            }}
+          >
+            <Icon size={18} style={{ flexShrink: 0, marginTop: 1 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: toast.sub ? 3 : 0 }}>
+                {toast.message}
+              </div>
+              {toast.sub && (
+                <div style={{ fontSize: 12, opacity: 0.85 }}>{toast.sub}</div>
+              )}
+            </div>
+            <button
+              onClick={() => onRemove(toast.id)}
+              style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'white', opacity: 0.7, padding: 2, display: 'flex', flexShrink: 0 }}
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── useToast hook ─────────────────────────────────────────────────────────────
+function useToast() {
+  const [toasts, setToasts] = useState([])
+
+  const show = useCallback((message, type = 'success', sub = '', duration = 3500) => {
+    const id = Date.now() + Math.random()
+    setToasts(prev => [...prev, { id, message, type, sub }])
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id))
+    }, duration)
+  }, [])
+
+  const remove = useCallback((id) => {
+    setToasts(prev => prev.filter(t => t.id !== id))
+  }, [])
+
+  return { toasts, show, remove }
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const todayStr = () => new Date().toISOString().slice(0, 10)
@@ -80,7 +151,7 @@ const DATE_PRESETS = [
 ]
 
 // ── Stock In Form ─────────────────────────────────────────────────────────────
-function StockInForm({ allSKSItems, onAdd, onAddCustomItem }) {
+function StockInForm({ allSKSItems, onAdd, onAddCustomItem, showToast }) {
   const [date,           setDate]           = useState(todayStr())
   const [city,           setCity]           = useState('Gurgaon')
   const [sector,         setSector]         = useState('')
@@ -91,7 +162,7 @@ function StockInForm({ allSKSItems, onAdd, onAddCustomItem }) {
   const [newItemName,    setNewItemName]    = useState('')
   const [notes,          setNotes]          = useState('')
   const [error,          setError]          = useState('')
-  const [saved,          setSaved]          = useState(false)
+  const [submitting,     setSubmitting]     = useState(false)
 
   const sectorOptions  = CITY_SECTORS[city] || []
   const societyOptions = useMemo(() => {
@@ -100,6 +171,7 @@ function StockInForm({ allSKSItems, onAdd, onAddCustomItem }) {
   }, [city, sector])
 
   const totalQty = Object.values(itemQty).reduce((s, v) => s + (Number(v) || 0), 0)
+  const filledItems = Object.entries(itemQty).filter(([, q]) => (Number(q) || 0) > 0)
 
   const handleCityChange = (c) => { setCity(c); setSector(''); setSociety(''); setShowNewSociety(false) }
   const handleSectorChange = (s) => { setSector(s); setSociety(''); setShowNewSociety(false) }
@@ -110,37 +182,48 @@ function StockInForm({ allSKSItems, onAdd, onAddCustomItem }) {
   }
 
   const confirmNewSociety = () => {
-    const v = newSocietyVal.trim()
-    if (!v) return
+    const v = newSocietyVal.trim(); if (!v) return
     setSociety(v); setShowNewSociety(false); setNewSocietyVal('')
   }
 
   const handleAddCustomItem = () => {
     const name = newItemName.trim()
-    if (!name || allSKSItems.includes(name)) { setNewItemName(''); return }
+    if (!name) { return }
+    if (allSKSItems.includes(name)) {
+      showToast(`"${name}" already exists in the list`, 'info'); setNewItemName(''); return
+    }
     onAddCustomItem(name)
     setNewItemName('')
+    showToast(`Item type "${name}" added to the list`, 'success', 'You can now enter quantity below')
   }
 
   const handleSubmit = () => {
-    if (!date)      { setError('Please select a date.'); return }
-    if (!city)      { setError('Please select a city.'); return }
-    if (totalQty < 1) { setError('Enter quantity for at least one item.'); return }
     setError('')
+    if (!date)        { setError('Please select a date.'); return }
+    if (!city)        { setError('Please select a city.'); return }
+    if (totalQty < 1) { setError('Please enter quantity for at least one item.'); return }
 
-    const items = Object.entries(itemQty)
-      .filter(([, q]) => (Number(q) || 0) > 0)
-      .map(([name, qty]) => ({ name, qty: Number(qty) }))
+    setSubmitting(true)
+    const items = filledItems.map(([name, qty]) => ({ name, qty: Number(qty) }))
 
-    onAdd({
-      id: nextInId(), date, city, sector,
-      society: showNewSociety ? newSocietyVal.trim() : society,
-      items, notes: notes.trim(),
-    })
+    // Simulate async (consistent with rest of app)
+    setTimeout(() => {
+      onAdd({
+        id: nextInId(), date, city, sector,
+        society: showNewSociety ? newSocietyVal.trim() : society,
+        items, notes: notes.trim(),
+      })
 
-    setItemQty({}); setNotes('')
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2500)
+      // ✅ Success toast
+      showToast(
+        'Items stored in warehouse successfully',
+        'success',
+        `${totalQty} item${totalQty !== 1 ? 's' : ''} across ${items.length} categor${items.length !== 1 ? 'ies' : 'y'} recorded`
+      )
+
+      setItemQty({}); setNotes('')
+      setSubmitting(false)
+    }, 350)
   }
 
   return (
@@ -148,37 +231,31 @@ function StockInForm({ allSKSItems, onAdd, onAddCustomItem }) {
       <div className="card-header" style={{ background: 'linear-gradient(135deg, var(--secondary-light), var(--surface))' }}>
         <ArrowDownCircle size={18} color="var(--secondary)" />
         <div className="card-title" style={{ color: 'var(--secondary)' }}>Record Stock In</div>
-        {saved && (
-          <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 700, color: 'var(--secondary)', background: 'var(--secondary-light)', padding: '3px 12px', borderRadius: 20, display: 'flex', alignItems: 'center', gap: 5 }}>
-            <CheckCircle size={12} /> Entry Saved!
+        {totalQty > 0 && (
+          <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 700, color: 'var(--secondary)', background: 'var(--secondary-light)', padding: '3px 12px', borderRadius: 20, border: '1px solid rgba(27,94,53,0.2)' }}>
+            {totalQty} items ready to save
           </span>
         )}
       </div>
 
       <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
 
-        {/* ── Location ── */}
+        {/* Location */}
         <div style={{ background: 'var(--bg)', borderRadius: 10, padding: 14, border: '1px solid var(--border-light)' }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
             <MapPin size={12} color="var(--primary)" /> Location Details
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
-
-            {/* Date */}
             <div className="form-group" style={{ margin: 0 }}>
               <label>Date <span className="required">*</span></label>
               <input type="date" value={date} onChange={e => setDate(e.target.value)} />
             </div>
-
-            {/* City */}
             <div className="form-group" style={{ margin: 0 }}>
               <label>City <span className="required">*</span></label>
               <select value={city} onChange={e => handleCityChange(e.target.value)}>
                 {CITIES.map(c => <option key={c}>{c}</option>)}
               </select>
             </div>
-
-            {/* Sector */}
             <div className="form-group" style={{ margin: 0 }}>
               <label>Sector / Area</label>
               <select value={sector} onChange={e => handleSectorChange(e.target.value)} disabled={!city}>
@@ -186,8 +263,6 @@ function StockInForm({ allSKSItems, onAdd, onAddCustomItem }) {
                 {sectorOptions.map(s => <option key={s}>{s}</option>)}
               </select>
             </div>
-
-            {/* Society */}
             <div className="form-group" style={{ margin: 0 }}>
               <label>Society / Colony</label>
               {showNewSociety ? (
@@ -210,8 +285,6 @@ function StockInForm({ allSKSItems, onAdd, onAddCustomItem }) {
               )}
             </div>
           </div>
-
-          {/* Location preview */}
           {(sector || society) && !showNewSociety && (
             <div style={{ marginTop: 10, padding: '6px 12px', background: 'var(--secondary-light)', borderRadius: 6, fontSize: 12, color: 'var(--secondary)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5 }}>
               <MapPin size={11} />
@@ -220,7 +293,7 @@ function StockInForm({ allSKSItems, onAdd, onAddCustomItem }) {
           )}
         </div>
 
-        {/* ── Items ── */}
+        {/* Items */}
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
@@ -228,7 +301,7 @@ function StockInForm({ allSKSItems, onAdd, onAddCustomItem }) {
             </div>
             {totalQty > 0 && (
               <span style={{ background: 'var(--secondary)', color: 'white', borderRadius: 20, fontSize: 11, padding: '2px 10px', fontWeight: 700 }}>
-                {totalQty} items total
+                {totalQty} items
               </span>
             )}
           </div>
@@ -250,8 +323,7 @@ function StockInForm({ allSKSItems, onAdd, onAddCustomItem }) {
                       <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{cfg.category}</div>
                     </div>
                   </div>
-                  <input
-                    type="number" min={0} inputMode="numeric"
+                  <input type="number" min={0} inputMode="numeric"
                     value={itemQty[item] || ''}
                     onChange={e => setItemQty(q => ({ ...q, [item]: parseInt(e.target.value) || 0 }))}
                     placeholder="0"
@@ -260,7 +332,7 @@ function StockInForm({ allSKSItems, onAdd, onAddCustomItem }) {
                 </div>
               )
             })}
-            {/* Total row */}
+            {/* Total */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 110px', padding: '9px 14px', background: 'var(--secondary-light)', borderTop: '1.5px solid rgba(27,94,53,0.2)', alignItems: 'center' }}>
               <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--secondary)' }}>Total Items</span>
               <span style={{ textAlign: 'right', fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 800, color: totalQty > 0 ? 'var(--secondary)' : 'var(--text-muted)' }}>
@@ -270,21 +342,18 @@ function StockInForm({ allSKSItems, onAdd, onAddCustomItem }) {
           </div>
         </div>
 
-        {/* ── Add Custom Item ── */}
+        {/* Add Custom Item */}
         <div style={{ padding: '12px 14px', background: 'var(--bg)', borderRadius: 8, border: '1px dashed var(--border)' }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
             <Plus size={12} color="var(--secondary)" />
             Add New Item Type
-            <span style={{ fontSize: 10.5, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 4 }}>Persists for future entries this session</span>
+            <span style={{ fontSize: 10.5, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 4 }}>Persists for future entries</span>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <input
-              value={newItemName}
-              onChange={e => setNewItemName(e.target.value)}
+            <input value={newItemName} onChange={e => setNewItemName(e.target.value)}
               placeholder="e.g. Blankets, School Bags, Winter Jackets…"
               onKeyDown={e => e.key === 'Enter' && handleAddCustomItem()}
-              style={{ flex: 1, fontSize: 13 }}
-            />
+              style={{ flex: 1, fontSize: 13 }} />
             <button type="button" onClick={handleAddCustomItem} className="btn btn-secondary btn-sm" disabled={!newItemName.trim()}>
               + Add
             </button>
@@ -298,15 +367,33 @@ function StockInForm({ allSKSItems, onAdd, onAddCustomItem }) {
             placeholder="Donor name, drive details, remarks…" style={{ minHeight: 60, resize: 'vertical' }} />
         </div>
 
+        {/* Inline error */}
         {error && (
-          <div style={{ fontSize: 12.5, color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: 5 }}>
-            <AlertCircle size={13} /> {error}
+          <div className="alert-strip alert-danger" style={{ padding: '10px 14px', margin: 0 }}>
+            <AlertCircle size={14} style={{ flexShrink: 0 }} />
+            {error}
           </div>
         )}
 
-        <button className="btn btn-secondary" onClick={handleSubmit}
-          style={{ width: '100%', justifyContent: 'center', padding: '11px', fontSize: 14, fontWeight: 700, background: 'var(--secondary)', color: 'white' }}>
-          <ArrowDownCircle size={16} /> Record Stock In
+        {/* Preview of what will be saved */}
+        {filledItems.length > 0 && (
+          <div style={{ padding: '10px 14px', background: 'var(--secondary-light)', borderRadius: 8, border: '1px solid rgba(27,94,53,0.15)' }}>
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--secondary)', marginBottom: 6 }}>Ready to save:</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+              {filledItems.map(([name, qty]) => (
+                <span key={name} style={{ fontSize: 11, padding: '2px 9px', borderRadius: 20, background: 'var(--surface)', color: 'var(--secondary)', fontWeight: 600, border: '1px solid rgba(27,94,53,0.2)' }}>
+                  {name} ×{qty}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <button className="btn btn-secondary" onClick={handleSubmit} disabled={submitting || totalQty < 1}
+          style={{ width: '100%', justifyContent: 'center', padding: '11px', fontSize: 14, fontWeight: 700, background: 'var(--secondary)', color: 'white', opacity: totalQty < 1 ? 0.5 : 1 }}>
+          {submitting
+            ? <><span className="spin" style={{ display: 'inline-block', width: 14, height: 14, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: 'white', borderRadius: '50%' }} /> Saving…</>
+            : <><ArrowDownCircle size={16} /> Record Stock In — {totalQty > 0 ? `${totalQty} items` : 'Enter quantities first'}</>}
         </button>
       </div>
     </div>
@@ -314,7 +401,7 @@ function StockInForm({ allSKSItems, onAdd, onAddCustomItem }) {
 }
 
 // ── Stock In History ──────────────────────────────────────────────────────────
-function HistoryView({ inflows, isAdmin, onDelete }) {
+function HistoryView({ inflows, isAdmin, onDelete, showToast }) {
   const [datePreset, setDatePreset] = useState('')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo,   setCustomTo]   = useState('')
@@ -338,14 +425,22 @@ function HistoryView({ inflows, isAdmin, onDelete }) {
   const totalQty    = filtered.reduce((s, r) => s + (r.items || []).reduce((a, it) => a + it.qty, 0), 0)
   const toggleExpand = id => setExpanded(prev => ({ ...prev, [id]: !prev[id] }))
 
-  const handleExport = () => exportToExcel(
-    filtered.flatMap(r => (r.items || []).map(it => ({
-      'ID': r.id, 'Date': r.date, 'City': r.city || '',
-      'Sector': r.sector || '', 'Society': r.society || '',
-      'Item': it.name, 'Qty': it.qty, 'Notes': r.notes || '',
-    }))),
-    'SKS_StockIn_History'
-  )
+  const handleDelete = (id) => {
+    if (!window.confirm('Delete this Stock In record?')) return
+    onDelete(id)
+    showToast('Stock In record deleted', 'info')
+  }
+
+  const handleExport = () => {
+    exportToExcel(
+      filtered.flatMap(r => (r.items || []).map(it => ({
+        'ID': r.id, 'Date': r.date, 'City': r.city || '', 'Sector': r.sector || '',
+        'Society': r.society || '', 'Item': it.name, 'Qty': it.qty, 'Notes': r.notes || '',
+      }))),
+      'SKS_StockIn_History'
+    )
+    showToast('Export complete', 'success', `${filtered.length} records downloaded`)
+  }
 
   return (
     <div>
@@ -364,7 +459,7 @@ function HistoryView({ inflows, isAdmin, onDelete }) {
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} style={{ width: 140, fontSize: 12 }} />
               <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>—</span>
-              <input type="date" value={customTo}   onChange={e => setCustomTo(e.target.value)}   style={{ width: 140, fontSize: 12 }} />
+              <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} style={{ width: 140, fontSize: 12 }} />
             </div>
           )}
         </div>
@@ -376,7 +471,7 @@ function HistoryView({ inflows, isAdmin, onDelete }) {
         </div>
       </div>
 
-      {/* Summary bar */}
+      {/* Summary */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, fontSize: 12.5, color: 'var(--text-muted)', flexWrap: 'wrap' }}>
         <span><strong style={{ color: 'var(--text-primary)' }}>{filtered.length}</strong> entries ·</span>
         <span><strong style={{ color: 'var(--secondary)' }}>{totalQty}</strong> items received</span>
@@ -396,7 +491,7 @@ function HistoryView({ inflows, isAdmin, onDelete }) {
             <ArrowDownCircle size={24} />
           </div>
           <h3>No Stock In Records</h3>
-          <p>Stock In entries appear here once recorded.</p>
+          <p>Stock In entries will appear here once recorded.</p>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -404,16 +499,13 @@ function HistoryView({ inflows, isAdmin, onDelete }) {
             const rowTotal   = (r.items || []).reduce((s, it) => s + it.qty, 0)
             const isOpen     = !!expanded[r.id]
             const hasDetails = (r.items || []).length > 1 || !!r.notes
-
             return (
               <div key={r.id} className="card">
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '13px 16px', cursor: hasDetails ? 'pointer' : 'default' }}
                   onClick={() => hasDetails && toggleExpand(r.id)}>
-
                   <div style={{ width: 40, height: 40, borderRadius: 10, background: 'var(--secondary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                     <ArrowDownCircle size={18} color="var(--secondary)" />
                   </div>
-
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 5 }}>
                       <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 700, color: 'white', background: 'var(--secondary)', padding: '2px 7px', borderRadius: 4 }}>{r.id}</span>
@@ -432,51 +524,38 @@ function HistoryView({ inflows, isAdmin, onDelete }) {
                       {(r.items || []).length > 4 && <span style={{ fontSize: 10.5, color: 'var(--text-muted)', padding: '2px 4px' }}>+{r.items.length - 4} more</span>}
                     </div>
                   </div>
-
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
                     <div style={{ textAlign: 'right' }}>
                       <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 800, color: 'var(--secondary)', lineHeight: 1 }}>+{rowTotal}</div>
                       <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>items</div>
                     </div>
-                    {hasDetails && (
-                      <span style={{ color: 'var(--text-muted)' }}>
-                        {isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                      </span>
-                    )}
+                    {hasDetails && <span style={{ color: 'var(--text-muted)' }}>{isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</span>}
                     {isAdmin && (
-                      <button
-                        onClick={e => { e.stopPropagation(); if (window.confirm('Delete this Stock In record?')) onDelete(r.id) }}
+                      <button onClick={e => { e.stopPropagation(); handleDelete(r.id) }}
                         style={{ width: 30, height: 30, borderRadius: 7, border: '1px solid var(--danger)', background: 'var(--danger-bg)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--danger)' }}
-                        title="Delete record (Admin only)"
-                      >
+                        title="Delete record (Admin only)">
                         <Trash2 size={12} />
                       </button>
                     )}
                   </div>
                 </div>
-
                 {isOpen && (
                   <div style={{ borderTop: '1px solid var(--border-light)', padding: '12px 16px', background: 'var(--bg)' }}>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 8 }}>
                       {(r.items || []).map(it => {
-                        const cfg  = SKS_ITEM_CONFIG[it.name] || { icon: ShoppingBag }
-                        const Icon = cfg.icon
+                        const cfg = SKS_ITEM_CONFIG[it.name] || { icon: ShoppingBag }; const Icon = cfg.icon
                         return (
                           <div key={it.name} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border-light)' }}>
                             <Icon size={13} color="var(--secondary)" />
                             <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-primary)' }} className="truncate">{it.name}</div>
+                              <div style={{ fontSize: 12.5, fontWeight: 600 }} className="truncate">{it.name}</div>
                               <div style={{ fontSize: 11, color: 'var(--secondary)', fontWeight: 700 }}>×{it.qty}</div>
                             </div>
                           </div>
                         )
                       })}
                     </div>
-                    {r.notes && (
-                      <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic', padding: '6px 10px', background: 'var(--surface)', borderRadius: 6 }}>
-                        📝 {r.notes}
-                      </div>
-                    )}
+                    {r.notes && <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic', padding: '6px 10px', background: 'var(--surface)', borderRadius: 6 }}>📝 {r.notes}</div>}
                   </div>
                 )}
               </div>
@@ -489,37 +568,65 @@ function HistoryView({ inflows, isAdmin, onDelete }) {
 }
 
 // ── In Warehouse ──────────────────────────────────────────────────────────────
-function WarehouseView({ stock, allSKSItems, outflows, isAdmin, onAddOutflow, onDeleteOutflow }) {
+function WarehouseView({ stock, allSKSItems, outflows, isAdmin, onAddOutflow, onDeleteOutflow, showToast }) {
   const [showDispatch,  setShowDispatch]  = useState(false)
   const [partnerName,   setPartnerName]   = useState('')
   const [partnerPhone,  setPartnerPhone]  = useState('')
   const [dispDate,      setDispDate]      = useState(todayStr())
   const [dispQty,       setDispQty]       = useState({})
   const [dispNotes,     setDispNotes]     = useState('')
-  const [dispSaved,     setDispSaved]     = useState(false)
+  const [dispError,     setDispError]     = useState('')
+  const [dispatching,   setDispatching]   = useState(false)
 
-  const availableItems = allSKSItems.filter(i => (stock[i] || 0) > 0)
   const totalInStock   = Object.values(stock).reduce((s, v) => s + v, 0)
   const totalDispatch  = Object.values(dispQty).reduce((s, v) => s + (Number(v) || 0), 0)
+  const filledDispatch = Object.entries(dispQty).filter(([, q]) => (Number(q) || 0) > 0)
   const canDispatch    = partnerName.trim() && dispDate && totalDispatch > 0
 
+  // Check for over-dispatch
+  const overDispatch = filledDispatch.some(([name, qty]) => (Number(qty) || 0) > (stock[name] || 0))
+
   const handleDispatch = () => {
-    if (!canDispatch) return
-    const items = Object.entries(dispQty).filter(([, q]) => (Number(q) || 0) > 0).map(([name, qty]) => ({ name, qty: Number(qty) }))
-    onAddOutflow({ id: nextOutId(), date: dispDate, partnerName: partnerName.trim(), partnerPhone: partnerPhone.trim(), items, notes: dispNotes.trim() })
-    setDispQty({}); setPartnerName(''); setPartnerPhone(''); setDispNotes('')
-    setDispSaved(true)
-    setTimeout(() => { setDispSaved(false); setShowDispatch(false) }, 2200)
+    setDispError('')
+    if (!partnerName.trim()) { setDispError('Please enter a partner / recipient name.'); return }
+    if (!dispDate)           { setDispError('Please select a dispatch date.'); return }
+    if (totalDispatch < 1)   { setDispError('Please enter quantity for at least one item.'); return }
+    if (overDispatch)        { setDispError('Some quantities exceed available stock. Please check.'); return }
+
+    setDispatching(true)
+    const items = filledDispatch.map(([name, qty]) => ({ name, qty: Number(qty) }))
+
+    setTimeout(() => {
+      onAddOutflow({ id: nextOutId(), date: dispDate, partnerName: partnerName.trim(), partnerPhone: partnerPhone.trim(), items, notes: dispNotes.trim() })
+
+      // ✅ Success toast
+      showToast(
+        'Items removed from warehouse successfully',
+        'success',
+        `${totalDispatch} item${totalDispatch !== 1 ? 's' : ''} dispatched to ${partnerName.trim()}`
+      )
+
+      setDispQty({}); setPartnerName(''); setPartnerPhone(''); setDispNotes(''); setDispError('')
+      setDispatching(false)
+      setShowDispatch(false)
+    }, 350)
   }
 
-  const handleExportStock = () => exportToExcel(
-    allSKSItems.map(item => ({
-      Item: item,
-      Category: (SKS_ITEM_CONFIG[item] || {}).category || '—',
-      'In Stock': stock[item] || 0,
-    })),
-    'SKS_Warehouse_Stock'
-  )
+  const handleDeleteOutflow = (id) => {
+    if (!window.confirm('Delete this dispatch record?')) return
+    onDeleteOutflow(id)
+    showToast('Dispatch record deleted', 'info')
+  }
+
+  const handleExportStock = () => {
+    exportToExcel(
+      allSKSItems.map(item => ({
+        Item: item, Category: (SKS_ITEM_CONFIG[item] || {}).category || '—', 'In Stock': stock[item] || 0,
+      })),
+      'SKS_Warehouse_Stock'
+    )
+    showToast('Stock report exported', 'success')
+  }
 
   return (
     <div>
@@ -529,7 +636,7 @@ function WarehouseView({ stock, allSKSItems, outflows, isAdmin, onAddOutflow, on
           <div className="stat-icon"><Boxes size={18} /></div>
           <div className="stat-value">{totalInStock}</div>
           <div className="stat-label">Total In Warehouse</div>
-          <div className="stat-change up">{availableItems.length} item types</div>
+          <div className="stat-change up">{allSKSItems.filter(i => (stock[i] || 0) > 0).length} item types</div>
         </div>
         <div className="stat-card orange">
           <div className="stat-icon"><ArrowUpCircle size={18} /></div>
@@ -539,7 +646,18 @@ function WarehouseView({ stock, allSKSItems, outflows, isAdmin, onAddOutflow, on
         </div>
       </div>
 
-      {/* Current stock table */}
+      {/* Low stock alert */}
+      {allSKSItems.filter(i => (stock[i] || 0) > 0 && (stock[i] || 0) < 3).length > 0 && (
+        <div className="alert-strip alert-warning" style={{ marginBottom: 16 }}>
+          <AlertCircle size={14} style={{ flexShrink: 0 }} />
+          <span>
+            <strong>{allSKSItems.filter(i => (stock[i] || 0) > 0 && (stock[i] || 0) < 3).length} items</strong> running low (less than 3 in stock).
+            {allSKSItems.filter(i => (stock[i] || 0) > 0 && (stock[i] || 0) < 3).slice(0, 3).map(i => ` ${i}`).join(',')}
+          </span>
+        </div>
+      )}
+
+      {/* Stock table */}
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-header">
           <Boxes size={16} color="var(--secondary)" />
@@ -548,7 +666,7 @@ function WarehouseView({ stock, allSKSItems, outflows, isAdmin, onAddOutflow, on
             <button className="btn btn-ghost btn-sm" onClick={handleExportStock}>
               <Download size={13} /> Export
             </button>
-            <button className={`btn btn-sm ${showDispatch ? 'btn-danger' : 'btn-primary'}`} onClick={() => setShowDispatch(s => !s)}>
+            <button className={`btn btn-sm ${showDispatch ? 'btn-danger' : 'btn-primary'}`} onClick={() => { setShowDispatch(s => !s); setDispError('') }}>
               {showDispatch ? <><X size={13} /> Cancel</> : <><ArrowUpCircle size={13} /> Stock Out</>}
             </button>
           </div>
@@ -565,15 +683,18 @@ function WarehouseView({ stock, allSKSItems, outflows, isAdmin, onAddOutflow, on
             </thead>
             <tbody>
               {allSKSItems.map(item => {
-                const cfg  = SKS_ITEM_CONFIG[item] || { icon: ShoppingBag, category: 'Custom' }
-                const Icon = cfg.icon
-                const qty  = stock[item] || 0
+                const cfg   = SKS_ITEM_CONFIG[item] || { icon: ShoppingBag, category: 'Custom' }
+                const Icon  = cfg.icon
+                const qty   = stock[item] || 0
+                const dQty  = Number(dispQty[item]) || 0
+                const isOver = dQty > qty
                 return (
                   <tr key={item} style={{ opacity: qty === 0 ? 0.4 : 1 }}>
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <Icon size={14} color={qty > 0 ? 'var(--secondary)' : 'var(--text-muted)'} />
                         <span style={{ fontWeight: 600 }}>{item}</span>
+                        {qty > 0 && qty < 3 && <span style={{ fontSize: 9.5, padding: '1px 6px', borderRadius: 20, background: 'var(--warning-bg)', color: '#92400E', fontWeight: 700 }}>Low</span>}
                       </div>
                     </td>
                     <td><span className="badge badge-muted" style={{ fontSize: 10 }}>{cfg.category}</span></td>
@@ -587,9 +708,9 @@ function WarehouseView({ stock, allSKSItems, outflows, isAdmin, onAddOutflow, on
                         {qty > 0 ? (
                           <input type="number" min={0} max={qty} inputMode="numeric"
                             value={dispQty[item] || ''}
-                            onChange={e => setDispQty(q => ({ ...q, [item]: Math.min(qty, parseInt(e.target.value) || 0) }))}
+                            onChange={e => setDispQty(q => ({ ...q, [item]: parseInt(e.target.value) || 0 }))}
                             placeholder="0"
-                            style={{ width: 82, padding: '5px 9px', fontSize: 13, fontWeight: 700, textAlign: 'right', border: `1.5px solid ${(dispQty[item] || 0) > 0 ? 'var(--primary)' : 'var(--border)'}`, borderRadius: 6 }}
+                            style={{ width: 82, padding: '5px 9px', fontSize: 13, fontWeight: 700, textAlign: 'right', border: `1.5px solid ${isOver ? 'var(--danger)' : dQty > 0 ? 'var(--primary)' : 'var(--border)'}`, borderRadius: 6 }}
                           />
                         ) : <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>—</span>}
                       </td>
@@ -608,12 +729,16 @@ function WarehouseView({ stock, allSKSItems, outflows, isAdmin, onAddOutflow, on
           <div className="card-header" style={{ background: 'var(--primary-light)' }}>
             <ArrowUpCircle size={16} color="var(--primary)" />
             <div className="card-title" style={{ color: 'var(--primary)' }}>Dispatch Details</div>
-            {dispSaved && <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 700, color: 'var(--secondary)', display: 'flex', alignItems: 'center', gap: 5 }}><CheckCircle size={12} /> Dispatched!</span>}
+            {totalDispatch > 0 && (
+              <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 700, color: 'var(--primary)', background: 'rgba(232,82,26,0.1)', padding: '3px 12px', borderRadius: 20, border: '1px solid rgba(232,82,26,0.2)' }}>
+                {totalDispatch} items ready to dispatch
+              </span>
+            )}
           </div>
           <div className="card-body">
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 12 }}>
               <div className="form-group" style={{ margin: 0 }}>
-                <label>SKS Partner Name <span className="required">*</span></label>
+                <label>Recipient / Partner Name <span className="required">*</span></label>
                 <input value={partnerName} onChange={e => setPartnerName(e.target.value)} placeholder="e.g. Teach for India" />
               </div>
               <div className="form-group" style={{ margin: 0 }}>
@@ -629,14 +754,25 @@ function WarehouseView({ stock, allSKSItems, outflows, isAdmin, onAddOutflow, on
               <label>Notes</label>
               <textarea value={dispNotes} onChange={e => setDispNotes(e.target.value)} placeholder="Purpose, receipt reference…" style={{ minHeight: 52 }} />
             </div>
-            {totalDispatch > 0 && (
-              <div style={{ padding: '8px 12px', background: 'var(--primary-light)', borderRadius: 8, fontSize: 13, fontWeight: 700, color: 'var(--primary)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Package size={14} /> Dispatching {totalDispatch} items
+
+            {dispError && (
+              <div className="alert-strip alert-danger" style={{ marginBottom: 12 }}>
+                <AlertCircle size={13} style={{ flexShrink: 0 }} /> {dispError}
               </div>
             )}
-            <button className="btn btn-primary" onClick={handleDispatch} disabled={!canDispatch}
-              style={{ width: '100%', justifyContent: 'center', padding: '10px', opacity: canDispatch ? 1 : 0.5 }}>
-              <ArrowUpCircle size={15} /> Confirm Dispatch
+
+            {filledDispatch.length > 0 && !overDispatch && (
+              <div style={{ padding: '8px 12px', background: 'var(--primary-light)', borderRadius: 8, fontSize: 13, fontWeight: 700, color: 'var(--primary)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Package size={14} />
+                Dispatching: {filledDispatch.map(([n, q]) => `${n} ×${q}`).join(' · ')}
+              </div>
+            )}
+
+            <button className="btn btn-primary" onClick={handleDispatch} disabled={!canDispatch || dispatching || overDispatch}
+              style={{ width: '100%', justifyContent: 'center', padding: '10px', opacity: (canDispatch && !overDispatch) ? 1 : 0.5 }}>
+              {dispatching
+                ? <><span className="spin" style={{ display: 'inline-block', width: 14, height: 14, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: 'white', borderRadius: '50%' }} /> Dispatching…</>
+                : <><ArrowUpCircle size={15} /> Confirm Dispatch</>}
             </button>
           </div>
         </div>
@@ -680,11 +816,9 @@ function WarehouseView({ stock, allSKSItems, outflows, isAdmin, onAddOutflow, on
                       <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>items</div>
                     </div>
                     {isAdmin && (
-                      <button
-                        onClick={() => { if (window.confirm('Delete this dispatch record?')) onDeleteOutflow(r.id) }}
+                      <button onClick={() => handleDeleteOutflow(r.id)}
                         style={{ width: 30, height: 30, borderRadius: 7, border: '1px solid var(--danger)', background: 'var(--danger-bg)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--danger)' }}
-                        title="Delete (Admin only)"
-                      >
+                        title="Delete (Admin only)">
                         <Trash2 size={12} />
                       </button>
                     )}
@@ -705,10 +839,12 @@ export default function SKSOverview() {
   const { role }    = useRole()
   const isAdmin     = role === 'admin'
 
-  const [section,     setSection]     = useState('stockin')  // 'stockin' | 'history' | 'warehouse'
+  const [section,     setSection]     = useState('stockin')
   const [inflows,     setInflows]     = useState([])
   const [outflows,    setOutflows]    = useState([])
   const [customItems, setCustomItems] = useState([])
+
+  const { toasts, show: showToast, remove: removeToast } = useToast()
 
   const allSKSItems = useMemo(() => {
     const base = new Set(SKS_ITEMS)
@@ -717,20 +853,20 @@ export default function SKSOverview() {
 
   const stock = useMemo(() => computeStock(inflows, outflows), [inflows, outflows])
 
-  const addInflow       = useCallback(r => setInflows(prev => [r, ...prev]), [])
-  const addOutflow      = useCallback(r => setOutflows(prev => [r, ...prev]), [])
-  const deleteInflow    = useCallback(id => setInflows(prev => prev.filter(r => r.id !== id)), [])
-  const deleteOutflow   = useCallback(id => setOutflows(prev => prev.filter(r => r.id !== id)), [])
-  const addCustomItem   = useCallback(name => setCustomItems(prev => prev.includes(name) ? prev : [...prev, name]), [])
+  const addInflow     = useCallback(r => setInflows(prev => [r, ...prev]), [])
+  const addOutflow    = useCallback(r => setOutflows(prev => [r, ...prev]), [])
+  const deleteInflow  = useCallback(id => setInflows(prev => prev.filter(r => r.id !== id)), [])
+  const deleteOutflow = useCallback(id => setOutflows(prev => prev.filter(r => r.id !== id)), [])
+  const addCustomItem = useCallback(name => setCustomItems(prev => prev.includes(name) ? prev : [...prev, name]), [])
 
   const totalInStock    = Object.values(stock).reduce((s, v) => s + v, 0)
-  const totalReceived   = inflows.reduce((s, r)  => s + (r.items  || []).reduce((a, it) => a + it.qty, 0), 0)
-  const totalDispatched = outflows.reduce((s, r) => s + (r.items  || []).reduce((a, it) => a + it.qty, 0), 0)
+  const totalReceived   = inflows.reduce((s, r) => s + (r.items || []).reduce((a, it) => a + it.qty, 0), 0)
+  const totalDispatched = outflows.reduce((s, r) => s + (r.items || []).reduce((a, it) => a + it.qty, 0), 0)
 
   const TABS = [
-    { id: 'stockin',   label: '↓ Stock In',          count: null },
-    { id: 'history',   label: '📋 Stock In History',  count: inflows.length  || null },
-    { id: 'warehouse', label: '📦 In Warehouse',      count: totalInStock > 0 ? totalInStock : null },
+    { id: 'stockin',   label: '↓ Stock In',         count: null },
+    { id: 'history',   label: '📋 Stock In History', count: inflows.length || null },
+    { id: 'warehouse', label: '📦 In Warehouse',     count: totalInStock > 0 ? totalInStock : null },
   ]
 
   return (
@@ -788,6 +924,7 @@ export default function SKSOverview() {
           allSKSItems={allSKSItems}
           onAdd={addInflow}
           onAddCustomItem={addCustomItem}
+          showToast={showToast}
         />
       )}
       {section === 'history' && (
@@ -795,6 +932,7 @@ export default function SKSOverview() {
           inflows={inflows}
           isAdmin={isAdmin}
           onDelete={deleteInflow}
+          showToast={showToast}
         />
       )}
       {section === 'warehouse' && (
@@ -805,8 +943,12 @@ export default function SKSOverview() {
           isAdmin={isAdmin}
           onAddOutflow={addOutflow}
           onDeleteOutflow={deleteOutflow}
+          showToast={showToast}
         />
       )}
+
+      {/* Global Toast Layer */}
+      <Toast toasts={toasts} onRemove={removeToast} />
     </div>
   )
 }
