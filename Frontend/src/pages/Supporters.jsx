@@ -1,15 +1,12 @@
 // Frontend/src/pages/Supporters.jsx
-// Simplified Supporters Management Page
-// • Status is auto-calculated from Date (no manual edit)
-// • Stat cards are clicpickuppartnerle to filter by status
-// • Contribution is free-text input (no dropdown)
-// • Date field simplified label
+// Status system: Activity-based engagement tracking
+// Active in 1 Month (≤30d) · Active in 3 Months (31–90d) · Active in 6 Months (91–180d) · Inactive (>180d)
 import { useState, useMemo } from 'react'
 import {
   Heart, Search, Plus, Edit2, Trash2, X,
   Phone, MapPin, Clock, CheckCircle, AlertCircle,
   UserX, Download, Users, Calendar, SlidersHorizontal,
-  ChevronDown, ChevronUp,
+  ChevronDown, ChevronUp, Activity,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { fmtDate, exportToExcel } from '../utils/helpers'
@@ -17,21 +14,40 @@ import { CITIES, CITY_SECTORS } from '../data/mockData'
 import { differenceInDays, parseISO } from 'date-fns'
 import SocietyInput from '../components/SocietyInput'
 
-// ── Independent supporter status — based on lastSupportDate only ─────────────
+// ── Status logic — time-based engagement buckets ─────────────────────────────
 function getSupporterStatus(lastSupportDate) {
-  if (!lastSupportDate) return 'New'
+  if (!lastSupportDate) return 'Inactive'
   const days = differenceInDays(new Date(), parseISO(lastSupportDate))
-  if (days <= 60)  return 'Active'
-  if (days <= 120) return 'At Risk'
+  if (days <= 30)  return 'Active in 1 Month'
+  if (days <= 90)  return 'Active in 3 Months'
+  if (days <= 180) return 'Active in 6 Months'
   return 'Inactive'
 }
 
 const STATUS_CONFIG = {
-  'New':      { color: 'var(--info)',      bg: 'var(--info-bg)',         icon: Users,       label: 'New' },
-  'Active':   { color: 'var(--secondary)', bg: 'var(--secondary-light)', icon: CheckCircle, label: 'Active' },
-  'At Risk':  { color: 'var(--warning)',   bg: 'var(--warning-bg)',      icon: AlertCircle, label: 'At Risk' },
-  'Inactive': { color: 'var(--danger)',    bg: 'var(--danger-bg)',       icon: UserX,       label: 'Inactive' },
+  'Active in 1 Month':  {
+    color: 'var(--secondary)', bg: 'var(--secondary-light)', borderColor: 'var(--secondary)',
+    icon: CheckCircle, label: 'Active in 1 Month',  desc: 'Activity within 30 days',
+    tone: 'green',
+  },
+  'Active in 3 Months': {
+    color: 'var(--info)',      bg: 'var(--info-bg)',         borderColor: 'var(--info)',
+    icon: Clock,       label: 'Active in 3 Months', desc: 'Activity in 31–90 days',
+    tone: 'blue',
+  },
+  'Active in 6 Months': {
+    color: 'var(--warning)',   bg: 'var(--warning-bg)',      borderColor: 'var(--warning)',
+    icon: AlertCircle, label: 'Active in 6 Months', desc: 'Activity in 91–180 days',
+    tone: 'yellow',
+  },
+  'Inactive': {
+    color: 'var(--danger)',    bg: 'var(--danger-bg)',       borderColor: 'var(--danger)',
+    icon: UserX,       label: 'Inactive',           desc: 'No activity in 180+ days',
+    tone: 'red',
+  },
 }
+
+const STATUS_KEYS = ['Active in 1 Month', 'Active in 3 Months', 'Active in 6 Months', 'Inactive']
 
 const EMPTY_FORM = {
   name: '', mobile: '', house: '', city: 'Gurgaon', sector: '', society: '',
@@ -39,7 +55,6 @@ const EMPTY_FORM = {
   isAlsoDonor: false,
 }
 
-// ── Role icon badges ──────────────────────────────────────────────────────────
 function RoleIcon({ donorType, size = 15 }) {
   if (donorType === 'both') {
     return (
@@ -57,7 +72,7 @@ function RoleIcon({ donorType, size = 15 }) {
 }
 
 function StatusBadge({ status }) {
-  const cfg  = STATUS_CONFIG[status] || STATUS_CONFIG['New']
+  const cfg  = STATUS_CONFIG[status] || STATUS_CONFIG['Inactive']
   const Icon = cfg.icon
   return (
     <span style={{
@@ -71,8 +86,8 @@ function StatusBadge({ status }) {
   )
 }
 
-// ── Clicpickuppartnerle KPI stat card ───────────────────────────────────────────────────
-function KpiCard({ tone, icon: Icon, value, label, sub, isActive, onClick }) {
+// ── Clickable KPI Card ────────────────────────────────────────────────────────
+function KpiCard({ tone, icon: Icon, value, label, desc, isActive, onClick }) {
   return (
     <div
       className={`stat-card ${tone}`}
@@ -85,12 +100,12 @@ function KpiCard({ tone, icon: Icon, value, label, sub, isActive, onClick }) {
         transform: isActive ? 'translateY(-2px)' : 'none',
         boxShadow: isActive ? 'var(--shadow-md)' : 'var(--shadow)',
       }}
-      title={isActive ? 'Click to clear filter' : `Click to filter by ${label}`}
+      title={isActive ? 'Click to clear filter' : `Filter by: ${label}`}
     >
       <div className="stat-icon"><Icon size={18} /></div>
       <div className="stat-value">{value}</div>
       <div className="stat-label">{label}</div>
-      {sub && <div className="stat-change up">{sub}</div>}
+      {desc && <div className="stat-change up" style={{ fontSize: 10.5 }}>{desc}</div>}
     </div>
   )
 }
@@ -106,7 +121,7 @@ export default function Supporters() {
   const [expanded,     setExpanded]     = useState({})
 
   const [search,       setSearch]       = useState('')
-  const [filterStatus, setFilterStatus] = useState('all')   // driven by KPI card clicks
+  const [filterStatus, setFilterStatus] = useState('all')
   const [filterType,   setFilterType]   = useState('all')
   const [filterCity,   setFilterCity]   = useState('')
   const [filterSector, setFilterSector] = useState('')
@@ -115,7 +130,7 @@ export default function Supporters() {
   const sectorOptions = useMemo(() => filterCity ? (CITY_SECTORS[filterCity] || []) : [], [filterCity])
   const formSectors   = CITY_SECTORS[form.city] || []
 
-  // ── Pull only supporters from donors array ────────────────────────────────
+  // ── Pull only supporters ──────────────────────────────────────────────────
   const supporters = useMemo(() =>
     donors
       .filter(d => d.donorType === 'supporter' || d.donorType === 'both')
@@ -129,12 +144,9 @@ export default function Supporters() {
 
   // ── KPIs ──────────────────────────────────────────────────────────────────
   const kpis = useMemo(() => {
-    const c = { total: supporters.length, New: 0, Active: 0, 'At Risk': 0, Inactive: 0, both: 0, supporter: 0 }
-    supporters.forEach(d => {
-      c[d.supporterStatus] = (c[d.supporterStatus] || 0) + 1
-      if (d.donorType === 'both')      c.both++
-      if (d.donorType === 'supporter') c.supporter++
-    })
+    const c = { total: supporters.length }
+    STATUS_KEYS.forEach(k => { c[k] = 0 })
+    supporters.forEach(d => { c[d.supporterStatus] = (c[d.supporterStatus] || 0) + 1 })
     return c
   }, [supporters])
 
@@ -153,15 +165,11 @@ export default function Supporters() {
 
   const hasFilters = filterCity || filterSector || filterType !== 'all'
 
-  // ── KPI card click → toggle filter ───────────────────────────────────────
-  const handleKpiClick = (status) => {
-    setFilterStatus(prev => prev === status ? 'all' : status)
-  }
+  const handleKpiClick = (status) => setFilterStatus(prev => prev === status ? 'all' : status)
 
   // ── Modal helpers ─────────────────────────────────────────────────────────
   const openModal = (s = null) => {
-    setEditing(s)
-    setErrors({})
+    setEditing(s); setErrors({})
     setForm(s ? {
       name:             s.name || '',
       mobile:           s.mobile || '',
@@ -220,27 +228,26 @@ export default function Supporters() {
 
   const handleExport = () => {
     exportToExcel(filtered.map(d => ({
-      'ID':                d.id,
-      'Name':              d.name,
-      'Mobile':            d.mobile || '—',
-      'Role':              d.donorType === 'both' ? 'Donor + Supporter' : 'Supporter',
-      'Contribution':      d.effectiveContrib || '—',
-      'Date':              d.lastSupportDate ? fmtDate(d.lastSupportDate) : '—',
-      'Supporter Status':  d.supporterStatus,
-      'City':              d.city || '—',
-      'Sector':            d.sector || '—',
-      'Society':           d.society || '—',
-      'Notes':             d.notes || '—',
+      'ID':               d.id,
+      'Name':             d.name,
+      'Mobile':           d.mobile || '—',
+      'Role':             d.donorType === 'both' ? 'Donor + Supporter' : 'Supporter',
+      'Contribution':     d.effectiveContrib || '—',
+      'Last Activity':    d.lastSupportDate ? fmtDate(d.lastSupportDate) : '—',
+      'Engagement Status':d.supporterStatus,
+      'City':             d.city || '—',
+      'Sector':           d.sector || '—',
+      'Society':          d.society || '—',
+      'Notes':            d.notes || '—',
     })), 'Supporters_Export')
   }
 
+  // Modal preview
   const previewStatus = form.lastSupportDate ? getSupporterStatus(form.lastSupportDate) : null
   const previewCfg    = previewStatus ? STATUS_CONFIG[previewStatus] : null
 
-  // ── Active filter label ───────────────────────────────────────────────────
   const activeFilterCfg = filterStatus !== 'all' ? STATUS_CONFIG[filterStatus] : null
 
-  // ────────────────────────────────────────────────────────────────────────
   return (
     <div className="page-body">
 
@@ -252,8 +259,7 @@ export default function Supporters() {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 16, color: 'var(--primary)' }}>Supporters &amp; Contributors</div>
           <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
-            People who support FreePathshala with money, goods, clothes, or other contributions.
-            Status is automatic — Active (≤ 60d) · At Risk (61–120d) · Inactive (&gt; 120d)
+            Engagement tracked by last activity date — status updates automatically. Click any category to filter.
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
@@ -261,45 +267,92 @@ export default function Supporters() {
             <Download size={13} /> Export ({filtered.length})
           </button>
           <button className="btn btn-primary btn-sm" onClick={() => openModal()}>
-            <Plus size={13} /> Add New Supporter
+            <Plus size={13} /> Add Supporter
           </button>
         </div>
       </div>
 
-      {/* ── Clicpickuppartnerle KPI Cards — click to filter by status ── */}
+      {/* ── Engagement Status Legend ── */}
+      <div style={{ marginBottom: 16, padding: '10px 14px', background: 'var(--surface)', borderRadius: 10, border: '1px solid var(--border-light)', boxShadow: 'var(--shadow)' }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
+          <Activity size={11} color="var(--primary)" /> Engagement Timeline
+        </div>
+        <div style={{ display: 'flex', gap: 0, borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border-light)' }}>
+          {STATUS_KEYS.map((key, i) => {
+            const cfg = STATUS_CONFIG[key]
+            const Icon = cfg.icon
+            const count = kpis[key] || 0
+            const isActive = filterStatus === key
+            return (
+              <button
+                key={key}
+                onClick={() => handleKpiClick(key)}
+                style={{
+                  flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
+                  padding: '10px 8px', border: 'none', cursor: 'pointer',
+                  background: isActive ? cfg.bg : 'var(--surface)',
+                  borderLeft: i > 0 ? '1px solid var(--border-light)' : 'none',
+                  transition: 'all 0.15s',
+                  outline: isActive ? `2px solid ${cfg.color}` : 'none',
+                  outlineOffset: -2,
+                }}
+              >
+                <Icon size={14} color={isActive ? cfg.color : 'var(--text-muted)'} style={{ marginBottom: 4 }} />
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 800, color: isActive ? cfg.color : 'var(--text-primary)', lineHeight: 1 }}>
+                  {count}
+                </div>
+                <div style={{ fontSize: 10.5, fontWeight: 700, color: isActive ? cfg.color : 'var(--text-muted)', marginTop: 2, textAlign: 'center', lineHeight: 1.3 }}>
+                  {cfg.label}
+                </div>
+                <div style={{ fontSize: 9.5, color: 'var(--text-muted)', marginTop: 1 }}>
+                  {cfg.desc}
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* ── Clickable KPI Cards ── */}
       <div className="stat-grid" style={{ marginBottom: 20 }}>
         <KpiCard
           tone="orange" icon={Heart}
           value={kpis.total} label="Total Supporters"
-          sub={`${kpis.both} also RST/SKS donors`}
-          isActive={filterStatus === 'all' && false}  // "total" doesn't filter, just shows count
+          desc={`${supporters.filter(s => s.donorType === 'both').length} also RST/SKS donors`}
+          isActive={false}
           onClick={() => setFilterStatus('all')}
         />
         <KpiCard
           tone="green" icon={CheckCircle}
-          value={kpis['Active'] || 0} label="Active (≤ 60 days)"
-          isActive={filterStatus === 'Active'}
-          onClick={() => handleKpiClick('Active')}
+          value={kpis['Active in 1 Month'] || 0}
+          label="Active in 1 Month"
+          desc="Last 30 days"
+          isActive={filterStatus === 'Active in 1 Month'}
+          onClick={() => handleKpiClick('Active in 1 Month')}
+        />
+        <KpiCard
+          tone="blue" icon={Clock}
+          value={kpis['Active in 3 Months'] || 0}
+          label="Active in 3 Months"
+          desc="31–90 days ago"
+          isActive={filterStatus === 'Active in 3 Months'}
+          onClick={() => handleKpiClick('Active in 3 Months')}
         />
         <KpiCard
           tone="yellow" icon={AlertCircle}
-          value={kpis['At Risk'] || 0} label="At Risk (61–120 days)"
-          isActive={filterStatus === 'At Risk'}
-          onClick={() => handleKpiClick('At Risk')}
-        />
-        <KpiCard
-          tone="red" icon={UserX}
-          value={kpis['Inactive'] || 0} label="Inactive (> 120 days)"
-          isActive={filterStatus === 'Inactive'}
-          onClick={() => handleKpiClick('Inactive')}
+          value={kpis['Active in 6 Months'] || 0}
+          label="Active in 6 Months"
+          desc="91–180 days ago"
+          isActive={filterStatus === 'Active in 6 Months'}
+          onClick={() => handleKpiClick('Active in 6 Months')}
         />
       </div>
 
-      {/* ── Active status filter pill ── */}
+      {/* ── Active filter pill ── */}
       {activeFilterCfg && (
         <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', borderRadius: 10, background: activeFilterCfg.bg, border: `1px solid ${activeFilterCfg.color}33` }}>
           <activeFilterCfg.icon size={14} color={activeFilterCfg.color} />
-          <span style={{ fontSize: 13, fontWeight: 700, color: activeFilterCfg.color }}>Filtering: {activeFilterCfg.label}</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: activeFilterCfg.color }}>{activeFilterCfg.label}</span>
           <span style={{ fontSize: 12.5, color: activeFilterCfg.color, opacity: 0.8 }}>
             — {kpis[filterStatus] || 0} supporter{(kpis[filterStatus] || 0) !== 1 ? 's' : ''}
           </span>
@@ -387,17 +440,17 @@ export default function Supporters() {
                   <th>Role</th>
                   <th>Mobile</th>
                   <th>Contribution</th>
-                  <th>Date</th>
-                  <th>Status</th>
+                  <th>Last Activity</th>
+                  <th>Engagement</th>
                   <th>Location</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map(d => {
-                  const cfg      = STATUS_CONFIG[d.supporterStatus] || STATUS_CONFIG['New']
-                  const isOpen   = !!expanded[d.id]
-                  const hasNote  = !!d.notes?.trim()
+                  const cfg     = STATUS_CONFIG[d.supporterStatus] || STATUS_CONFIG['Inactive']
+                  const isOpen  = !!expanded[d.id]
+                  const hasNote = !!d.notes?.trim()
                   const daysDiff = d.lastSupportDate
                     ? differenceInDays(new Date(), parseISO(d.lastSupportDate))
                     : null
@@ -442,7 +495,6 @@ export default function Supporters() {
                         ) : <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>Not recorded</span>}
                       </td>
                       <td>
-                        {/* Status is display-only, not editable */}
                         <StatusBadge status={d.supporterStatus} />
                       </td>
                       <td>
@@ -481,7 +533,7 @@ export default function Supporters() {
           {/* ── Mobile cards ── */}
           <div className="mobile-cards">
             {filtered.map(d => {
-              const cfg = STATUS_CONFIG[d.supporterStatus] || STATUS_CONFIG['New']
+              const cfg = STATUS_CONFIG[d.supporterStatus] || STATUS_CONFIG['Inactive']
               return (
                 <div key={d.id} className="card" style={{ marginBottom: 10, padding: 14, borderLeft: `3px solid ${cfg.color}` }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
@@ -511,7 +563,7 @@ export default function Supporters() {
                   )}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
                     <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                      {d.lastSupportDate ? `${fmtDate(d.lastSupportDate)}` : 'No date recorded'}
+                      {d.lastSupportDate ? fmtDate(d.lastSupportDate) : 'No date recorded'}
                     </div>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button className="btn btn-ghost btn-icon btn-sm" onClick={() => openModal(d)}><Edit2 size={12} /></button>
@@ -530,14 +582,13 @@ export default function Supporters() {
         </>
       )}
 
-      {/* ════════════════════════════════════════════════════════════════════
+      {/* ══════════════════════════════════════════════════════
           ADD / EDIT MODAL
-      ════════════════════════════════════════════════════════════════════ */}
+      ══════════════════════════════════════════════════════ */}
       {modal && (
         <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && closeModal()}>
           <div className="modal" style={{ maxWidth: 580, width: '95vw' }}>
 
-            {/* Header */}
             <div className="modal-header">
               <Heart size={18} color="var(--primary)" />
               <div className="modal-title">{editing ? 'Edit Supporter' : 'Add New Supporter'}</div>
@@ -549,19 +600,14 @@ export default function Supporters() {
               <button className="btn btn-ghost btn-icon btn-sm" onClick={closeModal}><X size={16} /></button>
             </div>
 
-            {/* Body */}
             <div className="modal-body" style={{ maxHeight: '72vh', overflowY: 'auto' }}>
               <div className="form-grid">
-
-                {/* Name */}
                 <div className="form-group">
                   <label>Full Name <span className="required">*</span></label>
                   <input value={form.name} onChange={e => setField('name', e.target.value)}
                     placeholder="e.g. Priya Sharma" autoFocus />
                   {errors.name && <div style={{ fontSize: 11.5, color: 'var(--danger)', marginTop: 3 }}>{errors.name}</div>}
                 </div>
-
-                {/* Mobile */}
                 <div className="form-group">
                   <label>Mobile Number <span className="required">*</span></label>
                   <input value={form.mobile}
@@ -569,23 +615,16 @@ export default function Supporters() {
                     placeholder="10-digit mobile" inputMode="numeric" maxLength={10} />
                   {errors.mobile && <div style={{ fontSize: 11.5, color: 'var(--danger)', marginTop: 3 }}>{errors.mobile}</div>}
                 </div>
-
-                {/* House */}
                 <div className="form-group">
                   <label>House / Flat No.</label>
-                  <input value={form.house} onChange={e => setField('house', e.target.value)}
-                    placeholder="e.g. A-101" />
+                  <input value={form.house} onChange={e => setField('house', e.target.value)} placeholder="e.g. A-101" />
                 </div>
-
-                {/* City */}
                 <div className="form-group">
                   <label>City</label>
                   <select value={form.city} onChange={e => setField('city', e.target.value)}>
                     {CITIES.map(c => <option key={c}>{c}</option>)}
                   </select>
                 </div>
-
-                {/* Sector */}
                 <div className="form-group">
                   <label>Sector / Area</label>
                   <select value={form.sector} onChange={e => setField('sector', e.target.value)} disabled={!form.city}>
@@ -593,48 +632,32 @@ export default function Supporters() {
                     {formSectors.map(s => <option key={s}>{s}</option>)}
                   </select>
                 </div>
-
-                {/* Society */}
                 <div className="form-group full">
                   <label>Society / Colony</label>
                   <SocietyInput city={form.city} sector={form.sector}
                     value={form.society} onChange={val => setField('society', val)}
                     id="supporter-modal" />
                 </div>
-
-                {/* Contribution — FREE TEXT (not dropdown) */}
                 <div className="form-group">
                   <label style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <Heart size={12} color="var(--danger)" />
-                    Contribution
+                    <Heart size={12} color="var(--danger)" /> Contribution
                   </label>
-                  <input
-                    value={form.contributionType}
-                    onChange={e => setField('contributionType', e.target.value)}
-                    placeholder="e.g. Money, Clothes, Books, Stationery…"
-                  />
+                  <input value={form.contributionType} onChange={e => setField('contributionType', e.target.value)}
+                    placeholder="e.g. Money, Clothes, Books, Stationery…" />
                 </div>
-
-                {/* Date — single field, simplified label */}
                 <div className="form-group">
                   <label style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <Calendar size={12} color="var(--info)" />
-                    Date
-                    <span style={{ fontSize: 10.5, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 2 }}>
-                      (last support activity)
-                    </span>
+                    <Calendar size={12} color="var(--info)" /> Last Activity Date
+                    <span style={{ fontSize: 10.5, fontWeight: 400, color: 'var(--text-muted)' }}>(auto-sets status)</span>
                   </label>
                   <input type="date" value={form.lastSupportDate}
                     onChange={e => setField('lastSupportDate', e.target.value)} />
-                  {/* Auto status preview */}
                   {previewCfg && (
                     <div style={{ fontSize: 11.5, marginTop: 5, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 20, background: previewCfg.bg, color: previewCfg.color, fontWeight: 700 }}>
-                      Auto status: {previewStatus}
+                      <previewCfg.icon size={10} /> Auto status: {previewStatus}
                     </div>
                   )}
                 </div>
-
-                {/* Notes */}
                 <div className="form-group full">
                   <label>Notes</label>
                   <textarea value={form.notes} onChange={e => setField('notes', e.target.value)}
@@ -648,13 +671,9 @@ export default function Supporters() {
                 onClick={() => setField('isAlsoDonor', !form.isAlsoDonor)}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <input
-                    type="checkbox"
-                    checked={form.isAlsoDonor}
-                    onChange={e => setField('isAlsoDonor', e.target.checked)}
+                  <input type="checkbox" checked={form.isAlsoDonor} onChange={e => setField('isAlsoDonor', e.target.checked)}
                     onClick={e => e.stopPropagation()}
-                    style={{ width: 16, height: 16, accentColor: 'var(--secondary)', cursor: 'pointer', padding: 0, border: 'none', flexShrink: 0 }}
-                  />
+                    style={{ width: 16, height: 16, accentColor: 'var(--secondary)', cursor: 'pointer', padding: 0, border: 'none', flexShrink: 0 }} />
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 700, fontSize: 13.5, color: form.isAlsoDonor ? 'var(--secondary)' : 'var(--text-primary)' }}>
                       👍 Also an RST/SKS Donor
@@ -672,14 +691,10 @@ export default function Supporters() {
               </div>
             </div>
 
-            {/* Footer */}
             <div className="modal-footer">
               <button className="btn btn-ghost" onClick={closeModal} disabled={saving}>Cancel</button>
-              <button
-                className="btn btn-primary"
-                onClick={save}
-                disabled={saving || !form.name.trim() || !form.mobile.trim()}
-              >
+              <button className="btn btn-primary" onClick={save}
+                disabled={saving || !form.name.trim() || !form.mobile.trim()}>
                 {saving ? 'Saving…' : editing ? 'Save Changes' : '+ Add Supporter'}
               </button>
             </div>

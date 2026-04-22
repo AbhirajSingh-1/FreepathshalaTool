@@ -2,7 +2,7 @@
 import {
   LayoutDashboard, Users, Truck, UserCheck, BarChart3,
   IndianRupee, CalendarDays, Table2, Eye, Shirt, ClipboardList,
-  Heart,
+  Heart, Database,
 } from 'lucide-react'
 
 const getRole = () => localStorage.getItem('fp_role') || 'admin'
@@ -16,32 +16,36 @@ const buildNav = (role) => {
     return [
       { section: 'Today' },
       { id: 'todaypickups',   label: "Today's Pickups",  icon: ClipboardList },
-      { section: 'Field Operations' },
+      { section: 'Pickups' },
       { id: 'pickups',        label: 'Record Pickup',    icon: Truck },
       { id: 'pickuppartners', label: 'Pickup Partners',  icon: UserCheck },
       { section: 'Warehouse' },
-      { id: 'sksoverview',    label: 'SKS Stock',     icon: Shirt },
+      { id: 'sksoverview',    label: 'SKS Stock',        icon: Shirt },
     ]
   }
 
   return [
     { section: 'Main' },
     { id: 'dashboard',       label: 'Dashboard',        icon: LayoutDashboard },
-    { section: 'Management' },
+
+    { section: 'Database' },
     { id: 'donors',          label: 'Donors Status',    icon: Users },
     { id: 'supporters',      label: 'Supporters',       icon: Heart },
-    { id: 'pickups',         label: 'Record Pickups',          icon: Truck },
     { id: 'pickuppartners',  label: 'Pickup Partners',  icon: UserCheck },
+
     { section: 'Finance' },
     { id: 'payments',        label: 'Payment Tracking', icon: IndianRupee },
-    { section: 'Scheduling' },
+
+    { section: 'Pickups' },
+    { id: 'pickups',         label: 'Record Pickups',   icon: Truck },
     { id: 'pickupscheduler', label: 'Pickup Scheduler', icon: CalendarDays },
-    { id: 'todaypickups',    label: "Today's Pickups",  icon: ClipboardList },
     ...(isAdmin || isManager
       ? [{ id: 'pickupoverview', label: 'Pickup Overview', icon: Eye }]
       : []
     ),
-    { section: 'Insights' },
+    { id: 'todaypickups',    label: "Today's Pickups",  icon: ClipboardList },
+
+    { section: 'Warehouse' },
     ...(isAdmin || isManager
       ? [{ id: 'sksoverview', label: 'SKS Stock', icon: Shirt }]
       : []
