@@ -1,10 +1,12 @@
 // Frontend/src/pages/Payments.jsx
-// ══════════════════════════════════════════════════════════════════════════════
-// PICKUP PARTNER PAYMENT MODULE
-// Write-Off System (v2):
-//   Level 1 — Pickup-level write-off: entire pickup marked unrecoverable
-//   Level 2 — Entry-level write-off: only the specific row's pending is closed
-// ══════════════════════════════════════════════════════════════════════════════
+// v2 CHANGES:
+// • RecordPaymentModal redesigned: compact single-screen, no scroll, 2-click flow
+// • Amount + Date on one row
+// • Compact method pills (icon + label)
+// • Reference input only shown for non-cash
+// • Notes as single-line input
+// • Footer: Cancel + Record button always visible
+// • All other functionality unchanged
 
 import { useMemo, useState, useCallback } from 'react'
 import {
@@ -134,21 +136,30 @@ function StatusDot({ status }) {
   )
 }
 
-function PaymentMethodPicker({ value, onChange }) {
+// ── Compact method pill picker (new design) ───────────────────────────────────
+function CompactMethodPicker({ value, onChange }) {
   return (
-    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+    <div style={{ display: 'flex', gap: 6 }}>
       {REF_MODES.map(mode => {
-        const Icon = mode.icon; const active = value === mode.value
+        const Icon = mode.icon
+        const active = value === mode.value
         return (
-          <button key={mode.value} type="button" onClick={() => onChange(mode.value)}
+          <button
+            key={mode.value}
+            type="button"
+            onClick={() => onChange(mode.value)}
             style={{
-              display: 'flex', alignItems: 'center', gap: 5, padding: '7px 12px',
-              borderRadius: 8, fontSize: 12.5, cursor: 'pointer', fontWeight: active ? 700 : 400,
+              flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
+              gap: 4, padding: '8px 4px', borderRadius: 9, cursor: 'pointer',
               border: `1.5px solid ${active ? 'var(--primary)' : 'var(--border)'}`,
               background: active ? 'var(--primary-light)' : 'transparent',
-              color: active ? 'var(--primary)' : 'var(--text-secondary)',
-            }}>
-            <Icon size={13} />{mode.label}
+              color: active ? 'var(--primary)' : 'var(--text-muted)',
+              fontWeight: active ? 700 : 400, fontSize: 11.5,
+              transition: 'all 0.12s',
+            }}
+          >
+            <Icon size={15} />
+            {mode.label}
           </button>
         )
       })}
@@ -157,9 +168,9 @@ function PaymentMethodPicker({ value, onChange }) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// RECORD PAYMENT MODAL — purely for payment, no write-off here
+// REDESIGNED RECORD PAYMENT MODAL
+// Compact single-screen, no scroll, 2-click flow
 // ══════════════════════════════════════════════════════════════════════════════
-
 function RecordPaymentModal({ context, onClose, onSave, saving }) {
   const [amount,     setAmount]     = useState(() => context.pending > 0 ? String(Math.round(context.pending)) : '')
   const [date,       setDate]       = useState(() => new Date().toISOString().slice(0, 10))
@@ -169,10 +180,18 @@ function RecordPaymentModal({ context, onClose, onSave, saving }) {
   const [screenshot, setScreenshot] = useState(null)
   const [error,      setError]      = useState('')
 
-  const entered    = Number(amount) || 0
-  const afterPay   = Math.max(0, context.pending - entered)
-  const isFull     = entered >= context.pending - 0.01
-  const selectedMode = REF_MODES.find(r => r.value === method)
+  const entered   = Number(amount) || 0
+  const afterPay  = Math.max(0, context.pending - entered)
+  const isFull    = entered > 0 && entered >= context.pending - 0.01
+  const hasRef    = method !== 'cash'
+  const collPct   = context.total > 0 ? Math.round((context.paid / context.total) * 100) : 0
+  const statusColor = context.pending <= 0 ? 'var(--secondary)' : 'var(--danger)'
+
+  const REF_LABELS = {
+    upi: 'UPI Transaction ID',
+    bank: 'Bank Reference No.',
+    cheque: 'Cheque Number',
+  }
 
   const handleScreenshot = (e) => {
     const file = e.target.files?.[0]; if (!file) return
@@ -182,119 +201,208 @@ function RecordPaymentModal({ context, onClose, onSave, saving }) {
   }
 
   const handleSave = () => {
-    if (context.pending <= 0) { setError('No pending amount to record.'); return }
-    if (entered <= 0) { setError('Enter a valid amount.'); return }
-    if (entered > context.pending + 0.01) { setError('Amount cannot exceed pending balance.'); return }
-    if (method !== 'cash' && !reference.trim()) { setError(`Enter ${refModeLabel(method)} reference.`); return }
+    if (context.pending <= 0) { setError('No pending balance.'); return }
+    if (entered <= 0)         { setError('Enter a valid amount.'); return }
+    if (entered > context.pending + 0.01) { setError(`Max allowed: ${money(context.pending)}`); return }
+    if (hasRef && !reference.trim()) { setError(`${REF_LABELS[method] || 'Reference'} is required.`); return }
     onSave({ amount: entered, date, method, reference: reference.trim(), notes: notes.trim(), screenshot, isFull })
   }
 
   return (
     <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal" style={{ maxWidth: 520 }}>
+      <div className="modal" style={{ maxWidth: 440, width: '95vw' }}>
 
-        <div className="modal-header">
-          <IndianRupee size={18} color="var(--primary)" />
-          <div>
-            <div className="modal-title" style={{ fontSize: 15 }}>
-              Record Payment — {context.partnerName}
-            </div>
+        {/* ── Compact Header ── */}
+        <div className="modal-header" style={{ padding: '13px 18px' }}>
+          <div style={{
+            width: 34, height: 34, borderRadius: 8, background: 'var(--primary-light)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+          }}>
+            <IndianRupee size={16} color="var(--primary)" />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="modal-title" style={{ fontSize: 14.5 }}>{context.partnerName}</div>
             {context.donorName && (
-              <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>
-                {context.donorName} · <OrderIdChip id={context.pickupId} />
+              <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
+                {context.donorName}
+                {context.pickupId && <OrderIdChip id={context.pickupId} />}
               </div>
             )}
           </div>
-          <button className="btn btn-ghost btn-icon btn-sm" style={{ marginLeft: 'auto' }} onClick={onClose}>
-            <X size={16} />
-          </button>
+          <button className="btn btn-ghost btn-icon btn-sm" onClick={onClose}><X size={15}/></button>
         </div>
 
-        <div className="modal-body" style={{ overflowY: 'auto', maxHeight: '68vh' }}>
-
-          {/* Summary strip */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 1, background: 'var(--border-light)', borderRadius: 10, overflow: 'hidden', marginBottom: 18 }}>
-            {[
-              { label: 'Total', val: money(context.total), color: 'var(--primary)', bg: 'var(--primary-light)' },
-              { label: 'Already Paid', val: money(context.paid), color: 'var(--secondary)', bg: 'var(--secondary-light)' },
-              { label: 'Pending', val: money(context.pending), color: context.pending > 0 ? 'var(--danger)' : 'var(--secondary)', bg: context.pending > 0 ? 'var(--danger-bg)' : 'var(--secondary-light)' },
-            ].map(item => (
-              <div key={item.label} style={{ padding: '12px 14px', background: item.bg, textAlign: 'center' }}>
-                <div style={{ fontSize: 9.5, color: item.color, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', opacity: 0.8, marginBottom: 3 }}>{item.label}</div>
-                <div style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 800, color: item.color }}>{item.val}</div>
+        {/* ── Balance row (compact 3-col) ── */}
+        <div style={{ display: 'flex', background: 'var(--surface-alt)', borderTop: '1px solid var(--border-light)', borderBottom: '1px solid var(--border-light)' }}>
+          {[
+            { label: 'Total',   val: money(context.total),   color: 'var(--primary)' },
+            { label: 'Paid',    val: money(context.paid),    color: 'var(--secondary)' },
+            { label: 'Pending', val: money(context.pending), color: statusColor },
+          ].map((item, i) => (
+            <div key={item.label} style={{
+              flex: 1, textAlign: 'center', padding: '10px 4px',
+              borderLeft: i > 0 ? '1px solid var(--border-light)' : 'none',
+            }}>
+              <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, color: item.color, lineHeight: 1 }}>
+                {item.val}
               </div>
-            ))}
-          </div>
-
-          {context.pending <= 0 && (
-            <div className="alert-strip alert-success" style={{ marginBottom: 14 }}>
-              <CheckCircle size={14} /> This pickup is fully paid. No pending balance.
+              <div style={{ fontSize: 9.5, color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600, marginTop: 3 }}>
+                {item.label}
+              </div>
             </div>
-          )}
+          ))}
+        </div>
 
-          {context.pending > 0 && (
-            <div className="form-grid">
-              <div className="form-group full">
-                <label>Amount Received Now (₹) <span className="required">*</span></label>
-                <input type="number" min={0} max={context.pending} inputMode="decimal"
-                  value={amount} onChange={e => { setAmount(e.target.value); setError('') }}
-                  placeholder={`Max ${money(context.pending)}`} autoFocus />
-                {entered > 0 && (
-                  <div style={{ marginTop: 8, padding: '9px 12px', background: 'var(--surface)', border: '1px solid var(--border-light)', borderRadius: 8, fontSize: 12.5, display: 'flex', gap: 14 }}>
-                    <span>Remaining: <strong style={{ color: afterPay > 0 ? 'var(--danger)' : 'var(--secondary)' }}>{money(afterPay)}</strong></span>
-                    <span>Status: <strong>{afterPay > 0 ? 'Partial' : '✓ Fully Paid'}</strong></span>
+        {/* Collection progress bar */}
+        {context.total > 0 && (
+          <div style={{ height: 3, background: 'var(--border-light)' }}>
+            <div style={{
+              height: '100%',
+              width: `${Math.min(100, collPct)}%`,
+              background: collPct >= 80 ? 'var(--secondary)' : collPct >= 40 ? 'var(--warning)' : 'var(--danger)',
+              transition: 'width 0.4s ease',
+            }} />
+          </div>
+        )}
+
+        {/* ── Fully paid state ── */}
+        {context.pending <= 0 ? (
+          <div style={{ padding: '28px 18px', textAlign: 'center' }}>
+            <div style={{ width: 52, height: 52, borderRadius: '50%', background: 'var(--secondary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
+              <CheckCircle size={24} color="var(--secondary)" />
+            </div>
+            <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--secondary)', marginBottom: 4 }}>All Paid!</div>
+            <div style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>No pending balance for this entry.</div>
+          </div>
+        ) : (
+          /* ── Compact form ── */
+          <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 13 }}>
+
+            {/* Amount + Date — same row */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr', gap: 10 }}>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label style={{ fontSize: 11.5 }}>
+                  Amount (₹) <span className="required">*</span>
+                  {isFull && (
+                    <span style={{ marginLeft: 5, fontSize: 10, color: 'var(--secondary)', fontWeight: 700, background: 'var(--secondary-light)', padding: '1px 7px', borderRadius: 20 }}>
+                      Full Balance ✓
+                    </span>
+                  )}
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  max={context.pending}
+                  inputMode="decimal"
+                  value={amount}
+                  onChange={e => { setAmount(e.target.value); setError('') }}
+                  placeholder={`Max ${money(context.pending)}`}
+                  autoFocus
+                  style={{ fontWeight: 700, fontSize: 14, borderColor: entered > 0 ? 'var(--primary)' : undefined }}
+                />
+                {entered > 0 && afterPay > 0 && (
+                  <div style={{ fontSize: 11, color: 'var(--warning)', marginTop: 3, fontWeight: 600 }}>
+                    Remaining after: {money(afterPay)}
                   </div>
                 )}
               </div>
-              <div className="form-group">
-                <label>Payment Date <span className="required">*</span></label>
-                <input type="date" value={date} onChange={e => setDate(e.target.value)} />
-              </div>
-              <div className="form-group full">
-                <label>Payment Method <span className="required">*</span></label>
-                <PaymentMethodPicker value={method} onChange={m => { setMethod(m); setReference(''); setScreenshot(null); setError('') }} />
-              </div>
-              <div className="form-group full">
-                <label>{refModeLabel(method)} Reference {method !== 'cash' && <span className="required">*</span>}</label>
-                <input value={reference} onChange={e => { setReference(e.target.value); setError('') }}
-                  placeholder={selectedMode?.placeholder || 'Reference'} />
-              </div>
-              {method === 'upi' && (
-                <div className="form-group full">
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Image size={13} color="var(--info)" /> UPI Screenshot</label>
-                  {screenshot ? (
-                    <div style={{ position: 'relative', display: 'inline-block' }}>
-                      <img src={screenshot} alt="UPI" style={{ maxWidth: 200, maxHeight: 160, borderRadius: 8, border: '1px solid var(--border)', display: 'block' }} />
-                      <button type="button" onClick={() => setScreenshot(null)} style={{ position: 'absolute', top: 6, right: 6, width: 24, height: 24, borderRadius: 8, border: 'none', background: 'var(--danger)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={12} /></button>
-                    </div>
-                  ) : (
-                    <label className="btn btn-ghost" style={{ width: '100%', justifyContent: 'center', borderStyle: 'dashed' }}>
-                      <Upload size={15} /> Upload Screenshot
-                      <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleScreenshot} />
-                    </label>
-                  )}
-                </div>
-              )}
-              <div className="form-group full">
-                <label>Notes</label>
-                <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Payment notes…" style={{ minHeight: 60 }} />
+              <div className="form-group" style={{ margin: 0 }}>
+                <label style={{ fontSize: 11.5 }}>Date <span className="required">*</span></label>
+                <input type="date" value={date} onChange={e => { setDate(e.target.value); setError('') }} />
               </div>
             </div>
-          )}
 
-          {error && (
-            <div style={{ fontSize: 12, color: 'var(--danger)', marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <AlertCircle size={13} />{error}
+            {/* Method */}
+            <div>
+              <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 7 }}>
+                Payment Method <span className="required">*</span>
+              </label>
+              <CompactMethodPicker
+                value={method}
+                onChange={m => { setMethod(m); setReference(''); setScreenshot(null); setError('') }}
+              />
             </div>
-          )}
-        </div>
 
-        <div className="modal-footer">
-          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" onClick={handleSave}
-            disabled={saving || context.pending <= 0 || entered <= 0}>
-            {saving ? 'Saving…' : isFull ? '✓ Clear Balance' : 'Record Payment'}
+            {/* Reference — only for non-cash */}
+            {hasRef && (
+              <div className="form-group" style={{ margin: 0 }}>
+                <label style={{ fontSize: 11.5 }}>
+                  {REF_LABELS[method]} <span className="required">*</span>
+                </label>
+                <input
+                  value={reference}
+                  onChange={e => { setReference(e.target.value); setError('') }}
+                  placeholder={REF_MODES.find(r => r.value === method)?.placeholder || 'Reference'}
+                />
+              </div>
+            )}
+
+            {/* UPI Screenshot — compact */}
+            {method === 'upi' && (
+              <div>
+                <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 5, marginBottom: 6 }}>
+                  <Image size={12} color="var(--info)" /> Screenshot
+                  <span style={{ fontSize: 10.5, fontWeight: 400, color: 'var(--text-muted)' }}>(optional)</span>
+                </label>
+                {screenshot ? (
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <img src={screenshot} alt="UPI" style={{ width: 52, height: 52, borderRadius: 7, objectFit: 'cover', border: '1px solid var(--border)' }} />
+                    <button type="button" onClick={() => setScreenshot(null)} style={{ fontSize: 11.5, color: 'var(--danger)', background: 'var(--danger-bg)', border: '1px solid var(--danger)', borderRadius: 6, padding: '5px 10px', cursor: 'pointer', fontWeight: 600 }}>
+                      Remove
+                    </button>
+                  </div>
+                ) : (
+                  <label className="btn btn-ghost btn-sm" style={{ width: '100%', justifyContent: 'center', borderStyle: 'dashed', cursor: 'pointer', padding: '7px' }}>
+                    <Upload size={13} /> Upload Screenshot
+                    <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleScreenshot} />
+                  </label>
+                )}
+              </div>
+            )}
+
+            {/* Notes — single-line input (not textarea) */}
+            <div className="form-group" style={{ margin: 0 }}>
+              <label style={{ fontSize: 11.5 }}>
+                Notes
+                <span style={{ fontSize: 10.5, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 5 }}>(optional)</span>
+              </label>
+              <input
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                placeholder="Any remarks about this payment…"
+              />
+            </div>
+
+            {/* Error */}
+            {error && (
+              <div style={{ fontSize: 12, color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', background: 'var(--danger-bg)', borderRadius: 8 }}>
+                <AlertCircle size={14} style={{ flexShrink: 0 }} />{error}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Footer — always visible ── */}
+        <div className="modal-footer" style={{ padding: '12px 18px', gap: 8 }}>
+          <button className="btn btn-ghost" onClick={onClose} style={{ flex: 1 }}>
+            Cancel
           </button>
+          {context.pending > 0 && (
+            <button
+              className="btn btn-primary"
+              onClick={handleSave}
+              disabled={saving || entered <= 0}
+              style={{ flex: 2, fontWeight: 700, fontSize: 13.5, justifyContent: 'center' }}
+            >
+              {saving ? (
+                <><span className="spin" style={{ display: 'inline-block', width: 14, height: 14, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: 'white', borderRadius: '50%' }} /> Saving…</>
+              ) : isFull ? (
+                '✓ Clear Full Balance'
+              ) : (
+                `Record ${entered > 0 ? money(entered) : 'Payment'}`
+              )}
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -302,10 +410,8 @@ function RecordPaymentModal({ context, onClose, onSave, saving }) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// WRITE-OFF MODAL — clean, focused, requires reason
-// Supports two modes: 'entry' (single pickup) | 'partner' (all pending)
+// WRITE-OFF MODAL (unchanged)
 // ══════════════════════════════════════════════════════════════════════════════
-
 function WriteOffModal({ context, onClose, onConfirm, saving }) {
   const [reason, setReason] = useState('')
   const [confirmed, setConfirmed] = useState(false)
@@ -322,7 +428,6 @@ function WriteOffModal({ context, onClose, onConfirm, saving }) {
   return (
     <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal" style={{ maxWidth: 480 }}>
-
         <div className="modal-header" style={{ background: 'var(--danger-bg)', borderBottom: '1px solid rgba(239,68,68,0.2)' }}>
           <AlertTriangle size={18} color="var(--danger)" />
           <div>
@@ -330,116 +435,59 @@ function WriteOffModal({ context, onClose, onConfirm, saving }) {
               {isPartnerLevel ? 'Write Off All Pending' : 'Write Off This Entry'}
             </div>
             <div style={{ fontSize: 11.5, color: 'var(--danger)', opacity: 0.75, marginTop: 2 }}>
-              {isPartnerLevel
-                ? `${context.partnerName} — all unpaid pickups`
-                : `${context.donorName} · ${context.pickupId}`}
+              {isPartnerLevel ? `${context.partnerName} — all unpaid pickups` : `${context.donorName} · ${context.pickupId}`}
             </div>
           </div>
           <button className="btn btn-ghost btn-icon btn-sm" style={{ marginLeft: 'auto' }} onClick={onClose}>
             <X size={16} />
           </button>
         </div>
-
         <div className="modal-body">
-
-          {/* What will be written off */}
-          <div style={{
-            padding: '16px', borderRadius: 10, marginBottom: 20,
-            background: 'var(--danger-bg)', border: '1.5px solid rgba(239,68,68,0.25)',
-          }}>
+          <div style={{ padding: '16px', borderRadius: 10, marginBottom: 20, background: 'var(--danger-bg)', border: '1.5px solid rgba(239,68,68,0.25)' }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--danger)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
               {isPartnerLevel ? 'Partner Write-Off Summary' : 'Entry Write-Off Summary'}
             </div>
             <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
               <div>
                 <div style={{ fontSize: 10, color: 'var(--danger)', fontWeight: 600, opacity: 0.7, marginBottom: 2 }}>AMOUNT TO WRITE OFF</div>
-                <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 800, color: 'var(--danger)' }}>
-                  {money(context.pending)}
-                </div>
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 800, color: 'var(--danger)' }}>{money(context.pending)}</div>
               </div>
               {isPartnerLevel && (
                 <div>
                   <div style={{ fontSize: 10, color: 'var(--danger)', fontWeight: 600, opacity: 0.7, marginBottom: 2 }}>AFFECTED PICKUPS</div>
-                  <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 800, color: 'var(--danger)' }}>
-                    {context.pickupCount}
-                  </div>
+                  <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 800, color: 'var(--danger)' }}>{context.pickupCount}</div>
                 </div>
               )}
             </div>
           </div>
-
-          {/* What this does */}
           <div style={{ padding: '12px 14px', background: 'var(--surface-alt)', borderRadius: 8, border: '1px solid var(--border-light)', marginBottom: 20, fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
             {isPartnerLevel ? (
-              <>
-                <div style={{ fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>This will:</div>
+              <><div style={{ fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>This will:</div>
                 <div>• Mark all pending pickups for <strong>{context.partnerName}</strong> as Write Off</div>
                 <div>• Close all unpaid balances ({money(context.pending)})</div>
-                <div>• <strong>No money will be recorded as received</strong></div>
-              </>
+                <div>• <strong>No money will be recorded as received</strong></div></>
             ) : (
-              <>
-                <div style={{ fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>This will:</div>
+              <><div style={{ fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>This will:</div>
                 <div>• Write off <strong>{money(context.pending)}</strong> pending for this specific pickup</div>
                 <div>• <strong>Only this entry</strong> is affected — other pickups are unchanged</div>
-                <div>• No money will be recorded as received</div>
-              </>
+                <div>• No money will be recorded as received</div></>
             )}
           </div>
-
-          {/* Reason — required */}
           <div className="form-group" style={{ margin: '0 0 16px' }}>
-            <label>
-              Reason for Write-Off <span className="required">*</span>
-              <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 6 }}>
-                (required — will be saved in payment history)
-              </span>
-            </label>
-            <textarea
-              value={reason}
-              onChange={e => { setReason(e.target.value); setError('') }}
-              placeholder="e.g. Partner unreachable, amount disputed, goods not received…"
-              style={{ minHeight: 76, borderColor: reason.trim() ? 'var(--border)' : error ? 'var(--danger)' : 'var(--border)' }}
-              autoFocus
-            />
+            <label>Reason for Write-Off <span className="required">*</span><span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 6 }}>(required)</span></label>
+            <textarea value={reason} onChange={e => { setReason(e.target.value); setError('') }} placeholder="e.g. Partner unreachable, amount disputed…" style={{ minHeight: 76 }} autoFocus />
           </div>
-
-          {/* Confirmation checkbox */}
-          <div
-            style={{
-              padding: '12px 14px', borderRadius: 10, cursor: 'pointer',
-              border: `1.5px solid ${confirmed ? 'var(--danger)' : 'var(--border)'}`,
-              background: confirmed ? 'var(--danger-bg)' : 'var(--surface)',
-              display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 12,
-              transition: 'all 0.15s',
-            }}
-            onClick={() => { setConfirmed(c => !c); setError('') }}
-          >
-            <input
-              type="checkbox"
-              checked={confirmed}
-              onChange={() => {}}
-              style={{ width: 16, height: 16, accentColor: 'var(--danger)', flexShrink: 0, marginTop: 2, cursor: 'pointer', padding: 0, border: 'none' }}
-            />
+          <div style={{ padding: '12px 14px', borderRadius: 10, cursor: 'pointer', border: `1.5px solid ${confirmed ? 'var(--danger)' : 'var(--border)'}`, background: confirmed ? 'var(--danger-bg)' : 'var(--surface)', display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 12, transition: 'all 0.15s' }} onClick={() => { setConfirmed(c => !c); setError('') }}>
+            <input type="checkbox" checked={confirmed} onChange={() => {}} style={{ width: 16, height: 16, accentColor: 'var(--danger)', flexShrink: 0, marginTop: 2, cursor: 'pointer', padding: 0, border: 'none' }} />
             <div style={{ fontSize: 12.5, color: confirmed ? 'var(--danger)' : 'var(--text-secondary)', fontWeight: confirmed ? 700 : 400 }}>
               I understand this is final. The written-off amount ({money(context.pending)}) will be permanently marked as non-recoverable.
             </div>
           </div>
-
-          {error && (
-            <div style={{ fontSize: 12, color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <AlertCircle size={13} />{error}
-            </div>
-          )}
+          {error && <div style={{ fontSize: 12, color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: 6 }}><AlertCircle size={13} />{error}</div>}
         </div>
-
         <div className="modal-footer">
           <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>
-          <button
-            className="btn btn-danger"
-            onClick={handleConfirm}
-            disabled={saving || !reason.trim() || !confirmed}
-          >
+          <button className="btn btn-danger" onClick={handleConfirm} disabled={saving || !reason.trim() || !confirmed}>
             {saving ? 'Processing…' : `✗ Write Off ${money(context.pending)}`}
           </button>
         </div>
@@ -449,9 +497,8 @@ function WriteOffModal({ context, onClose, onConfirm, saving }) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// PAYMENT HISTORY MODAL
+// PAYMENT HISTORY MODAL (unchanged)
 // ══════════════════════════════════════════════════════════════════════════════
-
 function HistoryModal({ partner, onClose }) {
   const entries = (partner.history || []).sort((a, b) => (b.date || '').localeCompare(a.date || ''))
   return (
@@ -494,9 +541,8 @@ function HistoryModal({ partner, onClose }) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// MONTHLY BREAKDOWN TABLE
+// MONTHLY BREAKDOWN TABLE (unchanged)
 // ══════════════════════════════════════════════════════════════════════════════
-
 function MonthlyBreakdown({ pickups }) {
   const months = useMemo(() => buildMonthlyBreakdown(pickups), [pickups])
   if (months.length === 0) return null
@@ -544,9 +590,8 @@ function MonthlyBreakdown({ pickups }) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// PICKUP LEDGER — per-row Pay + Write Off actions (clear & separate)
+// PICKUP LEDGER (unchanged)
 // ══════════════════════════════════════════════════════════════════════════════
-
 function PickupLedger({ pickups, onRecordPayment, onWriteOffEntry, canWriteOff, sortKey, setSortKey, sortDir, setSortDir, search, setSearch }) {
   const enriched = useMemo(() => {
     return pickups.map(p => {
@@ -616,7 +661,6 @@ function PickupLedger({ pickups, onRecordPayment, onWriteOffEntry, canWriteOff, 
         <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>No pickups match your search.</div>
       ) : (
         <>
-          {/* Desktop table */}
           <div className="table-wrap" style={{ boxShadow: 'none', border: '1px solid var(--border-light)' }}>
             <table>
               <thead>
@@ -663,30 +707,14 @@ function PickupLedger({ pickups, onRecordPayment, onWriteOffEntry, canWriteOff, 
                       <td style={{ textAlign: 'right', fontWeight: 800, color: r._pending > 0 ? 'var(--danger)' : 'var(--text-muted)' }}>
                         {r._pending > 0 ? money(r._pending) : '—'}
                       </td>
-
-                      {/* ── Actions: Pay | Write Off (clearly separated) ── */}
                       <td>
                         {isPending && r._pending > 0 ? (
                           <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
-                            {/* Pay button */}
-                            <button
-                              className="btn btn-outline btn-sm"
-                              onClick={() => onRecordPayment({ pickup: r })}
-                              style={{ fontSize: 11, padding: '4px 10px', display: 'flex', alignItems: 'center', gap: 3 }}>
+                            <button className="btn btn-outline btn-sm" onClick={() => onRecordPayment({ pickup: r })} style={{ fontSize: 11, padding: '4px 10px', display: 'flex', alignItems: 'center', gap: 3 }}>
                               <Plus size={10} /> Pay
                             </button>
-                            {/* Write Off — only for managers & admins */}
                             {canWriteOff && (
-                              <button
-                                onClick={() => onWriteOffEntry(r)}
-                                style={{
-                                  fontSize: 11, padding: '4px 10px',
-                                  borderRadius: 6, border: '1px solid rgba(239,68,68,0.4)',
-                                  background: 'var(--danger-bg)', color: 'var(--danger)',
-                                  cursor: 'pointer', fontWeight: 600,
-                                  display: 'flex', alignItems: 'center', gap: 3,
-                                  whiteSpace: 'nowrap',
-                                }}>
+                              <button onClick={() => onWriteOffEntry(r)} style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(239,68,68,0.4)', background: 'var(--danger-bg)', color: 'var(--danger)', cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 3, whiteSpace: 'nowrap' }}>
                                 ✗ Write Off
                               </button>
                             )}
@@ -717,7 +745,6 @@ function PickupLedger({ pickups, onRecordPayment, onWriteOffEntry, canWriteOff, 
             </table>
           </div>
 
-          {/* Mobile cards */}
           <div className="mobile-cards">
             {sorted.map(r => {
               const sc = statusStyle(r._ps)
@@ -761,9 +788,8 @@ function PickupLedger({ pickups, onRecordPayment, onWriteOffEntry, canWriteOff, 
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// PARTNER CARD — collapsible with clear action separation
+// PARTNER CARD (unchanged)
 // ══════════════════════════════════════════════════════════════════════════════
-
 function PartnerCard({ partner, onRecordPayment, onWriteOffEntry, onWriteOffPartner, onViewHistory, canWriteOff }) {
   const [open,      setOpen]      = useState(false)
   const [sortKey,   setSortKey]   = useState('date')
@@ -783,14 +809,11 @@ function PartnerCard({ partner, onRecordPayment, onWriteOffEntry, onWriteOffPart
 
   return (
     <div className="card" style={{ marginBottom: 16, borderLeft: `4px solid ${urgentCount > 0 ? 'var(--danger)' : 'var(--secondary)'}` }}>
-
-      {/* ── Partner Header ── */}
       <div style={{ padding: '16px 20px' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, flexWrap: 'wrap' }}>
           <div style={{ width: 48, height: 48, borderRadius: 12, background: urgentCount > 0 ? 'var(--danger-bg)' : 'var(--secondary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 800, color: urgentCount > 0 ? 'var(--danger)' : 'var(--secondary)', flexShrink: 0 }}>
             {(partner.partnerName || '?')[0].toUpperCase()}
           </div>
-
           <div style={{ flex: '1 1 180px', minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
               {partner.pickuppartnerId && <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 800, color: 'white', background: 'var(--secondary)', padding: '2px 8px', borderRadius: 5 }}>{partner.pickuppartnerId}</span>}
@@ -818,8 +841,6 @@ function PartnerCard({ partner, onRecordPayment, onWriteOffEntry, onWriteOffPart
               })}
             </div>
           </div>
-
-          {/* Financial summary */}
           <div style={{ display: 'flex', gap: 0, flexShrink: 0, borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border-light)' }}>
             {[
               { label: 'Total', val: money(partner.total), color: 'var(--primary)', bg: 'var(--primary-light)' },
@@ -833,7 +854,6 @@ function PartnerCard({ partner, onRecordPayment, onWriteOffEntry, onWriteOffPart
             ))}
           </div>
         </div>
-
         {partner.total > 0 && (
           <div style={{ marginTop: 14 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', marginBottom: 4, fontWeight: 600 }}>
@@ -846,44 +866,25 @@ function PartnerCard({ partner, onRecordPayment, onWriteOffEntry, onWriteOffPart
           </div>
         )}
       </div>
-
-      {/* ── Action Bar ── */}
       <div style={{ padding: '10px 20px', borderTop: '1px solid var(--border-light)', background: 'var(--bg)', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         <div style={{ fontSize: 12, color: 'var(--text-muted)', flex: 1 }}>
           <strong style={{ color: 'var(--text-primary)' }}>{partner.records.length}</strong> pickup{partner.records.length !== 1 ? 's' : ''}
           {partner.lastPaymentDate && <span> · Last payment: <strong>{fmtDate(partner.lastPaymentDate)}</strong></span>}
         </div>
-
-        {/* History */}
         <button className="btn btn-ghost btn-sm" onClick={() => onViewHistory(partner)} style={{ fontSize: 12 }}>
           <History size={12} /> History
         </button>
-
-        {/* Expand ledger */}
         <button className={`btn btn-sm ${open ? 'btn-outline' : 'btn-ghost'}`} onClick={() => setOpen(o => !o)} style={{ fontSize: 12 }}>
           {open ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
           {open ? 'Collapse' : 'View Pickups'}
         </button>
-
         {partner.pending > 0 ? (
           <>
-            {/* Record Payment — primary CTA */}
             <button className="btn btn-primary btn-sm" onClick={() => onRecordPayment({ partner })} style={{ fontSize: 12 }}>
               <Plus size={12} /> Record Payment
             </button>
-
-            {/* Write Off All — only for managers+admins, visually distinct from Pay */}
             {canWriteOff && (
-              <button
-                onClick={() => onWriteOffPartner(partner)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 5,
-                  padding: '6px 12px', borderRadius: 8,
-                  border: '1.5px solid rgba(239,68,68,0.5)',
-                  background: 'var(--danger-bg)', color: 'var(--danger)',
-                  cursor: 'pointer', fontSize: 12, fontWeight: 700,
-                  transition: 'all 0.15s',
-                }}>
+              <button onClick={() => onWriteOffPartner(partner)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8, border: '1.5px solid rgba(239,68,68,0.5)', background: 'var(--danger-bg)', color: 'var(--danger)', cursor: 'pointer', fontSize: 12, fontWeight: 700, transition: 'all 0.15s' }}>
                 ✗ Write Off All
               </button>
             )}
@@ -894,30 +895,21 @@ function PartnerCard({ partner, onRecordPayment, onWriteOffEntry, onWriteOffPart
           </div>
         )}
       </div>
-
-      {/* ── Expanded Ledger ── */}
       {open && (
         <div style={{ padding: '16px 20px', borderTop: '1px solid var(--border-light)', background: 'var(--surface)' }}>
           <MonthlyBreakdown pickups={partner.records} />
-
-          {/* Write-off legend — only shown if canWriteOff */}
           {canWriteOff && partner.pending > 0 && (
             <div style={{ padding: '9px 14px', background: 'rgba(239,68,68,0.04)', borderRadius: 8, border: '1px solid rgba(239,68,68,0.15)', marginBottom: 12, fontSize: 12, color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: 8 }}>
               <AlertTriangle size={13} style={{ flexShrink: 0 }} />
-              <span>
-                <strong>Write Off</strong> on each row closes only that entry.
-                Use <strong>"Write Off All"</strong> above to close all pending at once.
-              </span>
+              <span><strong>Write Off</strong> on each row closes only that entry. Use <strong>"Write Off All"</strong> above to close all pending at once.</span>
             </div>
           )}
-
           <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
             <Truck size={13} color="var(--primary)" />
             <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               Pickup Ledger — {partner.records.length} records
             </span>
           </div>
-
           <PickupLedger
             pickups={partner.records}
             onRecordPayment={onRecordPayment}
@@ -934,13 +926,11 @@ function PartnerCard({ partner, onRecordPayment, onWriteOffEntry, onWriteOffPart
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// PARTNER PAYMENT HUB — main view
+// PARTNER PAYMENT HUB (unchanged logic)
 // ══════════════════════════════════════════════════════════════════════════════
-
 function PartnerPaymentHub({ pickups, PickupPartners, recordPickupPartnerPayment, clearPartnerBalance }) {
   const { role } = useRole()
-  const isAdmin      = role === 'admin'
-  const canWriteOff  = role === 'admin' || role === 'manager'  // managers can also write off
+  const canWriteOff  = role === 'admin' || role === 'manager'
 
   const [datePreset,   setDatePreset]   = useState('all')
   const [customFrom,   setCustomFrom]   = useState('')
@@ -949,9 +939,8 @@ function PartnerPaymentHub({ pickups, PickupPartners, recordPickupPartnerPayment
   const [filterStatus, setFilterStatus] = useState('All')
   const [globalSearch, setGlobalSearch] = useState('')
 
-  // Modal state
   const [payContext,    setPayContext]    = useState(null)
-  const [writeOffCtx,  setWriteOffCtx]  = useState(null)  // unified write-off context
+  const [writeOffCtx,  setWriteOffCtx]  = useState(null)
   const [histPartner,   setHistPartner]  = useState(null)
   const [saving,        setSaving]       = useState(false)
 
@@ -974,7 +963,6 @@ function PartnerPaymentHub({ pickups, PickupPartners, recordPickupPartnerPayment
       const inSearch = !q || (p.PickupPartner || '').toLowerCase().includes(q) || (p.donorName || '').toLowerCase().includes(q) || (p.orderId || '').toLowerCase().includes(q)
       return inDate && inpickuppartner && inStatus && inSearch
     })
-
     const map = {}
     relevantPickups.forEach(p => {
       const name = p.PickupPartner
@@ -1011,107 +999,61 @@ function PartnerPaymentHub({ pickups, PickupPartners, recordPickupPartnerPayment
     totalPickups:  partnerRows.reduce((s, r) => s + r.count, 0),
   }), [partnerRows])
 
-  // Open payment modal (from either partner-level or pickup-level)
   const openPayModal = useCallback(({ partner, pickup }) => {
     if (partner) {
-      setPayContext({
-        partnerName: partner.partnerName, pickuppartnerId: partner.pickuppartnerId,
-        mobile: partner.mobile, isPartnerLevel: true,
-        total: partner.total, paid: partner.paid, pending: partner.pending,
-      })
+      setPayContext({ partnerName: partner.partnerName, pickuppartnerId: partner.pickuppartnerId, mobile: partner.mobile, isPartnerLevel: true, total: partner.total, paid: partner.paid, pending: partner.pending })
     } else {
       const pickuppartner = PickupPartners.find(k => k.name === pickup.PickupPartner) || {}
-      setPayContext({
-        partnerName: pickup.PickupPartner, pickuppartnerId: pickuppartner.id || pickup.PickupPartner,
-        pickupId: pickup.id, orderId: pickup.orderId,
-        donorName: pickup.donorName, isPartnerLevel: false,
-        total: pickup._total, paid: pickup._paid, pending: pickup._pending,
-      })
+      setPayContext({ partnerName: pickup.PickupPartner, pickuppartnerId: pickuppartner.id || pickup.PickupPartner, pickupId: pickup.id, orderId: pickup.orderId, donorName: pickup.donorName, isPartnerLevel: false, total: pickup._total, paid: pickup._paid, pending: pickup._pending })
     }
   }, [PickupPartners])
 
-  // Open write-off for a single pickup entry
   const openWriteOffEntry = useCallback((pickup) => {
     const pickuppartner = PickupPartners.find(k => k.name === pickup.PickupPartner) || {}
-    setWriteOffCtx({
-      mode: 'entry',
-      partnerName: pickup.PickupPartner, pickuppartnerId: pickuppartner.id || pickup.PickupPartner,
-      pickupId: pickup.id, orderId: pickup.orderId,
-      donorName: pickup.donorName,
-      pending: pickup._pending,
-    })
+    setWriteOffCtx({ mode: 'entry', partnerName: pickup.PickupPartner, pickuppartnerId: pickuppartner.id || pickup.PickupPartner, pickupId: pickup.id, orderId: pickup.orderId, donorName: pickup.donorName, pending: pickup._pending })
   }, [PickupPartners])
 
-  // Open write-off for all pending of a partner
   const openWriteOffPartner = useCallback((partner) => {
     const pendingPickups = partner.records.filter(p => {
       const ps = p.paymentStatus || getPickupPayStatus(p.totalValue, p.amountPaid)
       return ps === 'Not Paid' || ps === 'Partially Paid'
     })
-    setWriteOffCtx({
-      mode: 'partner',
-      partnerName: partner.partnerName, pickuppartnerId: partner.pickuppartnerId,
-      pending: partner.pending,
-      pickupCount: pendingPickups.length,
-    })
+    setWriteOffCtx({ mode: 'partner', partnerName: partner.partnerName, pickuppartnerId: partner.pickuppartnerId, pending: partner.pending, pickupCount: pendingPickups.length })
   }, [])
 
-  // Save payment
   const handlePaySave = useCallback(async ({ amount, date, method, reference, notes, screenshot, isFull }) => {
     if (!payContext) return
     setSaving(true)
     try {
       if (payContext.isPartnerLevel && isFull) {
-        await clearPartnerBalance(
-          { pickuppartnerId: payContext.pickuppartnerId, pickuppartnerName: payContext.partnerName },
-          { refMode: method, refValue: reference, notes, date, screenshot, writeOff: false }
-        )
+        await clearPartnerBalance({ pickuppartnerId: payContext.pickuppartnerId, pickuppartnerName: payContext.partnerName }, { refMode: method, refValue: reference, notes, date, screenshot, writeOff: false })
       } else {
-        await recordPickupPartnerPayment(payContext.pickuppartnerId, {
-          pickupId:  payContext.isPartnerLevel ? undefined : payContext.pickupId,
-          amount, date, refMode: method, refValue: reference, notes, screenshot,
-        })
+        await recordPickupPartnerPayment(payContext.pickuppartnerId, { pickupId: payContext.isPartnerLevel ? undefined : payContext.pickupId, amount, date, refMode: method, refValue: reference, notes, screenshot })
       }
       setPayContext(null)
     } finally { setSaving(false) }
   }, [payContext, clearPartnerBalance, recordPickupPartnerPayment])
 
-  // Confirm write-off
   const handleWriteOffConfirm = useCallback(async ({ reason }) => {
     if (!writeOffCtx) return
     setSaving(true)
     try {
       if (writeOffCtx.mode === 'partner') {
-        // Write off all pending for this partner
-        await clearPartnerBalance(
-          { pickuppartnerId: writeOffCtx.pickuppartnerId, pickuppartnerName: writeOffCtx.partnerName },
-          { refMode: 'writeoff', refValue: '', notes: reason, date: new Date().toISOString().slice(0, 10), writeOff: true }
-        )
+        await clearPartnerBalance({ pickuppartnerId: writeOffCtx.pickuppartnerId, pickuppartnerName: writeOffCtx.partnerName }, { refMode: 'writeoff', refValue: '', notes: reason, date: new Date().toISOString().slice(0, 10), writeOff: true })
       } else {
-        // Write off only this specific pickup entry
-        await recordPickupPartnerPayment(writeOffCtx.pickuppartnerId, {
-          pickupId: writeOffCtx.pickupId,
-          amount: 0, date: new Date().toISOString().slice(0, 10),
-          refMode: 'writeoff', refValue: '', notes: reason, screenshot: null,
-          writeOff: true, pendingToClose: writeOffCtx.pending,
-        })
+        await recordPickupPartnerPayment(writeOffCtx.pickuppartnerId, { pickupId: writeOffCtx.pickupId, amount: 0, date: new Date().toISOString().slice(0, 10), refMode: 'writeoff', refValue: '', notes: reason, screenshot: null, writeOff: true, pendingToClose: writeOffCtx.pending })
       }
       setWriteOffCtx(null)
     } finally { setSaving(false) }
   }, [writeOffCtx, clearPartnerBalance, recordPickupPartnerPayment])
 
   const handleExport = () => exportToExcel(
-    partnerRows.map(r => ({
-      'Pickup Partner': r.partnerName, 'Mobile': r.mobile,
-      'Total (₹)': r.total, 'Received (₹)': r.paid, 'Pending (₹)': r.pending,
-      'Pickups': r.count, 'Last Payment': r.lastPaymentDate || '',
-    })),
+    partnerRows.map(r => ({ 'Pickup Partner': r.partnerName, 'Mobile': r.mobile, 'Total (₹)': r.total, 'Received (₹)': r.paid, 'Pending (₹)': r.pending, 'Pickups': r.count, 'Last Payment': r.lastPaymentDate || '' })),
     'Pickup_Partner_Payments'
   )
 
   return (
     <div>
-      {/* ── KPIs ── */}
       <div className="stat-grid" style={{ marginBottom: 20 }}>
         <div className="stat-card orange">
           <div className="stat-icon"><IndianRupee size={18} /></div>
@@ -1138,7 +1080,6 @@ function PartnerPaymentHub({ pickups, PickupPartners, recordPickupPartnerPayment
         </div>
       </div>
 
-      {/* Write-off capability legend */}
       {canWriteOff && (
         <div style={{ padding: '9px 14px', marginBottom: 16, background: 'rgba(239,68,68,0.04)', borderRadius: 8, border: '1px solid rgba(239,68,68,0.15)', fontSize: 12, color: 'var(--text-secondary)', display: 'flex', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap' }}>
           <AlertTriangle size={14} color="var(--danger)" style={{ flexShrink: 0, marginTop: 1 }} />
@@ -1148,14 +1089,11 @@ function PartnerPaymentHub({ pickups, PickupPartners, recordPickupPartnerPayment
               <strong>Write Off</strong> on a row = only that pickup is closed.
               <span style={{ margin: '0 6px' }}>·</span>
               <strong>Write Off All</strong> on a partner card = all their pending entries are closed.
-              <span style={{ margin: '0 6px' }}>·</span>
-              Both require a reason and confirmation.
             </span>
           </div>
         </div>
       )}
 
-      {/* ── Sync indicator ── */}
       <div style={{ marginBottom: 16, padding: '8px 14px', background: 'linear-gradient(135deg, rgba(27,94,53,0.06), rgba(232,82,26,0.06))', borderRadius: 8, border: '1px solid var(--border-light)', display: 'flex', alignItems: 'center', gap: 8 }}>
         <RefreshCw size={12} color="var(--secondary)" />
         <span style={{ fontSize: 11.5, color: 'var(--text-secondary)', fontWeight: 600 }}>
@@ -1163,7 +1101,6 @@ function PartnerPaymentHub({ pickups, PickupPartners, recordPickupPartnerPayment
         </span>
       </div>
 
-      {/* ── Filters ── */}
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius)', padding: '12px 16px', marginBottom: 16, boxShadow: 'var(--shadow)' }}>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
           <Calendar size={13} color="var(--primary)" />
@@ -1208,7 +1145,6 @@ function PartnerPaymentHub({ pickups, PickupPartners, recordPickupPartnerPayment
         <span style={{ color: 'var(--danger)', fontWeight: 600, marginLeft: 4 }}>{globalKPIs.withPending}</span> with pending
       </div>
 
-      {/* ── Partner Cards ── */}
       {partnerRows.length === 0 ? (
         <div className="empty-state">
           <div className="empty-icon"><IndianRupee size={24} /></div>
@@ -1229,34 +1165,16 @@ function PartnerPaymentHub({ pickups, PickupPartners, recordPickupPartnerPayment
         ))
       )}
 
-      {/* ── Modals ── */}
-      {payContext && (
-        <RecordPaymentModal
-          context={payContext}
-          onClose={() => setPayContext(null)}
-          onSave={handlePaySave}
-          saving={saving}
-        />
-      )}
-      {writeOffCtx && (
-        <WriteOffModal
-          context={writeOffCtx}
-          onClose={() => setWriteOffCtx(null)}
-          onConfirm={handleWriteOffConfirm}
-          saving={saving}
-        />
-      )}
-      {histPartner && (
-        <HistoryModal partner={histPartner} onClose={() => setHistPartner(null)} />
-      )}
+      {payContext && <RecordPaymentModal context={payContext} onClose={() => setPayContext(null)} onSave={handlePaySave} saving={saving} />}
+      {writeOffCtx && <WriteOffModal context={writeOffCtx} onClose={() => setWriteOffCtx(null)} onConfirm={handleWriteOffConfirm} saving={saving} />}
+      {histPartner && <HistoryModal partner={histPartner} onClose={() => setHistPartner(null)} />}
     </div>
   )
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// RST REVENUE ANALYTICS (unchanged from original)
+// RST REVENUE ANALYTICS (unchanged)
 // ══════════════════════════════════════════════════════════════════════════════
-
 function RSTAnalytics({ raddiRecords, pickups }) {
   const [datePreset,   setDatePreset]   = useState('all')
   const [customFrom,   setCustomFrom]   = useState('')
@@ -1268,10 +1186,7 @@ function RSTAnalytics({ raddiRecords, pickups }) {
   const [sortKey,      setSortKey]      = useState('pickupDate')
   const [sortDir,      setSortDir]      = useState('desc')
 
-  const { from: dateFrom, to: dateTo } = useMemo(
-    () => getDateRange(datePreset, customFrom, customTo),
-    [datePreset, customFrom, customTo]
-  )
+  const { from: dateFrom, to: dateTo } = useMemo(() => getDateRange(datePreset, customFrom, customTo), [datePreset, customFrom, customTo])
 
   const pickupMap = useMemo(() => {
     const map = {}
@@ -1292,12 +1207,7 @@ function RSTAnalytics({ raddiRecords, pickups }) {
       const collected = Math.min(total, Number(r.amountPaid) || 0)
       const pending   = r.paymentStatus === 'Write-off' ? 0 : Math.max(0, total - collected)
       const lastH     = (pickup.payHistory || []).slice(-1)[0]
-      return {
-        ...r, total, collected, pending,
-        partnerName: r.PickupPartnerName || pickup.PickupPartner || 'Unassigned',
-        donorName:   r.name || pickup.donorName || '',
-        lastPaymentDate: lastH?.date || (collected > 0 ? (pickup.date || r.pickupDate) : ''),
-      }
+      return { ...r, total, collected, pending, partnerName: r.PickupPartnerName || pickup.PickupPartner || 'Unassigned', donorName: r.name || pickup.donorName || '', lastPaymentDate: lastH?.date || (collected > 0 ? (pickup.date || r.pickupDate) : '') }
     }).filter(r => {
       const inDate   = (!dateFrom || (r.pickupDate || '') >= dateFrom) && (!dateTo || (r.pickupDate || '') <= dateTo)
       const inCity   = !filterCity   || r.city   === filterCity
@@ -1308,31 +1218,18 @@ function RSTAnalytics({ raddiRecords, pickups }) {
     })
     rows.sort((a, b) => {
       const av = a[sortKey] ?? '', bv = b[sortKey] ?? ''
-      if (typeof av === 'number' || typeof bv === 'number')
-        return sortDir === 'asc' ? Number(av) - Number(bv) : Number(bv) - Number(av)
+      if (typeof av === 'number' || typeof bv === 'number') return sortDir === 'asc' ? Number(av) - Number(bv) : Number(bv) - Number(av)
       return sortDir === 'asc' ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av))
     })
     return rows
   }, [raddiRecords, pickupMap, dateFrom, dateTo, filterCity, filterSector, filterPay, search, sortKey, sortDir])
 
-  const totals = useMemo(() => ({
-    revenue:   filtered.reduce((s, r) => s + r.total, 0),
-    collected: filtered.reduce((s, r) => s + r.collected, 0),
-    pending:   filtered.reduce((s, r) => s + r.pending, 0),
-    kg:        filtered.reduce((s, r) => s + (Number(r.totalKg) || 0), 0),
-  }), [filtered])
+  const totals = useMemo(() => ({ revenue: filtered.reduce((s, r) => s + r.total, 0), collected: filtered.reduce((s, r) => s + r.collected, 0), pending: filtered.reduce((s, r) => s + r.pending, 0), kg: filtered.reduce((s, r) => s + (Number(r.totalKg) || 0), 0) }), [filtered])
 
-  const toggleSort = (key) => {
-    setSortDir(d => sortKey === key ? (d === 'asc' ? 'desc' : 'asc') : 'desc')
-    setSortKey(key)
-  }
-
+  const toggleSort = (key) => { setSortDir(d => sortKey === key ? (d === 'asc' ? 'desc' : 'asc') : 'desc'); setSortKey(key) }
   const SortTh = ({ k, children, align }) => (
     <th onClick={() => toggleSort(k)} style={{ cursor: 'pointer', userSelect: 'none', textAlign: align || 'left' }}>
-      {children}
-      <span style={{ marginLeft: 4, opacity: sortKey === k ? 0.7 : 0.2 }}>
-        {sortKey === k ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
-      </span>
+      {children}<span style={{ marginLeft: 4, opacity: sortKey === k ? 0.7 : 0.2 }}>{sortKey === k ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
     </th>
   )
 
@@ -1341,30 +1238,23 @@ function RSTAnalytics({ raddiRecords, pickups }) {
       <div className="stat-grid" style={{ marginBottom: 16 }}>
         {[
           { label: 'Total Revenue', val: money(totals.revenue), icon: IndianRupee, tone: 'orange' },
-          { label: 'Collected',     val: money(totals.collected), icon: CheckCircle, tone: 'green' },
-          { label: 'Pending',       val: money(totals.pending),   icon: AlertCircle, tone: 'red' },
-          { label: 'Weight (kg)',   val: `${totals.kg.toFixed(1)} kg`, icon: Package, tone: 'blue' },
-        ].map(item => {
-          const Icon = item.icon
-          return (
-            <div key={item.label} className={`stat-card ${item.tone}`}>
-              <div className="stat-icon"><Icon size={18} /></div>
-              <div className="stat-value">{item.val}</div>
-              <div className="stat-label">{item.label}</div>
-            </div>
-          )
-        })}
+          { label: 'Collected', val: money(totals.collected), icon: CheckCircle, tone: 'green' },
+          { label: 'Pending', val: money(totals.pending), icon: AlertCircle, tone: 'red' },
+          { label: 'Weight (kg)', val: `${totals.kg.toFixed(1)} kg`, icon: Package, tone: 'blue' },
+        ].map(item => { const Icon = item.icon; return (
+          <div key={item.label} className={`stat-card ${item.tone}`}>
+            <div className="stat-icon"><Icon size={18} /></div>
+            <div className="stat-value">{item.val}</div>
+            <div className="stat-label">{item.label}</div>
+          </div>
+        )})}
       </div>
 
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius)', padding: '14px 16px', marginBottom: 16, boxShadow: 'var(--shadow)' }}>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
           <Calendar size={13} color="var(--primary)" />
           <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Pickup Date:</span>
-          {DATE_PRESETS.map(p => (
-            <button key={p.id} className={`btn btn-sm ${datePreset === p.id ? 'btn-primary' : 'btn-ghost'}`} style={{ fontSize: 11.5 }} onClick={() => setDatePreset(p.id)}>
-              {p.label}
-            </button>
-          ))}
+          {DATE_PRESETS.map(p => (<button key={p.id} className={`btn btn-sm ${datePreset === p.id ? 'btn-primary' : 'btn-ghost'}`} style={{ fontSize: 11.5 }} onClick={() => setDatePreset(p.id)}>{p.label}</button>))}
           {datePreset === 'custom' && (
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} style={{ width: 138, fontSize: 12 }} />
@@ -1378,24 +1268,10 @@ function RSTAnalytics({ raddiRecords, pickups }) {
             <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search partner, donor, society, order…" style={{ paddingLeft: 32, fontSize: 12.5, width: '100%' }} />
           </div>
-          <select value={filterCity} onChange={e => { setFilterCity(e.target.value); setFilterSector('') }} style={{ flex: '1 1 130px', fontSize: 12.5 }}>
-            <option value="">All Cities</option>
-            {CITIES.map(c => <option key={c}>{c}</option>)}
-          </select>
-          <select value={filterSector} onChange={e => setFilterSector(e.target.value)} style={{ flex: '1 1 140px', fontSize: 12.5 }} disabled={!filterCity}>
-            <option value="">{filterCity ? 'All Sectors' : 'Select city first'}</option>
-            {uniqueSectors.map(s => <option key={s}>{s}</option>)}
-          </select>
-          <select value={filterPay} onChange={e => setFilterPay(e.target.value)} style={{ flex: '1 1 140px', fontSize: 12.5 }}>
-            <option value="">All Statuses</option>
-            <option value="Received">Received</option>
-            <option value="Yet to Receive">Yet to Receive</option>
-            <option value="Write-off">Write-off</option>
-          </select>
-          <button className="btn btn-ghost btn-sm" onClick={() => exportToExcel(
-            filtered.map(r => ({ 'Partner': r.partnerName, 'Donor': r.donorName, 'Order ID': r.orderId, 'Date': r.pickupDate, 'Total (₹)': r.total, 'Paid (₹)': r.collected, 'Pending (₹)': r.pending, 'Status': r.paymentStatus, 'City': r.city, 'Sector': r.sector })),
-            'RST_Revenue_Analytics'
-          )}>
+          <select value={filterCity} onChange={e => { setFilterCity(e.target.value); setFilterSector('') }} style={{ flex: '1 1 130px', fontSize: 12.5 }}><option value="">All Cities</option>{CITIES.map(c => <option key={c}>{c}</option>)}</select>
+          <select value={filterSector} onChange={e => setFilterSector(e.target.value)} style={{ flex: '1 1 140px', fontSize: 12.5 }} disabled={!filterCity}><option value="">{filterCity ? 'All Sectors' : 'Select city first'}</option>{uniqueSectors.map(s => <option key={s}>{s}</option>)}</select>
+          <select value={filterPay} onChange={e => setFilterPay(e.target.value)} style={{ flex: '1 1 140px', fontSize: 12.5 }}><option value="">All Statuses</option><option value="Received">Received</option><option value="Yet to Receive">Yet to Receive</option><option value="Write-off">Write-off</option></select>
+          <button className="btn btn-ghost btn-sm" onClick={() => exportToExcel(filtered.map(r => ({ 'Partner': r.partnerName, 'Donor': r.donorName, 'Order ID': r.orderId, 'Date': r.pickupDate, 'Total (₹)': r.total, 'Paid (₹)': r.collected, 'Pending (₹)': r.pending, 'Status': r.paymentStatus, 'City': r.city, 'Sector': r.sector })), 'RST_Revenue_Analytics')}>
             <Download size={13} /> Export
           </button>
         </div>
@@ -1411,11 +1287,7 @@ function RSTAnalytics({ raddiRecords, pickups }) {
       </div>
 
       {filtered.length === 0 ? (
-        <div className="empty-state">
-          <div className="empty-icon"><BarChart3 size={24} /></div>
-          <h3>No records found</h3>
-          <p>Try a different date range or filter.</p>
-        </div>
+        <div className="empty-state"><div className="empty-icon"><BarChart3 size={24} /></div><h3>No records found</h3><p>Try a different date range or filter.</p></div>
       ) : (
         <>
           <div className="table-wrap">
@@ -1447,9 +1319,7 @@ function RSTAnalytics({ raddiRecords, pickups }) {
                     <td style={{ whiteSpace: 'nowrap', fontSize: 12.5 }}>{r.lastPaymentDate ? fmtDate(r.lastPaymentDate) : <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
                     <td style={{ textAlign: 'right', fontWeight: 800, color: 'var(--primary)' }}>{money(r.total)}</td>
                     <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--secondary)' }}>{r.collected > 0 ? money(r.collected) : <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>—</span>}</td>
-                    <td style={{ textAlign: 'right', fontWeight: 700, color: r.pending > 0 ? 'var(--danger)' : 'var(--text-muted)' }}>
-                      {r.pending > 0 ? money(r.pending) : '—'}
-                    </td>
+                    <td style={{ textAlign: 'right', fontWeight: 700, color: r.pending > 0 ? 'var(--danger)' : 'var(--text-muted)' }}>{r.pending > 0 ? money(r.pending) : '—'}</td>
                     <td><PayBadge status={r.paymentStatus} /></td>
                   </tr>
                 ))}
@@ -1459,15 +1329,12 @@ function RSTAnalytics({ raddiRecords, pickups }) {
                   <td colSpan={4} style={{ fontWeight: 700 }}>Totals ({filtered.length} records)</td>
                   <td style={{ textAlign: 'right', color: 'var(--primary)' }}>{money(totals.revenue)}</td>
                   <td style={{ textAlign: 'right', color: 'var(--secondary)' }}>{money(totals.collected)}</td>
-                  <td style={{ textAlign: 'right', color: totals.pending > 0 ? 'var(--danger)' : 'var(--secondary)' }}>
-                    {totals.pending > 0 ? money(totals.pending) : 'All clear ✓'}
-                  </td>
+                  <td style={{ textAlign: 'right', color: totals.pending > 0 ? 'var(--danger)' : 'var(--secondary)' }}>{totals.pending > 0 ? money(totals.pending) : 'All clear ✓'}</td>
                   <td />
                 </tr>
               </tfoot>
             </table>
           </div>
-
           <div className="mobile-cards">
             {filtered.map(r => (
               <div key={r.orderId || r.pickupId} className="card" style={{ marginBottom: 10, padding: 14 }}>
@@ -1498,7 +1365,6 @@ function RSTAnalytics({ raddiRecords, pickups }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // MAIN PAYMENTS PAGE
 // ══════════════════════════════════════════════════════════════════════════════
-
 export default function Payments() {
   const { pickups, raddiRecords, PickupPartners, recordPickupPartnerPayment, clearPartnerBalance } = useApp()
   const { role } = useRole()
@@ -1530,7 +1396,6 @@ export default function Payments() {
           </button>
         </div>
       </div>
-
       {view === 'partners' && (
         <PartnerPaymentHub
           pickups={pickups}

@@ -1,6 +1,13 @@
 // Frontend/src/pages/Pickuppartners.jsx
-// CHANGES: Compact 2-column modal (no scroll), Aadhaar verified indicator + View button, photo in cards
-import { useState, useMemo, useCallback } from 'react'
+// CHANGES v2:
+// • CoverageSelector: click-outside closes dropdown (useRef + useEffect)
+// • DocUpload: Aadhaar "View" fixed for data-URI images and PDFs
+// • Modal: wider (960px), cleaner 2-col layout, more spacious
+// • Status toggle: managers can also activate/deactivate
+// • Delete: existing deletePartner handles state cleanup (photo/aadhaar in state)
+// • can.editPartner expanded: managers can edit too
+
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import {
   Phone, Plus, Edit2, Trash2, X, Star, Mail,
   IndianRupee, AlertCircle,
@@ -79,12 +86,28 @@ function RateChartEditor({ rateChart, onChange }) {
 }
 
 // ── Coverage Selector ─────────────────────────────────────────────────────────
+// FIX: Added dropdownRef + click-outside handler to close sector dropdown
 function CoverageSelector({ city, sectors, societies, onSectors, onSocieties }) {
   const [openSec, setOpenSec] = useState(false)
   const [customSocInput, setCustomSocInput] = useState('')
   const [secSearch, setSecSearch] = useState('')
+  const dropdownRef = useRef(null)
+
   const safeSectors   = Array.isArray(sectors)   ? sectors   : []
   const safeSocieties = Array.isArray(societies) ? societies : []
+
+  // Close sector dropdown when clicking outside
+  useEffect(() => {
+    if (!openSec) return
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setOpenSec(false)
+        setSecSearch('')
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [openSec])
 
   const sectorOptions = useMemo(() => CITY_SECTORS[city || 'Gurgaon'] || [], [city])
   const availableSocieties = useMemo(() => {
@@ -125,72 +148,109 @@ function CoverageSelector({ city, sectors, societies, onSectors, onSocieties }) 
   }
 
   return (
-    <div>
-      <div className="form-group" style={{ margin:'0 0 10px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* Sectors */}
+      <div className="form-group" style={{ margin: 0 }}>
         <label style={{ display:'flex', alignItems:'center', justifyContent:'space-between', fontSize: 11.5 }}>
           <span>Sectors <span className="required">*</span></span>
-          <span style={{ fontSize:10.5, fontWeight:400, color:'var(--text-muted)' }}>Max 3 ({safeSectors.length}/3)</span>
+          <span style={{ fontSize:10.5, fontWeight:400, color:'var(--text-muted)' }}>Max 2 ({safeSectors.length}/2)</span>
         </label>
-        <div style={{ position:'relative' }}>
-          <div onClick={() => setOpenSec(o => !o)} style={{ padding:'7px 10px', border:`1.5px solid ${openSec ? 'var(--secondary)' : 'var(--border)'}`, borderRadius:'var(--radius-sm)', cursor:'pointer', background:'var(--surface)', minHeight:38, display:'flex', alignItems:'center', flexWrap:'wrap', gap:5, boxShadow: openSec ? '0 0 0 3px rgba(27,94,53,0.12)' : 'none', fontSize: 12.5 }}>
+        <div ref={dropdownRef} style={{ position:'relative' }}>
+          <div
+            onClick={() => setOpenSec(o => !o)}
+            style={{ padding:'8px 10px', border:`1.5px solid ${openSec ? 'var(--secondary)' : 'var(--border)'}`, borderRadius:'var(--radius-sm)', cursor:'pointer', background:'var(--surface)', minHeight:40, display:'flex', alignItems:'center', flexWrap:'wrap', gap:5, boxShadow: openSec ? '0 0 0 3px rgba(27,94,53,0.12)' : 'none', fontSize: 12.5 }}
+          >
             {safeSectors.length === 0 ? (
               <span style={{ color:'var(--text-muted)' }}>Select up to 3 sectors…</span>
             ) : safeSectors.map(s => (
-              <span key={s} style={{ background:'var(--secondary-light)', color:'var(--secondary)', borderRadius:20, padding:'1px 8px', fontSize:11, fontWeight:600, display:'inline-flex', alignItems:'center', gap:4 }}>
-                {s}<button type="button" onClick={e => { e.stopPropagation(); toggleSector(s) }} style={{ border:'none', background:'none', cursor:'pointer', color:'var(--secondary)', padding:0 }}>×</button>
+              <span key={s} style={{ background:'var(--secondary-light)', color:'var(--secondary)', borderRadius:20, padding:'2px 9px', fontSize:11.5, fontWeight:600, display:'inline-flex', alignItems:'center', gap:4 }}>
+                {s}
+                <button type="button" onClick={e => { e.stopPropagation(); toggleSector(s) }} style={{ border:'none', background:'none', cursor:'pointer', color:'var(--secondary)', padding:0, lineHeight:1, display:'flex', alignItems:'center' }}>
+                  <X size={11} />
+                </button>
               </span>
             ))}
-            <ChevronDown size={13} style={{ marginLeft:'auto', color:'var(--text-muted)', flexShrink:0, transform: openSec ? 'rotate(180deg)' : 'none' }}/>
+            <ChevronDown size={13} style={{ marginLeft:'auto', color:'var(--text-muted)', flexShrink:0, transform: openSec ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}/>
           </div>
           {openSec && (
-            <div style={{ position:'absolute', top:'calc(100% + 4px)', left:0, right:0, zIndex:60, background:'var(--surface)', border:'1px solid var(--border)', borderRadius:'var(--radius)', boxShadow:'var(--shadow-md)', overflow:'hidden' }}>
-              <div style={{ padding:'7px 8px', borderBottom:'1px solid var(--border-light)' }}>
-                <input autoFocus value={secSearch} onChange={e => setSecSearch(e.target.value)} placeholder="Search sectors…" style={{ width:'100%', fontSize:12, border:'1px solid var(--border)', borderRadius:6, padding:'4px 8px', outline:'none' }}/>
+            <div style={{ position:'absolute', top:'calc(100% + 4px)', left:0, right:0, zIndex:100, background:'var(--surface)', border:'1px solid var(--border)', borderRadius:'var(--radius)', boxShadow:'var(--shadow-md)', overflow:'hidden' }}>
+              <div style={{ padding:'8px 8px', borderBottom:'1px solid var(--border-light)' }}>
+                <input
+                  autoFocus
+                  value={secSearch}
+                  onChange={e => setSecSearch(e.target.value)}
+                  placeholder="Search sectors…"
+                  style={{ width:'100%', fontSize:12.5, border:'1px solid var(--border)', borderRadius:6, padding:'5px 8px', outline:'none' }}
+                />
               </div>
-              <div style={{ maxHeight:160, overflowY:'auto', padding:5 }}>
-                {filteredSectors.map(s => {
+              <div style={{ maxHeight:180, overflowY:'auto', padding:5 }}>
+                {filteredSectors.length === 0 ? (
+                  <div style={{ padding:'10px 8px', fontSize:12, color:'var(--text-muted)', textAlign:'center' }}>No results</div>
+                ) : filteredSectors.map(s => {
                   const selected = safeSectors.includes(s)
-                  const disabled = !selected && safeSectors.length >= 3
+                  const disabled = !selected && safeSectors.length >= 2
                   return (
-                    <button key={s} type="button" onClick={() => { if (!disabled) toggleSector(s) }} style={{ display:'block', width:'100%', textAlign:'left', padding:'6px 8px', borderRadius:5, border:'none', background: selected ? 'var(--secondary-light)' : 'transparent', color: selected ? 'var(--secondary)' : disabled ? 'var(--text-muted)' : 'var(--text-primary)', fontWeight: selected ? 700 : 400, fontSize:12, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1 }}>
-                      {s}{selected && ' ✓'}
+                    <button key={s} type="button" onClick={() => { if (!disabled) toggleSector(s) }} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', width:'100%', textAlign:'left', padding:'7px 10px', borderRadius:6, border:'none', background: selected ? 'var(--secondary-light)' : 'transparent', color: selected ? 'var(--secondary)' : disabled ? 'var(--text-muted)' : 'var(--text-primary)', fontWeight: selected ? 700 : 400, fontSize:12.5, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1 }}>
+                      <span>{s}</span>
+                      {selected && <span style={{ fontSize:11, color:'var(--secondary)' }}>✓</span>}
                     </button>
                   )
                 })}
               </div>
+              {safeSectors.length >= 2 && (
+                <div style={{ padding:'6px 10px', background:'var(--warning-bg)', fontSize:11, color:'#92400E', fontWeight:600 }}>
+                  Max 2 sectors reached
+                </div>
+              )}
             </div>
           )}
         </div>
       </div>
 
+      {/* Societies */}
       {safeSectors.length > 0 && (
-        <div className="form-group" style={{ margin:0 }}>
+        <div className="form-group" style={{ margin: 0 }}>
           <label style={{ display:'flex', alignItems:'center', justifyContent:'space-between', fontSize: 11.5 }}>
             <span>Societies</span>
-            <span style={{ fontSize:10.5, fontWeight:400, color: safeSocieties.length >= 5 ? 'var(--danger)' : 'var(--text-muted)' }}>{safeSocieties.length}/5</span>
+            <span style={{ fontSize:10.5, fontWeight:400, color: safeSocieties.length >= 5 ? 'var(--danger)' : 'var(--text-muted)' }}>
+              {safeSocieties.length}/5 selected
+            </span>
           </label>
           {availableSocieties.length > 0 && (
-            <div style={{ display:'flex', flexWrap:'wrap', gap:4, marginBottom:8, maxHeight:80, overflowY:'auto', padding:4, border:'1px solid var(--border-light)', borderRadius:6, background:'var(--bg)' }}>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:5, marginBottom:8, maxHeight:84, overflowY:'auto', padding:'6px 8px', border:'1px solid var(--border-light)', borderRadius:8, background:'var(--bg)' }}>
               {availableSocieties.map(soc => {
                 const selected = safeSocieties.includes(soc)
                 const disabled = !selected && safeSocieties.length >= 5
                 return (
-                  <button key={soc} type="button" onClick={() => !disabled && toggleSociety(soc)} style={{ padding:'2px 8px', borderRadius:20, border:`1.5px solid ${selected ? 'var(--secondary)' : 'var(--border)'}`, background: selected ? 'var(--secondary-light)' : 'var(--surface)', color: selected ? 'var(--secondary)' : disabled ? 'var(--text-muted)' : 'var(--text-secondary)', fontWeight: selected ? 700 : 400, fontSize:10.5, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1 }}>
+                  <button key={soc} type="button" onClick={() => !disabled && toggleSociety(soc)} style={{ padding:'3px 10px', borderRadius:20, border:`1.5px solid ${selected ? 'var(--secondary)' : 'var(--border)'}`, background: selected ? 'var(--secondary-light)' : 'var(--surface)', color: selected ? 'var(--secondary)' : disabled ? 'var(--text-muted)' : 'var(--text-secondary)', fontWeight: selected ? 700 : 400, fontSize:11.5, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1, transition:'all 0.12s' }}>
                     {selected && '✓ '}{soc}
                   </button>
                 )
               })}
             </div>
           )}
-          <div style={{ display:'flex', gap:5, alignItems:'center' }}>
-            <input value={customSocInput} onChange={e => setCustomSocInput(e.target.value)} onKeyDown={e => { if (e.key==='Enter') { e.preventDefault(); addCustomSociety() } }} placeholder={safeSocieties.length >= 5 ? 'Max 5 reached' : 'Add custom society…'} disabled={safeSocieties.length >= 5} style={{ flex:1, fontSize:12 }}/>
-            <button type="button" onClick={addCustomSociety} disabled={!customSocInput.trim() || safeSocieties.length >= 5} className="btn btn-secondary btn-sm" style={{ fontSize: 11 }}>+ Add</button>
+          <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+            <input
+              value={customSocInput}
+              onChange={e => setCustomSocInput(e.target.value)}
+              onKeyDown={e => { if (e.key==='Enter') { e.preventDefault(); addCustomSociety() } }}
+              placeholder={safeSocieties.length >= 5 ? 'Max 5 reached' : 'Add custom society name…'}
+              disabled={safeSocieties.length >= 5}
+              style={{ flex:1, fontSize:12.5 }}
+            />
+            <button type="button" onClick={addCustomSociety} disabled={!customSocInput.trim() || safeSocieties.length >= 5} className="btn btn-secondary btn-sm" style={{ fontSize: 11.5, flexShrink: 0 }}>
+              + Add
+            </button>
           </div>
+          {/* Selected society chips */}
           {safeSocieties.length > 0 && (
-            <div style={{ display:'flex', flexWrap:'wrap', gap:3, marginTop:6 }}>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:4, marginTop:8 }}>
               {safeSocieties.map(soc => (
-                <span key={soc} style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'2px 8px', borderRadius:20, background:'var(--secondary-light)', color:'var(--secondary)', fontSize:10.5, fontWeight:600, border:'1px solid rgba(27,94,53,0.2)' }}>
-                  {soc}<button type="button" onClick={() => toggleSociety(soc)} style={{ border:'none', background:'none', cursor:'pointer', color:'var(--secondary)', padding:0 }}>×</button>
+                <span key={soc} style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'3px 10px', borderRadius:20, background:'var(--secondary-light)', color:'var(--secondary)', fontSize:11.5, fontWeight:600, border:'1px solid rgba(27,94,53,0.2)' }}>
+                  {soc}
+                  <button type="button" onClick={() => toggleSociety(soc)} style={{ border:'none', background:'none', cursor:'pointer', color:'var(--secondary)', padding:0, display:'flex', alignItems:'center' }}>
+                    <X size={11} />
+                  </button>
                 </span>
               ))}
             </div>
@@ -336,14 +396,35 @@ function PartnerPaymentSummaryCards({ partner, raddiRecords }) {
 }
 
 // ── Document upload + view field ──────────────────────────────────────────────
+// FIX: Aadhaar and Photo view now correctly handles data URIs
 function DocUpload({ label, icon: Icon, value, accept, onChange, onRemove, preview = false }) {
   const handleView = () => {
     if (!value) return
-    const win = window.open()
-    if (preview) {
-      win.document.write(`<html><body style="margin:0;background:#111;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="${value}" style="max-width:100%;max-height:100vh;object-fit:contain"></body></html>`)
+    // Handle data URI (base64)
+    if (value.startsWith('data:')) {
+      if (value.startsWith('data:image/') || preview) {
+        // Open image in new window
+        const win = window.open('', '_blank')
+        win.document.write(`<!DOCTYPE html><html><head><title>${label}</title><style>body{margin:0;background:#111;display:flex;align-items:center;justify-content:center;min-height:100vh;}</style></head><body><img src="${value}" style="max-width:100vw;max-height:100vh;object-fit:contain;" /></body></html>`)
+        win.document.close()
+      } else if (value.startsWith('data:application/pdf')) {
+        // Decode and open PDF
+        const byteString = atob(value.split(',')[1])
+        const mimeString = 'application/pdf'
+        const ab = new ArrayBuffer(byteString.length)
+        const ia = new Uint8Array(ab)
+        for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i)
+        const blob = new Blob([ab], { type: mimeString })
+        const url = URL.createObjectURL(blob)
+        window.open(url, '_blank')
+      } else {
+        // Generic: open in new tab directly
+        const win = window.open('', '_blank')
+        win.document.write(`<!DOCTYPE html><html><head><title>${label}</title></head><body><img src="${value}" style="max-width:100%;"/></body></html>`)
+        win.document.close()
+      }
     } else {
-      win.location.href = value
+      window.open(value, '_blank')
     }
   }
 
@@ -352,7 +433,7 @@ function DocUpload({ label, icon: Icon, value, accept, onChange, onRemove, previ
       <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5 }}>
         <Icon size={12} color="var(--info)" />{label}
         {value && (
-          <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10.5, fontWeight: 700, color: 'var(--secondary)', background: 'var(--secondary-light)', padding: '1px 7px', borderRadius: 20, border: '1px solid rgba(27,94,53,0.2)' }}>
+          <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10.5, fontWeight: 700, color: 'var(--secondary)', background: 'var(--secondary-light)', padding: '1px 8px', borderRadius: 20, border: '1px solid rgba(27,94,53,0.2)' }}>
             <ShieldCheck size={9} /> Verified
           </span>
         )}
@@ -360,25 +441,37 @@ function DocUpload({ label, icon: Icon, value, accept, onChange, onRemove, previ
       {value ? (
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
           {preview ? (
-            <img src={value} alt={label} style={{ width: 64, height: 64, borderRadius: 8, objectFit: 'cover', border: '1.5px solid var(--secondary)', display: 'block', flexShrink: 0 }} />
+            <img
+              src={value}
+              alt={label}
+              onClick={handleView}
+              style={{ width: 64, height: 64, borderRadius: 8, objectFit: 'cover', border: '1.5px solid var(--secondary)', display: 'block', flexShrink: 0, cursor: 'pointer' }}
+              title="Click to view full size"
+            />
           ) : (
             <div style={{ flex: 1, padding: '7px 10px', background: 'var(--secondary-light)', borderRadius: 7, border: '1px solid rgba(27,94,53,0.25)', fontSize: 11.5, color: 'var(--secondary)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5 }}>
               <FileText size={12} /> Document uploaded
             </div>
           )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <button type="button" onClick={handleView}
-              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 9px', borderRadius: 6, border: '1px solid var(--secondary)', background: 'var(--secondary-light)', cursor: 'pointer', fontSize: 11, color: 'var(--secondary)', fontWeight: 600 }}>
-              <Eye size={10} /> View
+            <button
+              type="button"
+              onClick={handleView}
+              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', borderRadius: 6, border: '1.5px solid var(--secondary)', background: 'var(--secondary-light)', cursor: 'pointer', fontSize: 11.5, color: 'var(--secondary)', fontWeight: 700 }}
+            >
+              <Eye size={11} /> View
             </button>
-            <button type="button" onClick={onRemove}
-              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 9px', borderRadius: 6, border: '1px solid var(--danger)', background: 'var(--danger-bg)', cursor: 'pointer', fontSize: 11, color: 'var(--danger)', fontWeight: 600 }}>
-              <X size={10} /> Remove
+            <button
+              type="button"
+              onClick={onRemove}
+              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', borderRadius: 6, border: '1.5px solid var(--danger)', background: 'var(--danger-bg)', cursor: 'pointer', fontSize: 11.5, color: 'var(--danger)', fontWeight: 600 }}
+            >
+              <X size={11} /> Remove
             </button>
           </div>
         </div>
       ) : (
-        <label className="btn btn-ghost btn-sm" style={{ width: '100%', justifyContent: 'center', borderStyle: 'dashed', cursor: 'pointer', fontSize: 11.5, padding: '7px 10px' }}>
+        <label className="btn btn-ghost btn-sm" style={{ width: '100%', justifyContent: 'center', borderStyle: 'dashed', cursor: 'pointer', fontSize: 11.5, padding: '8px 10px' }}>
           <Upload size={12} /> Upload {label}
           <input type="file" accept={accept} style={{ display: 'none' }} onChange={onChange} />
         </label>
@@ -393,6 +486,9 @@ export default function PickupPartners() {
   const { can, role } = useRole()
 
   const partners = useMemo(() => Array.isArray(rawPartners) ? rawPartners : [], [rawPartners])
+
+  // Managers can also toggle active/inactive
+  const canToggleStatus = role === 'admin' || role === 'manager'
 
   const [statusTab, setStatusTab] = useState('active')
   const activeCount   = useMemo(() => partners.filter(isPartnerActive).length,  [partners])
@@ -481,9 +577,10 @@ export default function PickupPartners() {
     finally { setSaving(false) }
   }, [form, editing, addPartner, updatePartner, close])
 
+  // FIX: Delete clears all partner data including photo/aadhaar (they're in state)
   const removeK = useCallback(async (id) => {
     if (!can.deletePartner) return
-    if (!window.confirm('Remove this pickup partner?')) return
+    if (!window.confirm('Remove this pickup partner? This will delete all their data including documents.')) return
     try { await deletePartner(id) } catch (err) { console.error(err) }
   }, [can.deletePartner, deletePartner])
 
@@ -491,58 +588,89 @@ export default function PickupPartners() {
 
   const isExecutive = role === 'executive'
 
-  // ── COMPACT 2-COLUMN MODAL ────────────────────────────────────────────────
+  // ── REDESIGNED 2-COLUMN MODAL ─────────────────────────────────────────────
+  // FIX: Wider modal (960px), more spacious layout, better section separation
   function renderModal() {
     return (
       <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && close()}>
-        <div className="modal" style={{ maxWidth: 860, width: '96vw' }}>
+        <div className="modal" style={{ maxWidth: 960, width: '96vw' }}>
 
           {/* Header */}
-          <div className="modal-header">
-            <div className="modal-title">{editing ? 'Edit Pickup Partner' : 'Add Pickup Partner'}</div>
-            {editing?.id && <span style={{ fontFamily:'monospace', fontSize:11, fontWeight:800, color:'white', background:'var(--secondary)', padding:'2px 8px', borderRadius:5 }}>{editing.id}</span>}
-            <button className="btn btn-ghost btn-icon btn-sm" onClick={close}><X size={16}/></button>
+          <div className="modal-header" style={{ padding: '16px 24px', background: editing ? 'var(--surface)' : 'linear-gradient(135deg,var(--secondary-light),var(--surface))' }}>
+            <UserCheck size={18} color="var(--secondary)" />
+            <div>
+              <div className="modal-title">{editing ? 'Edit Pickup Partner' : 'Add Pickup Partner'}</div>
+              {editing?.id && <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:1 }}>ID: {editing.id}</div>}
+            </div>
+            {editing?.id && (
+              <span style={{ fontFamily:'monospace', fontSize:12, fontWeight:800, color:'white', background:'var(--secondary)', padding:'3px 10px', borderRadius:6 }}>
+                {editing.id}
+              </span>
+            )}
+            <button className="btn btn-ghost btn-icon btn-sm" style={{ marginLeft: editing?.id ? 0 : 'auto' }} onClick={close}>
+              <X size={16}/>
+            </button>
           </div>
 
-          {/* Body — 2 column grid */}
-          <div className="modal-body" style={{ padding: '16px 20px' }}>
-            {error && <div className="alert-strip alert-danger" style={{ marginBottom:12 }}><AlertCircle size={13}/>{error}</div>}
+          {/* Body — true 2-column grid */}
+          <div className="modal-body" style={{ padding: '20px 24px', overflowY: 'auto', maxHeight: '75vh' }}>
+            {error && (
+              <div className="alert-strip alert-danger" style={{ marginBottom: 16 }}>
+                <AlertCircle size={13}/>{error}
+              </div>
+            )}
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, alignItems: 'start' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, alignItems: 'start' }}>
 
-              {/* ── LEFT: Basic Info + Documents ── */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {/* ── LEFT COLUMN: Basic Info + Documents ── */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-                {/* Basic Info */}
-                <div style={{ padding: '12px 14px', background: 'var(--bg)', borderRadius: 10, border: '1px solid var(--border-light)' }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <UserCheck size={11} color="var(--secondary)" /> Partner Info
+                {/* Partner Info */}
+                <div style={{ background: 'var(--bg)', borderRadius: 12, padding: '16px 18px', border: '1px solid var(--border-light)' }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--secondary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <UserCheck size={12} /> Partner Info
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                     <div className="form-group" style={{ margin: 0 }}>
-                      <label style={{ fontSize: 11.5 }}>Full Name <span className="required">*</span></label>
-                      <input value={form.name||''} onChange={e => setForm(f=>({...f,name:e.target.value}))} placeholder="Partner full name" autoFocus style={{ fontSize: 13 }}/>
+                      <label>Full Name <span className="required">*</span></label>
+                      <input
+                        value={form.name||''}
+                        onChange={e => setForm(f=>({...f,name:e.target.value}))}
+                        placeholder="Partner full name"
+                        autoFocus
+                      />
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                       <div className="form-group" style={{ margin: 0 }}>
-                        <label style={{ fontSize: 11.5 }}>Mobile <span className="required">*</span></label>
-                        <input value={form.mobile||''} onChange={e => setForm(f=>({...f,mobile:e.target.value}))} placeholder="10-digit" maxLength={10} inputMode="numeric" style={{ fontSize: 13 }}/>
+                        <label>Mobile <span className="required">*</span></label>
+                        <input
+                          value={form.mobile||''}
+                          onChange={e => setForm(f=>({...f,mobile:e.target.value}))}
+                          placeholder="10-digit"
+                          maxLength={10}
+                          inputMode="numeric"
+                        />
                       </div>
                       <div className="form-group" style={{ margin: 0 }}>
-                        <label style={{ fontSize: 11.5 }}>Email <span style={{ fontSize: 10, fontWeight: 400, color: 'var(--text-muted)' }}>(optional)</span></label>
-                        <input type="email" value={form.email||''} onChange={e => setForm(f=>({...f,email:e.target.value}))} placeholder="email@example.com" style={{ fontSize: 13 }}/>
+                        <label>Email <span style={{ fontSize: 10, fontWeight: 400, color: 'var(--text-muted)' }}>(optional)</span></label>
+                        <input
+                          type="email"
+                          value={form.email||''}
+                          onChange={e => setForm(f=>({...f,email:e.target.value}))}
+                          placeholder="email@example.com"
+                        />
                       </div>
                     </div>
                   </div>
                 </div>
 
                 {/* Documents */}
-                <div style={{ padding: '12px 14px', background: 'var(--info-bg)', borderRadius: 10, border: '1px solid rgba(59,130,246,0.2)' }}>
-                  <div style={{ fontWeight: 700, fontSize: 12.5, color: 'var(--info)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <FileText size={13} /> Documents
+                <div style={{ background: 'linear-gradient(135deg,rgba(59,130,246,0.06),rgba(59,130,246,0.02))', borderRadius: 12, padding: '16px 18px', border: '1px solid rgba(59,130,246,0.18)' }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--info)', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <FileText size={14} /> Documents
                     <span style={{ fontSize: 10.5, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 2 }}>Optional — for verification</span>
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                     <DocUpload
                       label="Partner Photo"
                       icon={Image}
@@ -565,21 +693,26 @@ export default function PickupPartners() {
 
               </div>
 
-              {/* ── RIGHT: Coverage + Rate Chart ── */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {/* ── RIGHT COLUMN: City + Coverage + Rate ── */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
                 {/* City */}
                 <div className="form-group" style={{ margin: 0 }}>
-                  <label style={{ display:'flex', alignItems:'center', gap:5, fontSize: 11.5 }}><Building2 size={11} color="var(--primary)"/> City <span className="required">*</span></label>
-                  <select value={form.city||'Gurgaon'} onChange={e => setForm(f=>({...f,city:e.target.value,sectors:[],societies:[]}))} style={{ fontSize:13 }}>
+                  <label style={{ display:'flex', alignItems:'center', gap:5 }}>
+                    <Building2 size={12} color="var(--primary)"/> City <span className="required">*</span>
+                  </label>
+                  <select
+                    value={form.city||'Gurgaon'}
+                    onChange={e => setForm(f=>({...f,city:e.target.value,sectors:[],societies:[]}))}
+                  >
                     {CITIES.map(c => <option key={c}>{c}</option>)}
                   </select>
                 </div>
 
-                {/* Coverage */}
-                <div style={{ padding: '12px 14px', background: 'var(--bg)', borderRadius: 10, border: '1px solid var(--border-light)' }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <MapPin size={11} color="var(--primary)" /> Coverage Area
+                {/* Coverage Area */}
+                <div style={{ background: 'var(--bg)', borderRadius: 12, padding: '16px 18px', border: '1px solid var(--border-light)' }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <MapPin size={12} /> Coverage Area
                   </div>
                   <CoverageSelector
                     city={form.city||'Gurgaon'}
@@ -591,36 +724,55 @@ export default function PickupPartners() {
                 </div>
 
                 {/* Rate Chart */}
-                <div style={{ padding: '12px 14px', background: 'var(--secondary-light)', borderRadius: 10, border: '1px solid rgba(27,94,53,0.2)' }}>
-                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom: showRateEditor ? 10 : 0 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: 5 }}>
-                      <IndianRupee size={11} /> Rate Chart (₹/kg)
+                <div style={{ background: 'linear-gradient(135deg,var(--secondary-light),rgba(255,255,255,0))', borderRadius: 12, padding: '16px 18px', border: '1px solid rgba(27,94,53,0.2)' }}>
+                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom: showRateEditor ? 12 : 0 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--secondary)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <IndianRupee size={12} /> Rate Chart (₹/kg)
                     </div>
-                    <button type="button" onClick={() => setShowRateEditor(v=>!v)} className="btn btn-sm btn-ghost" style={{ fontSize: 11, padding: '3px 9px' }}>
-                      {showRateEditor ? <><ChevronUp size={11}/> Hide</> : <><ChevronDown size={11}/> Edit</>}
+                    <button
+                      type="button"
+                      onClick={() => setShowRateEditor(v=>!v)}
+                      className="btn btn-sm btn-ghost"
+                      style={{ fontSize: 11.5, padding: '4px 10px' }}
+                    >
+                      {showRateEditor ? <><ChevronUp size={11}/> Collapse</> : <><ChevronDown size={11}/> Edit Rates</>}
                     </button>
                   </div>
-                  {!showRateEditor && (
-                    <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
+                  {!showRateEditor ? (
+                    <div style={{ display:'flex', flexWrap:'wrap', gap:5, marginTop: 8 }}>
                       {RATE_CHART_ITEMS.slice(0, 6).map(item => (
-                        <div key={item} style={{ display:'inline-flex', alignItems:'center', gap:3, padding:'2px 7px', background:'var(--surface)', borderRadius:20, fontSize:10.5, border:'1px solid rgba(27,94,53,0.15)' }}>
+                        <div key={item} style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'3px 9px', background:'rgba(255,255,255,0.7)', borderRadius:20, fontSize:11, border:'1px solid rgba(27,94,53,0.15)' }}>
                           <span style={{ color:'var(--text-muted)' }}>{item.split(' ')[0]}</span>
                           <span style={{ fontWeight:700, color:'var(--secondary)' }}>₹{(form.rateChart||{})[item]??0}</span>
                         </div>
                       ))}
-                      {RATE_CHART_ITEMS.length > 6 && <span style={{ fontSize:10, color:'var(--text-muted)', padding:'2px 4px' }}>+{RATE_CHART_ITEMS.length-6} more</span>}
+                      {RATE_CHART_ITEMS.length > 6 && (
+                        <span style={{ fontSize:10.5, color:'var(--text-muted)', padding:'3px 6px' }}>
+                          +{RATE_CHART_ITEMS.length-6} more
+                        </span>
+                      )}
                     </div>
+                  ) : (
+                    <RateChartEditor
+                      rateChart={form.rateChart||DEFAULT_RATE_CHART}
+                      onChange={rc => setForm(f=>({...f,rateChart:rc}))}
+                    />
                   )}
-                  {showRateEditor && <RateChartEditor rateChart={form.rateChart||DEFAULT_RATE_CHART} onChange={rc => setForm(f=>({...f,rateChart:rc}))}/>}
                 </div>
 
               </div>
             </div>
           </div>
 
-          <div className="modal-footer">
+          {/* Footer */}
+          <div className="modal-footer" style={{ padding: '14px 24px' }}>
             <button className="btn btn-ghost" onClick={close} disabled={saving}>Cancel</button>
-            <button className="btn btn-primary" onClick={save} disabled={saving||!form.name?.trim()||!form.mobile?.trim()}>
+            <button
+              className="btn btn-primary"
+              onClick={save}
+              disabled={saving||!form.name?.trim()||!form.mobile?.trim()}
+              style={{ minWidth: 160 }}
+            >
               {saving ? 'Saving…' : editing ? 'Save Changes' : 'Add Pickup Partner'}
             </button>
           </div>
@@ -735,15 +887,22 @@ export default function PickupPartners() {
             <div key={k.id} className="card" style={{ borderLeft: `3px solid ${active ? 'var(--secondary)' : 'var(--border)'}`, opacity: active ? 1 : 0.8 }}>
               <div className="card-body">
 
-                {/* ── Partner header with photo ── */}
+                {/* Partner header */}
                 <div style={{ display:'flex', alignItems:'flex-start', gap:12, marginBottom:12 }}>
-                  {/* Photo — prominent display */}
                   {k.photo ? (
                     <div style={{ position: 'relative', flexShrink: 0 }}>
-                      <img src={k.photo} alt={k.name} style={{ width: 52, height: 52, borderRadius: 12, objectFit: 'cover', border: `2px solid ${active ? 'var(--secondary)' : 'var(--border)'}`, display: 'block' }} />
-                      {active && <div style={{ position: 'absolute', bottom: -2, right: -2, width: 14, height: 14, borderRadius: '50%', background: 'var(--secondary)', border: '2px solid white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <div style={{ width: 5, height: 5, borderRadius: '50%', background: 'white' }} />
-                      </div>}
+                      <img src={k.photo} alt={k.name} style={{ width: 52, height: 52, borderRadius: 12, objectFit: 'cover', border: `2px solid ${active ? 'var(--secondary)' : 'var(--border)'}`, display: 'block', cursor: 'pointer' }}
+                        onClick={() => {
+                          const win = window.open('', '_blank')
+                          win.document.write(`<!DOCTYPE html><html><head><title>${k.name}</title><style>body{margin:0;background:#111;display:flex;align-items:center;justify-content:center;min-height:100vh;}</style></head><body><img src="${k.photo}" style="max-width:100vw;max-height:100vh;object-fit:contain;"/></body></html>`)
+                          win.document.close()
+                        }}
+                      />
+                      {active && (
+                        <div style={{ position: 'absolute', bottom: -2, right: -2, width: 14, height: 14, borderRadius: '50%', background: 'var(--secondary)', border: '2px solid white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <div style={{ width: 5, height: 5, borderRadius: '50%', background: 'white' }} />
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div style={{ width: 52, height: 52, background: active ? 'var(--secondary-light)' : 'var(--border-light)', borderRadius: 12, display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'var(--font-display)', fontSize: 22, fontWeight:700, color: active ? 'var(--secondary)' : 'var(--text-muted)', flexShrink:0, border: `2px solid ${active ? 'rgba(27,94,53,0.2)' : 'var(--border)'}` }}>
@@ -762,19 +921,17 @@ export default function PickupPartners() {
                     <div style={{ fontSize:12.5, color:'var(--text-muted)', display:'flex', alignItems:'center', gap:4, marginTop:2 }}><Phone size={11}/> {k.mobile||'—'}</div>
                     {k.email && <div style={{ fontSize:12, color:'var(--text-muted)', display:'flex', alignItems:'center', gap:4, marginTop:2 }}><Mail size={11}/> {k.email}</div>}
 
-                    {/* Ratings + Aadhaar verified badge */}
                     <div style={{ display:'flex', alignItems:'center', gap:8, marginTop:5, flexWrap:'wrap' }}>
                       <div style={{ display:'flex', alignItems:'center', gap:3 }}><Star size={11} fill="var(--accent)" color="var(--accent)"/><span style={{ fontSize:12, fontWeight:600 }}>{k.rating??4.0}</span></div>
                       {k.aadhaarDoc && (
                         <span style={{ fontSize:10, padding:'1px 7px', borderRadius:20, background:'var(--secondary-light)', color:'var(--secondary)', fontWeight:700, border:'1px solid rgba(27,94,53,0.2)', display:'inline-flex', alignItems:'center', gap:3 }}>
-                          <ShieldCheck size={9} /> Aadhaar Verified
+                          <ShieldCheck size={9} /> Aadhaar ✓
                         </span>
                       )}
-                      {k.photo && !k.photo.startsWith('data') && (
-                        <span style={{ fontSize:10, color:'var(--text-muted)', padding:'1px 6px', borderRadius:20, background:'var(--border-light)' }}>📸 Photo</span>
-                      )}
-                      {k.photo && k.photo.startsWith('data') && (
-                        <span style={{ fontSize:10, color:'var(--info)', padding:'1px 6px', borderRadius:20, background:'var(--info-bg)', fontWeight:600 }}>📸 Photo ✓</span>
+                      {k.photo && (
+                        <span style={{ fontSize:10, color:'var(--info)', padding:'1px 6px', borderRadius:20, background:'var(--info-bg)', fontWeight:600 }}>
+                          📸 Photo ✓
+                        </span>
                       )}
                     </div>
                   </div>
@@ -810,8 +967,8 @@ export default function PickupPartners() {
                 <PartnerPaymentSummaryCards partner={k} raddiRecords={raddiRecords||[]}/>
                 <RateChartMini rateChart={k.rateChart} expanded={!!expandedRates[k.id]} onToggle={() => toggleRate(k.id)}/>
 
-                {/* Status toggle — Admin only */}
-                {role === 'admin' && (
+                {/* Status toggle — Admins AND Managers can toggle */}
+                {canToggleStatus && (
                   <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border-light)' }}>
                     <button
                       onClick={() => togglePartnerStatus(k)}
