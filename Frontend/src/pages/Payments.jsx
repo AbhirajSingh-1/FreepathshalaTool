@@ -743,134 +743,122 @@ function PickupLedger({ pickups, onRecordPayment, onWriteOffEntry, canWriteOff, 
     </div>
   )
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-// PARTNER CARD — with View Proofs
+ // ══════════════════════════════════════════════════════════════════════════════
+// PARTNER CARD — redesigned: clean header, 4-box KPIs, simple action bar
 // ══════════════════════════════════════════════════════════════════════════════
 function PartnerCard({ partner, onRecordPayment, onWriteOffEntry, onWriteOffPartner, onViewHistory, canWriteOff }) {
-  const [open,       setOpen]       = useState(false)
-  const [showProofs, setShowProofs] = useState(false)
-  const [sortKey,    setSortKey]    = useState('date')
-  const [sortDir,    setSortDir]    = useState('desc')
-  const [ledSearch,  setLedSearch]  = useState('')
+  const [open,      setOpen]      = useState(false)
+  const [sortKey,   setSortKey]   = useState('date')
+  const [sortDir,   setSortDir]   = useState('desc')
+  const [ledSearch, setLedSearch] = useState('')
 
-  const statusCounts = useMemo(() => {
-    const c = { 'Not Paid': 0, 'Partially Paid': 0, 'Paid': 0, 'Write Off': 0 }
-    partner.records.forEach(p => {
+  const urgentCount = useMemo(() => {
+    return partner.records.filter(p => {
       const ps = p.paymentStatus || getPickupPayStatus(p.totalValue, p.amountPaid)
-      c[ps] = (c[ps] || 0) + 1
-    })
-    return c
+      return ps === 'Not Paid' || ps === 'Partially Paid'
+    }).length
   }, [partner.records])
 
-  const allProofs = useMemo(() => {
-    const proofs = []
-    partner.records.forEach(p => {
-      ;(p.payHistory || []).forEach(h => {
-        if (h.screenshot) {
-          proofs.push({
-            screenshot: h.screenshot, date: h.date, amount: h.amount,
-            orderId: p.orderId || p.id, donorName: p.donorName, refMode: h.refMode,
-          })
-        }
-      })
-    })
-    return proofs.sort((a, b) => (b.date || '').localeCompare(a.date || ''))
-  }, [partner.records])
+  const writeOff = partner.writeOff || 0
+  const collPct  = partner.total > 0 ? Math.round(((partner.paid) / partner.total) * 100) : 0
 
-  const urgentCount = (statusCounts['Not Paid'] || 0) + (statusCounts['Partially Paid'] || 0)
+  const borderColor = urgentCount > 0 ? 'var(--danger)' : writeOff > 0 ? 'var(--text-muted)' : 'var(--secondary)'
 
   return (
-    <div className="card" style={{ marginBottom: 16, borderLeft: `4px solid ${urgentCount > 0 ? 'var(--danger)' : 'var(--secondary)'}` }}>
-      <div style={{ padding: '16px 20px' }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, flexWrap: 'wrap' }}>
-          <div style={{ width: 48, height: 48, borderRadius: 12, background: urgentCount > 0 ? 'var(--danger-bg)' : 'var(--secondary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 800, color: urgentCount > 0 ? 'var(--danger)' : 'var(--secondary)', flexShrink: 0 }}>
-            {(partner.partnerName || '?')[0].toUpperCase()}
-          </div>
-          <div style={{ flex: '1 1 180px', minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
-              {partner.pickuppartnerId && <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 800, color: 'white', background: 'var(--secondary)', padding: '2px 8px', borderRadius: 5 }}>{partner.pickuppartnerId}</span>}
-              <div style={{ fontWeight: 800, fontSize: 15.5 }}>{partner.partnerName}</div>
-              {urgentCount > 0 && (
-                <span style={{ fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'var(--danger-bg)', color: 'var(--danger)', border: '1px solid rgba(239,68,68,0.2)' }}>
-                  ⚠ {urgentCount} pending
-                </span>
-              )}
-              {allProofs.length > 0 && (
-                <span style={{ fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'var(--info-bg)', color: 'var(--info)', border: '1px solid rgba(59,130,246,0.2)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <Image size={9} /> {allProofs.length} proof{allProofs.length !== 1 ? 's' : ''}
-                </span>
-              )}
-            </div>
-            {partner.mobile && (
-              <div style={{ fontSize: 12.5, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
-                <Phone size={11} /> {partner.mobile}
-              </div>
-            )}
-            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-              {Object.entries(statusCounts).filter(([, c]) => c > 0).map(([s, c]) => {
-                const colors = { 'Not Paid': ['var(--danger-bg)', 'var(--danger)'], 'Partially Paid': ['var(--warning-bg)', '#92400E'], 'Paid': ['var(--secondary-light)', 'var(--secondary)'], 'Write Off': ['var(--border-light)', 'var(--text-muted)'] }
-                const [bg, color] = colors[s] || ['var(--border-light)', 'var(--text-muted)']
-                return (
-                  <span key={s} style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 20, background: bg, color, fontWeight: 700 }}>
-                    {c} {s}
-                  </span>
-                )
-              })}
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: 0, flexShrink: 0, borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border-light)' }}>
-            {[
-              { label: 'Total', val: money(partner.total), color: 'var(--primary)', bg: 'var(--primary-light)' },
-              { label: 'Received', val: money(partner.paid), color: 'var(--secondary)', bg: 'var(--secondary-light)' },
-              { label: 'Pending', val: money(partner.pending), color: partner.pending > 0 ? 'var(--danger)' : 'var(--secondary)', bg: partner.pending > 0 ? 'var(--danger-bg)' : 'var(--surface)' },
-            ].map((item, i) => (
-              <div key={item.label} style={{ padding: '10px 16px', textAlign: 'center', background: item.bg, borderLeft: i > 0 ? '1px solid var(--border-light)' : 'none' }}>
-                <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: item.color, lineHeight: 1, whiteSpace: 'nowrap' }}>{item.val}</div>
-                <div style={{ fontSize: 9.5, color: item.color, opacity: 0.75, textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 3, fontWeight: 700 }}>{item.label}</div>
-              </div>
-            ))}
-          </div>
+    <div className="card" style={{ marginBottom: 14, borderLeft: `4px solid ${borderColor}` }}>
+
+      {/* ── Partner identity ── */}
+      <div style={{ padding: '16px 20px 12px', display: 'flex', alignItems: 'center', gap: 14, borderBottom: '1px solid var(--border-light)', flexWrap: 'wrap' }}>
+        <div style={{
+          width: 46, height: 46, borderRadius: 12, flexShrink: 0,
+          background: urgentCount > 0 ? 'var(--danger-bg)' : 'var(--secondary-light)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 800,
+          color: urgentCount > 0 ? 'var(--danger)' : 'var(--secondary)',
+        }}>
+          {(partner.partnerName || '?')[0].toUpperCase()}
         </div>
-        {partner.total > 0 && (
-          <div style={{ marginTop: 14 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', marginBottom: 4, fontWeight: 600 }}>
-              <span>Collection progress</span>
-              <span style={{ color: 'var(--secondary)', fontWeight: 700 }}>{Math.round((partner.paid / partner.total) * 100)}%</span>
-            </div>
-            <div style={{ height: 6, background: 'var(--border-light)', borderRadius: 4, overflow: 'hidden' }}>
-              <div style={{ height: '100%', borderRadius: 4, width: `${Math.min(100, (partner.paid / partner.total) * 100)}%`, background: partner.pending === 0 ? 'var(--secondary)' : partner.paid / partner.total > 0.7 ? 'var(--warning)' : 'var(--danger)', transition: 'width 0.5s ease' }} />
-            </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 3 }}>
+            {partner.pickuppartnerId && (
+              <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 800, color: 'white', background: 'var(--secondary)', padding: '2px 8px', borderRadius: 5 }}>
+                {partner.pickuppartnerId}
+              </span>
+            )}
+            <span style={{ fontWeight: 800, fontSize: 15 }}>{partner.partnerName}</span>
+            {urgentCount > 0 && (
+              <span style={{ fontSize: 10.5, fontWeight: 700, padding: '2px 9px', borderRadius: 20, background: 'var(--danger-bg)', color: 'var(--danger)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                ⚠ {urgentCount} pending
+              </span>
+            )}
           </div>
-        )}
+          {partner.mobile && (
+            <div style={{ fontSize: 12.5, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Phone size={11} /> {partner.mobile}
+            </div>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+          <button className="btn btn-ghost btn-sm" onClick={() => onViewHistory(partner)} style={{ fontSize: 11.5 }}>
+            <History size={12} /> History
+          </button>
+        </div>
       </div>
 
-      {/* Action bar */}
-      <div style={{ padding: '10px 20px', borderTop: '1px solid var(--border-light)', background: 'var(--bg)', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-        <div style={{ fontSize: 12, color: 'var(--text-muted)', flex: 1 }}>
-          <strong style={{ color: 'var(--text-primary)' }}>{partner.records.length}</strong> pickup{partner.records.length !== 1 ? 's' : ''}
-          {partner.lastPaymentDate && <span> · Last payment: <strong>{fmtDate(partner.lastPaymentDate)}</strong></span>}
+      {/* ── 4-box KPI row ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', borderBottom: '1px solid var(--border-light)' }}>
+        {[
+          { label: 'Total Value',  val: money(partner.total),   color: 'var(--primary)',   bg: 'var(--primary-light)' },
+          { label: 'Collected',    val: money(partner.paid),    color: 'var(--secondary)', bg: 'var(--secondary-light)' },
+          { label: 'Pending',      val: money(partner.pending), color: partner.pending > 0 ? 'var(--danger)' : 'var(--secondary)', bg: partner.pending > 0 ? 'var(--danger-bg)' : 'var(--surface)' },
+          { label: 'Written Off',  val: money(writeOff),        color: writeOff > 0 ? 'var(--text-muted)' : 'var(--text-muted)', bg: writeOff > 0 ? 'var(--border-light)' : 'var(--surface)' },
+        ].map((item, i) => (
+          <div key={item.label} style={{
+            padding: '12px 14px', textAlign: 'center', background: item.bg,
+            borderLeft: i > 0 ? '1px solid var(--border-light)' : 'none',
+          }}>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: item.color, lineHeight: 1, whiteSpace: 'nowrap' }}>
+              {item.val}
+            </div>
+            <div style={{ fontSize: 9.5, color: item.color, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 3, fontWeight: 700 }}>
+              {item.label}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Progress bar ── */}
+      {partner.total > 0 && (
+        <div style={{ padding: '8px 20px', background: 'var(--bg)', borderBottom: '1px solid var(--border-light)', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ flex: 1, height: 6, background: 'var(--border-light)', borderRadius: 4, overflow: 'hidden' }}>
+            <div style={{ height: '100%', borderRadius: 4, width: `${Math.min(100, collPct)}%`, background: partner.pending === 0 ? 'var(--secondary)' : collPct > 70 ? 'var(--warning)' : 'var(--danger)', transition: 'width 0.5s ease' }} />
+          </div>
+          <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-muted)', flexShrink: 0 }}>{collPct}% collected</span>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>{partner.records.length} pickup{partner.records.length !== 1 ? 's' : ''}</span>
         </div>
-        <button className="btn btn-ghost btn-sm" onClick={() => onViewHistory(partner)} style={{ fontSize: 12 }}>
-          <History size={12} /> History
-        </button>
-        {allProofs.length > 0 && (
-          <button className={`btn btn-sm ${showProofs ? 'btn-outline' : 'btn-ghost'}`} onClick={() => setShowProofs(s => !s)} style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
-            <Image size={12} color={showProofs ? 'var(--info)' : undefined} />
-            {showProofs ? 'Hide Proofs' : `View Proofs (${allProofs.length})`}
-          </button>
-        )}
-        <button className={`btn btn-sm ${open ? 'btn-outline' : 'btn-ghost'}`} onClick={() => setOpen(o => !o)} style={{ fontSize: 12 }}>
+      )}
+
+      {/* ── Action bar ── */}
+      <div style={{ padding: '10px 16px', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <button
+          className={`btn btn-ghost btn-sm ${open ? 'btn-outline' : ''}`}
+          onClick={() => setOpen(o => !o)}
+          style={{ fontSize: 12 }}
+        >
           {open ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
           {open ? 'Collapse' : 'View Pickups'}
         </button>
+        <div style={{ flex: 1 }} />
         {partner.pending > 0 ? (
           <>
             <button className="btn btn-primary btn-sm" onClick={() => onRecordPayment({ partner })} style={{ fontSize: 12 }}>
               <Plus size={12} /> Record Payment
             </button>
             {canWriteOff && (
-              <button onClick={() => onWriteOffPartner(partner)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8, border: '1.5px solid rgba(239,68,68,0.5)', background: 'var(--danger-bg)', color: 'var(--danger)', cursor: 'pointer', fontSize: 12, fontWeight: 700, transition: 'all 0.15s' }}>
+              <button
+                onClick={() => onWriteOffPartner(partner)}
+                style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8, border: '1.5px solid rgba(239,68,68,0.5)', background: 'var(--danger-bg)', color: 'var(--danger)', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}
+              >
                 ✗ Write Off All
               </button>
             )}
@@ -882,51 +870,24 @@ function PartnerCard({ partner, onRecordPayment, onWriteOffEntry, onWriteOffPart
         )}
       </div>
 
-      {/* View Proofs Panel */}
-      {showProofs && allProofs.length > 0 && (
-        <div style={{ borderTop: '1px solid var(--border-light)', padding: '16px 20px', background: 'linear-gradient(135deg, rgba(59,130,246,0.04), var(--surface))' }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--info)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
-            <Image size={12} /> Payment Proofs — {allProofs.length} screenshot{allProofs.length !== 1 ? 's' : ''}
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-            {allProofs.map((proof, i) => (
-              <div key={i} style={{ display: 'flex', gap: 10, padding: '10px 14px', background: 'var(--surface)', borderRadius: 10, border: '1px solid var(--border-light)', alignItems: 'flex-start', minWidth: 220, flex: '0 0 auto' }}>
-                <ScreenshotThumb src={proof.screenshot} label={`Proof — ${proof.donorName || 'Unknown'} (${proof.orderId || ''})`} size={56} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--secondary)', marginBottom: 2 }}>{money(proof.amount)}</div>
-                  <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginBottom: 2 }}>{fmtDate(proof.date)}</div>
-                  {proof.donorName && <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginBottom: 2 }} className="truncate">{proof.donorName}</div>}
-                  {proof.orderId && <OrderIdChip id={proof.orderId} />}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
+      {/* ── Expandable ledger ── */}
       {open && (
-        <div style={{ padding: '16px 20px', borderTop: '1px solid var(--border-light)', background: 'var(--surface)' }}>
+        <div style={{ padding: '14px 18px', borderTop: '1px solid var(--border-light)', background: 'var(--surface)' }}>
           <MonthlyBreakdown pickups={partner.records} />
           {canWriteOff && partner.pending > 0 && (
-            <div style={{ padding: '9px 14px', background: 'rgba(239,68,68,0.04)', borderRadius: 8, border: '1px solid rgba(239,68,68,0.15)', marginBottom: 12, fontSize: 12, color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ padding: '8px 12px', background: 'rgba(239,68,68,0.04)', borderRadius: 8, border: '1px solid rgba(239,68,68,0.15)', marginBottom: 12, fontSize: 12, color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: 7 }}>
               <AlertTriangle size={13} style={{ flexShrink: 0 }} />
-              <span><strong>Write Off</strong> on each row closes only that entry. Use <strong>"Write Off All"</strong> above to close all pending at once.</span>
+              <span>Row-level <strong>Write Off</strong> closes that entry only. <strong>"Write Off All"</strong> above closes all pending at once.</span>
             </div>
           )}
-          <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Truck size={13} color="var(--primary)" />
-            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Pickup Ledger — {partner.records.length} records
-            </span>
-          </div>
           <PickupLedger
             pickups={partner.records}
             onRecordPayment={onRecordPayment}
             onWriteOffEntry={onWriteOffEntry}
             canWriteOff={canWriteOff}
-            sortKey={sortKey} setSortKey={setSortKey}
-            sortDir={sortDir} setSortDir={setSortDir}
-            search={ledSearch} setSearch={setLedSearch}
+            sortKey={sortKey}   setSortKey={setSortKey}
+            sortDir={sortDir}   setSortDir={setSortDir}
+            search={ledSearch}  setSearch={setLedSearch}
           />
         </div>
       )}
@@ -935,79 +896,105 @@ function PartnerCard({ partner, onRecordPayment, onWriteOffEntry, onWriteOffPart
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// PARTNER PAYMENT HUB
+// PARTNER PAYMENT HUB — redesigned
 // ══════════════════════════════════════════════════════════════════════════════
 function PartnerPaymentHub({ pickups, PickupPartners, recordPickupPartnerPayment, clearPartnerBalance }) {
   const { role } = useRole()
   const canWriteOff  = role === 'admin' || role === 'manager'
 
-  const [datePreset,   setDatePreset]   = useState('all')
-  const [customFrom,   setCustomFrom]   = useState('')
-  const [customTo,     setCustomTo]     = useState('')
+  const [datePreset,    setDatePreset]    = useState('all')
+  const [customFrom,    setCustomFrom]    = useState('')
+  const [customTo,      setCustomTo]      = useState('')
   const [filterpickuppartner, setFilterpickuppartner] = useState('All')
-  const [filterStatus, setFilterStatus] = useState('All')
-  const [globalSearch, setGlobalSearch] = useState('')
+  const [filterStatus,  setFilterStatus]  = useState('All')
+  const [globalSearch,  setGlobalSearch]  = useState('')
 
-  const [payContext,   setPayContext]   = useState(null)
-  const [writeOffCtx,  setWriteOffCtx] = useState(null)
-  const [histPartner,  setHistPartner] = useState(null)
-  const [saving,       setSaving]      = useState(false)
+  const [payContext,    setPayContext]    = useState(null)
+  const [writeOffCtx,  setWriteOffCtx]   = useState(null)
+  const [histPartner,  setHistPartner]   = useState(null)
+  const [saving,        setSaving]        = useState(false)
 
   const { from: dateFrom, to: dateTo } = useMemo(
     () => getDateRange(datePreset, customFrom, customTo),
     [datePreset, customFrom, customTo]
   )
 
-  const pickuppartnerNames = useMemo(() => [...new Set(pickups.map(p => p.PickupPartner).filter(Boolean))].sort(), [pickups])
+  const pickuppartnerNames = useMemo(() =>
+    [...new Set(pickups.map(p => p.PickupPartner).filter(Boolean))].sort(),
+    [pickups]
+  )
 
+  // ── Build partner rows (includes writeOff) ────────────────────────────────
   const partnerRows = useMemo(() => {
     const q = globalSearch.toLowerCase().trim()
     const relevantPickups = pickups.filter(p => {
       if (p.status !== 'Completed') return false
       if (!p.PickupPartner) return false
       const inDate   = (!dateFrom || (p.date || '') >= dateFrom) && (!dateTo || (p.date || '') <= dateTo)
-      const inpickuppartner    = filterpickuppartner === 'All' || p.PickupPartner === filterpickuppartner
+      const inpickuppartner  = filterpickuppartner === 'All' || p.PickupPartner === filterpickuppartner
       const ps       = p.paymentStatus || getPickupPayStatus(p.totalValue, p.amountPaid)
       const inStatus = filterStatus === 'All' || ps === filterStatus
       const inSearch = !q || (p.PickupPartner || '').toLowerCase().includes(q) || (p.donorName || '').toLowerCase().includes(q) || (p.orderId || '').toLowerCase().includes(q)
       return inDate && inpickuppartner && inStatus && inSearch
     })
+
     const map = {}
     relevantPickups.forEach(p => {
-      const name = p.PickupPartner
-      const pickuppartner  = PickupPartners.find(k => k.name === name) || {}
+      const name      = p.PickupPartner
+      const pickuppartner = PickupPartners.find(k => k.name === name) || {}
       if (!map[name]) {
-        map[name] = { pickuppartnerId: pickuppartner.id || name, partnerName: name, mobile: pickuppartner.mobile || p.pickuppartneradiMobile || '', total: 0, paid: 0, pending: 0, count: 0, records: [], history: [], lastPaymentDate: '' }
+        map[name] = {
+          pickuppartnerId: pickuppartner.id || name,
+          partnerName: name,
+          mobile: pickuppartner.mobile || p.pickuppartneradiMobile || '',
+          total: 0, paid: 0, pending: 0, writeOff: 0,
+          count: 0, records: [], history: [], lastPaymentDate: '',
+        }
       }
       const total   = Number(p.totalValue) || 0
       const paid    = Math.min(total, Number(p.amountPaid) || 0)
-      const pend    = Math.max(0, total - paid)
+      const ps      = p.paymentStatus || getPickupPayStatus(total, paid)
+      const isWriteOff = ps === 'Write Off'
+      const pend    = isWriteOff ? 0 : Math.max(0, total - paid)
+      const wo      = isWriteOff ? Math.max(0, total - paid) : 0
+
       const history = (p.payHistory || []).map(h => ({ ...h, pickupId: p.id, orderId: p.orderId, donorName: p.donorName }))
-      const fallback = history.length === 0 && paid > 0 ? [{ date: p.date, amount: paid, refMode: 'recorded', pickupId: p.id, orderId: p.orderId, donorName: p.donorName }] : []
+      const fallback = history.length === 0 && paid > 0
+        ? [{ date: p.date, amount: paid, refMode: 'recorded', pickupId: p.id, orderId: p.orderId, donorName: p.donorName }]
+        : []
       const allH = [...history, ...fallback]
-      map[name].total   += total
-      map[name].paid    += paid
-      map[name].pending += pend
-      map[name].count   += 1
+
+      map[name].total    += total
+      map[name].paid     += paid
+      map[name].pending  += pend
+      map[name].writeOff += wo
+      map[name].count    += 1
       map[name].records.push(p)
       map[name].history.push(...allH)
-      allH.forEach(h => { if (h.date && (!map[name].lastPaymentDate || h.date > map[name].lastPaymentDate)) map[name].lastPaymentDate = h.date })
+      allH.forEach(h => {
+        if (h.date && (!map[name].lastPaymentDate || h.date > map[name].lastPaymentDate))
+          map[name].lastPaymentDate = h.date
+      })
     })
+
     return Object.values(map).sort((a, b) => {
       if (b.pending !== a.pending) return b.pending - a.pending
       return a.partnerName.localeCompare(b.partnerName)
     })
   }, [pickups, PickupPartners, dateFrom, dateTo, filterpickuppartner, filterStatus, globalSearch])
 
+  // ── Global KPIs ───────────────────────────────────────────────────────────
   const globalKPIs = useMemo(() => ({
-    totalPartners: partnerRows.length,
-    withPending:   partnerRows.filter(r => r.pending > 0).length,
-    totalRevenue:  partnerRows.reduce((s, r) => s + r.total, 0),
-    totalReceived: partnerRows.reduce((s, r) => s + r.paid, 0),
-    totalPending:  partnerRows.reduce((s, r) => s + r.pending, 0),
-    totalPickups:  partnerRows.reduce((s, r) => s + r.count, 0),
+    totalPartners:  partnerRows.length,
+    withPending:    partnerRows.filter(r => r.pending > 0).length,
+    totalRevenue:   partnerRows.reduce((s, r) => s + r.total,    0),
+    totalReceived:  partnerRows.reduce((s, r) => s + r.paid,     0),
+    totalPending:   partnerRows.reduce((s, r) => s + r.pending,  0),
+    totalWriteOff:  partnerRows.reduce((s, r) => s + r.writeOff, 0),
+    totalPickups:   partnerRows.reduce((s, r) => s + r.count,    0),
   }), [partnerRows])
 
+  // ── Actions ───────────────────────────────────────────────────────────────
   const openPayModal = useCallback(({ partner, pickup }) => {
     if (partner) {
       setPayContext({ partnerName: partner.partnerName, pickuppartnerId: partner.pickuppartnerId, mobile: partner.mobile, isPartnerLevel: true, total: partner.total, paid: partner.paid, pending: partner.pending })
@@ -1035,9 +1022,15 @@ function PartnerPaymentHub({ pickups, PickupPartners, recordPickupPartnerPayment
     setSaving(true)
     try {
       if (payContext.isPartnerLevel && isFull) {
-        await clearPartnerBalance({ pickuppartnerId: payContext.pickuppartnerId, pickuppartnerName: payContext.partnerName }, { refMode: method, refValue: reference, notes, date, screenshot, writeOff: false })
+        await clearPartnerBalance(
+          { pickuppartnerId: payContext.pickuppartnerId, pickuppartnerName: payContext.partnerName },
+          { refMode: method, refValue: reference, notes, date, screenshot, writeOff: false }
+        )
       } else {
-        await recordPickupPartnerPayment(payContext.pickuppartnerId, { pickupId: payContext.isPartnerLevel ? undefined : payContext.pickupId, amount, date, refMode: method, refValue: reference, notes, screenshot })
+        await recordPickupPartnerPayment(payContext.pickuppartnerId, {
+          pickupId: payContext.isPartnerLevel ? undefined : payContext.pickupId,
+          amount, date, refMode: method, refValue: reference, notes, screenshot,
+        })
       }
       setPayContext(null)
     } finally { setSaving(false) }
@@ -1048,49 +1041,56 @@ function PartnerPaymentHub({ pickups, PickupPartners, recordPickupPartnerPayment
     setSaving(true)
     try {
       if (writeOffCtx.mode === 'partner') {
-        await clearPartnerBalance({ pickuppartnerId: writeOffCtx.pickuppartnerId, pickuppartnerName: writeOffCtx.partnerName }, { refMode: 'writeoff', refValue: '', notes: reason, date: new Date().toISOString().slice(0, 10), writeOff: true })
+        await clearPartnerBalance(
+          { pickuppartnerId: writeOffCtx.pickuppartnerId, pickuppartnerName: writeOffCtx.partnerName },
+          { refMode: 'writeoff', refValue: '', notes: reason, date: new Date().toISOString().slice(0, 10), writeOff: true }
+        )
       } else {
-        await recordPickupPartnerPayment(writeOffCtx.pickuppartnerId, { pickupId: writeOffCtx.pickupId, amount: 0, date: new Date().toISOString().slice(0, 10), refMode: 'writeoff', refValue: '', notes: reason, screenshot: null, writeOff: true, pendingToClose: writeOffCtx.pending })
+        await recordPickupPartnerPayment(writeOffCtx.pickuppartnerId, {
+          pickupId: writeOffCtx.pickupId,
+          amount: 0,
+          date: new Date().toISOString().slice(0, 10),
+          refMode: 'writeoff', refValue: '', notes: reason, screenshot: null,
+          writeOff: true,
+        })
       }
       setWriteOffCtx(null)
     } finally { setSaving(false) }
   }, [writeOffCtx, clearPartnerBalance, recordPickupPartnerPayment])
 
   const handleExport = () => exportToExcel(
-    partnerRows.map(r => ({ 'Pickup Partner': r.partnerName, 'Mobile': r.mobile, 'Total (₹)': r.total, 'Received (₹)': r.paid, 'Pending (₹)': r.pending, 'Pickups': r.count, 'Last Payment': r.lastPaymentDate || '' })),
+    partnerRows.map(r => ({
+      'Pickup Partner': r.partnerName, 'Mobile': r.mobile,
+      'Total (₹)': r.total, 'Received (₹)': r.paid,
+      'Pending (₹)': r.pending, 'Written Off (₹)': r.writeOff,
+      'Pickups': r.count, 'Last Payment': r.lastPaymentDate || '',
+    })),
     'Pickup_Partner_Payments'
   )
 
   return (
     <div>
-      <div className="stat-grid" style={{ marginBottom: 20 }}>
-        <div className="stat-card orange">
-          <div className="stat-icon"><IndianRupee size={18} /></div>
-          <div className="stat-value">{fmtCurrency(globalKPIs.totalRevenue)}</div>
-          <div className="stat-label">Total RST Revenue</div>
-          <div className="stat-change up">{globalKPIs.totalPickups} pickups</div>
-        </div>
-        <div className="stat-card green">
-          <div className="stat-icon"><CheckCircle size={18} /></div>
-          <div className="stat-value">{fmtCurrency(globalKPIs.totalReceived)}</div>
-          <div className="stat-label">Total Received</div>
-          <div className="stat-change up">{Math.round((globalKPIs.totalReceived / (globalKPIs.totalRevenue || 1)) * 100)}% collected</div>
-        </div>
-        <div className="stat-card red">
-          <div className="stat-icon"><AlertCircle size={18} /></div>
-          <div className="stat-value">{fmtCurrency(globalKPIs.totalPending)}</div>
-          <div className="stat-label">Pending</div>
-          <div className="stat-change down">{globalKPIs.withPending} partners</div>
-        </div>
-        <div className="stat-card blue">
-          <div className="stat-icon"><Truck size={18} /></div>
-          <div className="stat-value">{globalKPIs.totalPartners}</div>
-          <div className="stat-label">Active Partners</div>
-        </div>
+
+      {/* ── Global KPI strip ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 20 }}>
+        {[
+          { label: 'Total Revenue',  val: fmtCurrency(globalKPIs.totalRevenue),  tone: 'orange', icon: IndianRupee },
+          { label: 'Collected',      val: fmtCurrency(globalKPIs.totalReceived), tone: 'green',  icon: CheckCircle },
+          { label: 'Pending',        val: fmtCurrency(globalKPIs.totalPending),  tone: 'red',    icon: AlertCircle },
+          { label: 'Written Off',    val: fmtCurrency(globalKPIs.totalWriteOff), tone: 'blue',   icon: Truck },
+        ].map(item => {
+          const Icon = item.icon
+          return (
+            <div key={item.label} className={`stat-card ${item.tone}`}>
+              <div className="stat-icon"><Icon size={18} /></div>
+              <div className="stat-value">{item.val}</div>
+              <div className="stat-label">{item.label}</div>
+            </div>
+          )
+        })}
       </div>
 
-       
-
+      {/* ── Filters ── */}
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius)', padding: '12px 16px', marginBottom: 16, boxShadow: 'var(--shadow)' }}>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
           <Calendar size={13} color="var(--primary)" />
@@ -1131,8 +1131,13 @@ function PartnerPaymentHub({ pickups, PickupPartners, recordPickupPartnerPayment
       </div>
 
       <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginBottom: 12 }}>
-        <strong style={{ color: 'var(--text-primary)' }}>{partnerRows.length}</strong> partners ·
-        <span style={{ color: 'var(--danger)', fontWeight: 600, marginLeft: 4 }}>{globalKPIs.withPending}</span> with pending
+        <strong style={{ color: 'var(--text-primary)' }}>{partnerRows.length}</strong> partners ·{' '}
+        <span style={{ color: 'var(--danger)', fontWeight: 600 }}>{globalKPIs.withPending}</span> with pending
+        {globalKPIs.totalWriteOff > 0 && (
+          <span style={{ marginLeft: 8, color: 'var(--text-muted)', fontWeight: 600 }}>
+            · {fmtCurrency(globalKPIs.totalWriteOff)} written off
+          </span>
+        )}
       </div>
 
       {partnerRows.length === 0 ? (
@@ -1155,13 +1160,12 @@ function PartnerPaymentHub({ pickups, PickupPartners, recordPickupPartnerPayment
         ))
       )}
 
-      {payContext && <RecordPaymentModal context={payContext} onClose={() => setPayContext(null)} onSave={handlePaySave} saving={saving} />}
-      {writeOffCtx && <WriteOffModal context={writeOffCtx} onClose={() => setWriteOffCtx(null)} onConfirm={handleWriteOffConfirm} saving={saving} />}
-      {histPartner && <HistoryModal partner={histPartner} onClose={() => setHistPartner(null)} />}
+      {payContext  && <RecordPaymentModal context={payContext}  onClose={() => setPayContext(null)}  onSave={handlePaySave}         saving={saving} />}
+      {writeOffCtx && <WriteOffModal      context={writeOffCtx} onClose={() => setWriteOffCtx(null)} onConfirm={handleWriteOffConfirm} saving={saving} />}
+      {histPartner && <HistoryModal       partner={histPartner} onClose={() => setHistPartner(null)} />}
     </div>
   )
 }
-
 // ══════════════════════════════════════════════════════════════════════════════
 // RST REVENUE ANALYTICS
 // ══════════════════════════════════════════════════════════════════════════════

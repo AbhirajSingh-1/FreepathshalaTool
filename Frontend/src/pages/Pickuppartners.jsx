@@ -589,189 +589,151 @@ export default function PickupPartners() {
   const isExecutive = role === 'executive'
 
   // ── REDESIGNED 2-COLUMN MODAL ─────────────────────────────────────────────
-  // FIX: Wider modal (960px), more spacious layout, better section separation
   function renderModal() {
     return (
       <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && close()}>
-        <div className="modal" style={{ maxWidth: 960, width: '96vw' }}>
+        <div className="modal" style={{ maxWidth: 520, width: '95vw' }}>
 
           {/* Header */}
-          <div className="modal-header" style={{ padding: '16px 24px', background: editing ? 'var(--surface)' : 'linear-gradient(135deg,var(--secondary-light),var(--surface))' }}>
+          <div className="modal-header">
             <UserCheck size={18} color="var(--secondary)" />
             <div>
               <div className="modal-title">{editing ? 'Edit Pickup Partner' : 'Add Pickup Partner'}</div>
-              {editing?.id && <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:1 }}>ID: {editing.id}</div>}
+              {editing?.id && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>ID: {editing.id}</div>}
             </div>
-            {editing?.id && (
-              <span style={{ fontFamily:'monospace', fontSize:12, fontWeight:800, color:'white', background:'var(--secondary)', padding:'3px 10px', borderRadius:6 }}>
-                {editing.id}
-              </span>
-            )}
-            <button className="btn btn-ghost btn-icon btn-sm" style={{ marginLeft: editing?.id ? 0 : 'auto' }} onClick={close}>
-              <X size={16}/>
+            <button className="btn btn-ghost btn-icon btn-sm" style={{ marginLeft: 'auto' }} onClick={close}>
+              <X size={16} />
             </button>
           </div>
 
-          {/* Body — true 2-column grid */}
-          <div className="modal-body" style={{ padding: '20px 24px', overflowY: 'auto', maxHeight: '75vh' }}>
+          {/* Body — single column, spacious */}
+          <div className="modal-body" style={{ padding: '22px 24px', display: 'flex', flexDirection: 'column', gap: 18 }}>
             {error && (
-              <div className="alert-strip alert-danger" style={{ marginBottom: 16 }}>
-                <AlertCircle size={13}/>{error}
+              <div className="alert-strip alert-danger">
+                <AlertCircle size={13} /> {error}
               </div>
             )}
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, alignItems: 'start' }}>
-
-              {/* ── LEFT COLUMN: Basic Info + Documents ── */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-                {/* Partner Info */}
-                <div style={{ background: 'var(--bg)', borderRadius: 12, padding: '16px 18px', border: '1px solid var(--border-light)' }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--secondary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <UserCheck size={12} /> Partner Info
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    <div className="form-group" style={{ margin: 0 }}>
-                      <label>Full Name <span className="required">*</span></label>
-                      <input
-                        value={form.name||''}
-                        onChange={e => setForm(f=>({...f,name:e.target.value}))}
-                        placeholder="Partner full name"
-                        autoFocus
-                      />
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                      <div className="form-group" style={{ margin: 0 }}>
-                        <label>Mobile <span className="required">*</span></label>
-                        <input
-                          value={form.mobile||''}
-                          onChange={e => setForm(f=>({...f,mobile:e.target.value}))}
-                          placeholder="10-digit"
-                          maxLength={10}
-                          inputMode="numeric"
-                        />
-                      </div>
-                      <div className="form-group" style={{ margin: 0 }}>
-                        <label>Email <span style={{ fontSize: 10, fontWeight: 400, color: 'var(--text-muted)' }}>(optional)</span></label>
-                        <input
-                          type="email"
-                          value={form.email||''}
-                          onChange={e => setForm(f=>({...f,email:e.target.value}))}
-                          placeholder="email@example.com"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Documents */}
-                <div style={{ background: 'linear-gradient(135deg,rgba(59,130,246,0.06),rgba(59,130,246,0.02))', borderRadius: 12, padding: '16px 18px', border: '1px solid rgba(59,130,246,0.18)' }}>
-                  <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--info)', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <FileText size={14} /> Documents
-                    <span style={{ fontSize: 10.5, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 2 }}>Optional — for verification</span>
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                    <DocUpload
-                      label="Partner Photo"
-                      icon={Image}
-                      value={form.photo}
-                      accept="image/*"
-                      preview
-                      onChange={handleFileUpload('photo')}
-                      onRemove={() => setForm(f => ({ ...f, photo: null }))}
-                    />
-                    <DocUpload
-                      label="Aadhaar Card"
-                      icon={FileText}
-                      value={form.aadhaarDoc}
-                      accept="image/*,application/pdf"
-                      onChange={handleFileUpload('aadhaarDoc')}
-                      onRemove={() => setForm(f => ({ ...f, aadhaarDoc: null }))}
-                    />
-                  </div>
-                </div>
-
+            {/* ── Basic Info ── */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label>Full Name <span className="required">*</span></label>
+                <input
+                  value={form.name || ''}
+                  onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                  placeholder="e.g. Suresh Bhai"
+                  autoFocus
+                />
               </div>
-
-              {/* ── RIGHT COLUMN: City + Coverage + Rate ── */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-                {/* City */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div className="form-group" style={{ margin: 0 }}>
-                  <label style={{ display:'flex', alignItems:'center', gap:5 }}>
-                    <Building2 size={12} color="var(--primary)"/> City <span className="required">*</span>
-                  </label>
+                  <label>Mobile <span className="required">*</span></label>
+                  <input
+                    value={form.mobile || ''}
+                    onChange={e => setForm(f => ({ ...f, mobile: e.target.value }))}
+                    placeholder="10-digit"
+                    maxLength={10}
+                    inputMode="numeric"
+                  />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>City</label>
                   <select
-                    value={form.city||'Gurgaon'}
-                    onChange={e => setForm(f=>({...f,city:e.target.value,sectors:[],societies:[]}))}
+                    value={form.city || 'Gurgaon'}
+                    onChange={e => setForm(f => ({ ...f, city: e.target.value, sectors: [], societies: [] }))}
                   >
                     {CITIES.map(c => <option key={c}>{c}</option>)}
                   </select>
                 </div>
+              </div>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label>Email <span style={{ fontSize: 10.5, fontWeight: 400, color: 'var(--text-muted)' }}>(optional)</span></label>
+                <input
+                  type="email"
+                  value={form.email || ''}
+                  onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+                  placeholder="partner@email.com"
+                />
+              </div>
+            </div>
 
-                {/* Coverage Area */}
-                <div style={{ background: 'var(--bg)', borderRadius: 12, padding: '16px 18px', border: '1px solid var(--border-light)' }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <MapPin size={12} /> Coverage Area
-                  </div>
-                  <CoverageSelector
-                    city={form.city||'Gurgaon'}
-                    sectors={form.sectors||[]}
-                    societies={form.societies||[]}
-                    onSectors={s => setForm(f=>({...f,sectors:s}))}
-                    onSocieties={s => setForm(f=>({...f,societies:s}))}
-                  />
+            {/* ── Coverage ── */}
+            <div style={{ background: 'var(--bg)', borderRadius: 10, padding: '14px 16px', border: '1px solid var(--border-light)' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
+                <MapPin size={12} /> Coverage Area
+              </div>
+              <CoverageSelector
+                city={form.city || 'Gurgaon'}
+                sectors={form.sectors || []}
+                societies={form.societies || []}
+                onSectors={s => setForm(f => ({ ...f, sectors: s }))}
+                onSocieties={s => setForm(f => ({ ...f, societies: s }))}
+              />
+            </div>
+
+            {/* ── Rate Chart (collapsible) ── */}
+            <div style={{ background: 'var(--secondary-light)', borderRadius: 10, padding: '12px 16px', border: '1px solid rgba(27,94,53,0.2)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: showRateEditor ? 12 : 0 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <IndianRupee size={12} /> Rate Chart (₹/kg)
                 </div>
-
-                {/* Rate Chart */}
-                <div style={{ background: 'linear-gradient(135deg,var(--secondary-light),rgba(255,255,255,0))', borderRadius: 12, padding: '16px 18px', border: '1px solid rgba(27,94,53,0.2)' }}>
-                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom: showRateEditor ? 12 : 0 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--secondary)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <IndianRupee size={12} /> Rate Chart (₹/kg)
+                <button type="button" onClick={() => setShowRateEditor(v => !v)} className="btn btn-sm btn-ghost" style={{ fontSize: 11.5 }}>
+                  {showRateEditor ? <><ChevronUp size={11} /> Collapse</> : <><ChevronDown size={11} /> Edit Rates</>}
+                </button>
+              </div>
+              {showRateEditor ? (
+                <RateChartEditor
+                  rateChart={form.rateChart || DEFAULT_RATE_CHART}
+                  onChange={rc => setForm(f => ({ ...f, rateChart: rc }))}
+                />
+              ) : (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                  {RATE_CHART_ITEMS.slice(0, 5).map(item => (
+                    <div key={item} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', background: 'rgba(255,255,255,0.7)', borderRadius: 20, fontSize: 11, border: '1px solid rgba(27,94,53,0.15)' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>{item.split(' ')[0]}</span>
+                      <span style={{ fontWeight: 700, color: 'var(--secondary)' }}>₹{(form.rateChart || {})[item] ?? 0}</span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setShowRateEditor(v=>!v)}
-                      className="btn btn-sm btn-ghost"
-                      style={{ fontSize: 11.5, padding: '4px 10px' }}
-                    >
-                      {showRateEditor ? <><ChevronUp size={11}/> Collapse</> : <><ChevronDown size={11}/> Edit Rates</>}
-                    </button>
-                  </div>
-                  {!showRateEditor ? (
-                    <div style={{ display:'flex', flexWrap:'wrap', gap:5, marginTop: 8 }}>
-                      {RATE_CHART_ITEMS.slice(0, 6).map(item => (
-                        <div key={item} style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'3px 9px', background:'rgba(255,255,255,0.7)', borderRadius:20, fontSize:11, border:'1px solid rgba(27,94,53,0.15)' }}>
-                          <span style={{ color:'var(--text-muted)' }}>{item.split(' ')[0]}</span>
-                          <span style={{ fontWeight:700, color:'var(--secondary)' }}>₹{(form.rateChart||{})[item]??0}</span>
-                        </div>
-                      ))}
-                      {RATE_CHART_ITEMS.length > 6 && (
-                        <span style={{ fontSize:10.5, color:'var(--text-muted)', padding:'3px 6px' }}>
-                          +{RATE_CHART_ITEMS.length-6} more
-                        </span>
-                      )}
-                    </div>
-                  ) : (
-                    <RateChartEditor
-                      rateChart={form.rateChart||DEFAULT_RATE_CHART}
-                      onChange={rc => setForm(f=>({...f,rateChart:rc}))}
-                    />
-                  )}
+                  ))}
+                  <span style={{ fontSize: 10.5, color: 'var(--text-muted)', padding: '2px 4px' }}>+{RATE_CHART_ITEMS.length - 5} more</span>
                 </div>
+              )}
+            </div>
 
+            {/* ── Documents (collapsible) ── */}
+            <div style={{ background: 'rgba(59,130,246,0.05)', borderRadius: 10, padding: '12px 16px', border: '1px solid rgba(59,130,246,0.15)' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--info)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
+                <FileText size={12} /> Documents <span style={{ fontSize: 10.5, fontWeight: 400, color: 'var(--text-muted)', textTransform: 'none', letterSpacing: 0 }}>(optional)</span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                <DocUpload
+                  label="Partner Photo"
+                  icon={Image}
+                  value={form.photo}
+                  accept="image/*"
+                  preview
+                  onChange={handleFileUpload('photo')}
+                  onRemove={() => setForm(f => ({ ...f, photo: null }))}
+                />
+                <DocUpload
+                  label="Aadhaar Card"
+                  icon={FileText}
+                  value={form.aadhaarDoc}
+                  accept="image/*,application/pdf"
+                  onChange={handleFileUpload('aadhaarDoc')}
+                  onRemove={() => setForm(f => ({ ...f, aadhaarDoc: null }))}
+                />
               </div>
             </div>
           </div>
 
           {/* Footer */}
-          <div className="modal-footer" style={{ padding: '14px 24px' }}>
+          <div className="modal-footer">
             <button className="btn btn-ghost" onClick={close} disabled={saving}>Cancel</button>
             <button
               className="btn btn-primary"
               onClick={save}
-              disabled={saving||!form.name?.trim()||!form.mobile?.trim()}
-              style={{ minWidth: 160 }}
+              disabled={saving || !form.name?.trim() || !form.mobile?.trim()}
+              style={{ minWidth: 140 }}
             >
               {saving ? 'Saving…' : editing ? 'Save Changes' : 'Add Pickup Partner'}
             </button>

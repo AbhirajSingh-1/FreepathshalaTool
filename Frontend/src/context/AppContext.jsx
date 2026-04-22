@@ -369,11 +369,43 @@ export function AppProvider({ children }) {
     setpickuppartners(prev => prev.filter(k => k.id !== id))
   }, [])
 
-  const recordPickupPartnerPayment = useCallback(async (pickuppartnerId, {
-    pickupId, amount, refMode, refValue, notes, date, screenshot,
-  }) => {
-    await delay()
-    const additional = Number(amount) || 0
+const recordPickupPartnerPayment = useCallback(async (pickuppartnerId, {
+  pickupId, amount, refMode, refValue, notes, date, screenshot, writeOff,
+}) => {
+  await delay()
+
+  // ── Per-entry write-off: mark pickup as Write Off, reduce partner pending ──
+  if (writeOff && pickupId) {
+    setPickups(prevPickups => {
+      const pickup = prevPickups.find(p => p.id === pickupId)
+      if (!pickup) return prevPickups
+      const pendingAmt = Math.max(0, (Number(pickup.totalValue) || 0) - (Number(pickup.amountPaid) || 0))
+
+      setpickuppartners(prevK => prevK.map(k => {
+        if (k.id !== pickuppartnerId) return k
+        return {
+          ...k,
+          pendingAmount: Math.max(0, (k.pendingAmount || 0) - pendingAmt),
+          transactions: (k.transactions || []).map(tx =>
+            tx.pickupId === pickupId ? { ...tx, status: 'Write Off' } : tx
+          ),
+        }
+      }))
+
+      setRaddi(prevR => prevR.map(r =>
+        (r.pickupId === pickupId || r.orderId === pickupId)
+          ? { ...r, paymentStatus: 'Write-off' }
+          : r
+      ))
+
+      return prevPickups.map(p =>
+        p.id === pickupId ? { ...p, paymentStatus: 'Write Off' } : p
+      )
+    })
+    return
+  }
+
+  const additional = Number(amount) || 0
     setpickuppartners(prev => prev.map(k => {
       if (k.id !== pickuppartnerId) return k
       return {
