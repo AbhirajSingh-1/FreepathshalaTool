@@ -161,7 +161,7 @@ function CoverageSelector({ city, sectors, societies, onSectors, onSocieties }) 
             style={{ padding:'8px 10px', border:`1.5px solid ${openSec ? 'var(--secondary)' : 'var(--border)'}`, borderRadius:'var(--radius-sm)', cursor:'pointer', background:'var(--surface)', minHeight:40, display:'flex', alignItems:'center', flexWrap:'wrap', gap:5, boxShadow: openSec ? '0 0 0 3px rgba(27,94,53,0.12)' : 'none', fontSize: 12.5 }}
           >
             {safeSectors.length === 0 ? (
-              <span style={{ color:'var(--text-muted)' }}>Select up to 3 sectors…</span>
+              <span style={{ color:'var(--text-muted)' }}>Select up to 2 sectors…</span>
             ) : safeSectors.map(s => (
               <span key={s} style={{ background:'var(--secondary-light)', color:'var(--secondary)', borderRadius:20, padding:'2px 9px', fontSize:11.5, fontWeight:600, display:'inline-flex', alignItems:'center', gap:4 }}>
                 {s}
