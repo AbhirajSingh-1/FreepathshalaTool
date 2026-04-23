@@ -1,6 +1,6 @@
 // Frontend/src/pages/SKSOverview.jsx
 // ENHANCED: Payment integration in Stock Out, AppContext for shared state
-import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import {
   ArrowDownCircle, ArrowUpCircle, Package, Boxes,
   Plus, X, CheckCircle, Download, Trash2,
@@ -459,7 +459,7 @@ function StockInForm({ allSKSItems, onAdd, onAddCustomItem, showToast }) {
 }
 
 // ── Stock In History ──────────────────────────────────────────────────────────
-function HistoryView({ inflows, isAdmin, onDelete, showToast }) {
+function HistoryView({ inflows, outflows = [], isAdmin, onDeleteInflow, onDeleteOutflow, showToast }) {
   const [datePreset, setDatePreset] = useState('')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo,   setCustomTo]   = useState('')
@@ -471,31 +471,51 @@ function HistoryView({ inflows, isAdmin, onDelete, showToast }) {
     [datePreset, customFrom, customTo]
   )
 
+  const movements = useMemo(() => ([
+    ...inflows.map(r => ({ ...r, movementType: 'in', movementLabel: 'Stock In' })),
+    ...outflows.map(r => ({ ...r, movementType: 'out', movementLabel: 'Stock Out' })),
+  ]), [inflows, outflows])
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim()
-    return inflows.filter(r => {
+    return movements.filter(r => {
       const inDate   = (!dateFrom || (r.date || '') >= dateFrom) && (!dateTo || (r.date || '') <= dateTo)
-      const inSearch = !q || (r.society || '').toLowerCase().includes(q) || (r.sector || '').toLowerCase().includes(q) || (r.city || '').toLowerCase().includes(q) || (r.id || '').toLowerCase().includes(q) || (r.notes || '').toLowerCase().includes(q)
+      const haystack = [
+        r.movementLabel, r.society, r.sector, r.city, r.partnerName,
+        r.partnerPhone, r.id, r.notes, ...(r.items || []).map(it => it.name),
+      ].filter(Boolean).join(' ').toLowerCase()
+      const inSearch = !q || haystack.includes(q)
       return inDate && inSearch
-    }).sort((a, b) => (b.date || '').localeCompare(a.date || ''))
-  }, [inflows, dateFrom, dateTo, search])
+    }).sort((a, b) => {
+      const byDate = (b.date || '').localeCompare(a.date || '')
+      if (byDate) return byDate
+      return (a.movementType || '').localeCompare(b.movementType || '')
+    })
+  }, [movements, dateFrom, dateTo, search])
 
-  const totalQty    = filtered.reduce((s, r) => s + (r.items || []).reduce((a, it) => a + it.qty, 0), 0)
+  const totalInQty  = filtered.filter(r => r.movementType === 'in').reduce((s, r) => s + (r.items || []).reduce((a, it) => a + it.qty, 0), 0)
+  const totalOutQty = filtered.filter(r => r.movementType === 'out').reduce((s, r) => s + (r.items || []).reduce((a, it) => a + it.qty, 0), 0)
   const toggleExpand = id => setExpanded(prev => ({ ...prev, [id]: !prev[id] }))
 
-  const handleDelete = (id) => {
-    if (!window.confirm('Delete this Stock In record?')) return
-    onDelete(id)
-    showToast('Stock In record deleted', 'info')
+  const handleDelete = (record) => {
+    const isOut = record.movementType === 'out'
+    if (!window.confirm(`Delete this ${isOut ? 'Stock Out' : 'Stock In'} record?`)) return
+    if (isOut) onDeleteOutflow(record.id)
+    else onDeleteInflow(record.id)
+    showToast(`${isOut ? 'Stock Out' : 'Stock In'} record deleted`, 'info')
   }
 
   const handleExport = () => {
     exportToExcel(
       filtered.flatMap(r => (r.items || []).map(it => ({
-        'ID': r.id, 'Date': r.date, 'City': r.city || '', 'Sector': r.sector || '',
-        'Society': r.society || '', 'Item': it.name, 'Qty': it.qty, 'Notes': r.notes || '',
+        'Movement': r.movementLabel, 'ID': r.id, 'Date': r.date,
+        'Party / Location': r.movementType === 'out'
+          ? [r.partnerName, r.partnerPhone].filter(Boolean).join(' / ')
+          : [r.society, r.sector, r.city].filter(Boolean).join(', '),
+        'Item': it.name, 'Qty': it.qty, 'Payment Status': r.payment?.status || '',
+        'Notes': r.notes || '',
       }))),
-      'SKS_StockIn_History'
+      'SKS_Stock_Movement_History'
     )
     showToast('Export complete', 'success', `${filtered.length} records downloaded`)
   }
@@ -530,7 +550,8 @@ function HistoryView({ inflows, isAdmin, onDelete, showToast }) {
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, fontSize: 12.5, color: 'var(--text-muted)', flexWrap: 'wrap' }}>
         <span><strong style={{ color: 'var(--text-primary)' }}>{filtered.length}</strong> entries ·</span>
-        <span><strong style={{ color: 'var(--secondary)' }}>{totalQty}</strong> items received</span>
+        <span><strong style={{ color: 'var(--secondary)' }}>+{totalInQty}</strong> stock in</span>
+        <span><strong style={{ color: 'var(--primary)' }}>-{totalOutQty}</strong> stock out</span>
         {!isAdmin && (
           <span style={{ marginLeft: 'auto', fontSize: 11, padding: '2px 10px', background: 'var(--border-light)', borderRadius: 20, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
             🔒 Delete: Admin only
@@ -544,36 +565,44 @@ function HistoryView({ inflows, isAdmin, onDelete, showToast }) {
       {filtered.length === 0 ? (
         <div className="empty-state">
           <div className="empty-icon" style={{ background: 'var(--secondary-light)', color: 'var(--secondary)' }}>
-            <ArrowDownCircle size={24} />
+            <FileTextIcon size={24} />
           </div>
-          <h3>No Stock In Records</h3>
-          <p>Stock In entries will appear here once recorded.</p>
+          <h3>No Stock Movement Records</h3>
+          <p>Stock In and Stock Out entries will appear here once recorded.</p>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {filtered.map(r => {
             const rowTotal   = (r.items || []).reduce((s, it) => s + it.qty, 0)
             const isOpen     = !!expanded[r.id]
-            const hasDetails = (r.items || []).length > 1 || !!r.notes
+            const isOut      = r.movementType === 'out'
+            const tone       = isOut ? 'var(--primary)' : 'var(--secondary)'
+            const toneBg     = isOut ? 'var(--primary-light)' : 'var(--secondary-light)'
+            const IconMain   = isOut ? ArrowUpCircle : ArrowDownCircle
+            const hasDetails = (r.items || []).length > 1 || !!r.notes || !!r.payment
             return (
-              <div key={r.id} className="card">
+              <div key={`${r.movementType}-${r.id}`} className="card">
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '13px 16px', cursor: hasDetails ? 'pointer' : 'default' }}
                   onClick={() => hasDetails && toggleExpand(r.id)}>
-                  <div style={{ width: 40, height: 40, borderRadius: 10, background: 'var(--secondary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <ArrowDownCircle size={18} color="var(--secondary)" />
+                  <div style={{ width: 40, height: 40, borderRadius: 10, background: toneBg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <IconMain size={18} color={tone} />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 5 }}>
-                      <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 700, color: 'white', background: 'var(--secondary)', padding: '2px 7px', borderRadius: 4 }}>{r.id}</span>
+                      <span style={{ fontSize: 10.5, fontWeight: 800, color: tone, background: toneBg, padding: '2px 8px', borderRadius: 20 }}>{r.movementLabel}</span>
+                      <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 700, color: 'white', background: tone, padding: '2px 7px', borderRadius: 4 }}>{r.id}</span>
                       <span style={{ fontWeight: 700, fontSize: 13 }}>{fmtDate(r.date)}</span>
                     </div>
-                    <div style={{ fontSize: 12, color: 'var(--secondary)', display: 'flex', alignItems: 'center', gap: 5, marginBottom: 7 }}>
-                      <MapPin size={11} />
+                    <div style={{ fontSize: 12, color: tone, display: 'flex', alignItems: 'center', gap: 5, marginBottom: 7 }}>
+                      {isOut ? <Package size={11} /> : <MapPin size={11} />}
+                      {isOut && ([r.partnerName, r.partnerPhone].filter(Boolean).join(' / ') || 'Recipient not recorded')}
+                      <span style={{ display: isOut ? 'none' : 'inline' }}>
                       {[r.society, r.sector, r.city].filter(Boolean).join(', ') || '—'}
+                      </span>
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                       {(r.items || []).slice(0, 4).map(it => (
-                        <span key={it.name} style={{ fontSize: 10.5, padding: '2px 9px', borderRadius: 20, background: 'var(--secondary-light)', color: 'var(--secondary)', fontWeight: 600 }}>
+                        <span key={it.name} style={{ fontSize: 10.5, padding: '2px 9px', borderRadius: 20, background: toneBg, color: tone, fontWeight: 600 }}>
                           {it.name} ×{it.qty}
                         </span>
                       ))}
@@ -582,12 +611,12 @@ function HistoryView({ inflows, isAdmin, onDelete, showToast }) {
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
                     <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 800, color: 'var(--secondary)', lineHeight: 1 }}>+{rowTotal}</div>
+                      <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 800, color: tone, lineHeight: 1 }}>{isOut ? '-' : '+'}{rowTotal}</div>
                       <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>items</div>
                     </div>
                     {hasDetails && <span style={{ color: 'var(--text-muted)' }}>{isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</span>}
                     {isAdmin && (
-                      <button onClick={e => { e.stopPropagation(); handleDelete(r.id) }}
+                      <button onClick={e => { e.stopPropagation(); handleDelete(r) }}
                         style={{ width: 30, height: 30, borderRadius: 7, border: '1px solid var(--danger)', background: 'var(--danger-bg)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--danger)' }}
                         title="Delete record (Admin only)">
                         <Trash2 size={12} />
@@ -602,7 +631,7 @@ function HistoryView({ inflows, isAdmin, onDelete, showToast }) {
                         const cfg = SKS_ITEM_CONFIG[it.name] || { icon: ShoppingBag }; const Icon = cfg.icon
                         return (
                           <div key={it.name} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border-light)' }}>
-                            <Icon size={13} color="var(--secondary)" />
+                            <Icon size={13} color={tone} />
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ fontSize: 12.5, fontWeight: 600 }} className="truncate">{it.name}</div>
                               <div style={{ fontSize: 11, color: 'var(--secondary)', fontWeight: 700 }}>×{it.qty}</div>
@@ -611,6 +640,19 @@ function HistoryView({ inflows, isAdmin, onDelete, showToast }) {
                         )
                       })}
                     </div>
+                    {isOut && r.payment && (
+                      <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                        <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--secondary)', background: 'var(--secondary-light)', padding: '3px 9px', borderRadius: 20 }}>
+                          {fmtCurrency(Number(r.payment.amount) || 0)} received
+                        </span>
+                        {r.payment.status && (
+                          <span style={{ fontSize: 11, fontWeight: 700, color: tone, background: toneBg, padding: '3px 9px', borderRadius: 20 }}>
+                            {r.payment.status}
+                          </span>
+                        )}
+                        {r.payment.screenshot && <ScreenshotThumb src={r.payment.screenshot} label={`Payment Proof - ${r.partnerName}`} />}
+                      </div>
+                    )}
                     {r.notes && <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic', padding: '6px 10px', background: 'var(--surface)', borderRadius: 6 }}>📝 {r.notes}</div>}
                   </div>
                 )}
@@ -624,7 +666,7 @@ function HistoryView({ inflows, isAdmin, onDelete, showToast }) {
 }
 
 // ── Payment Section for Dispatch ──────────────────────────────────────────────
-function DispatchPaymentSection({ totalItems, payState, onChange }) {
+function DispatchPaymentSection({ payState, onChange }) {
   const { method, amount, reference, notes, screenshot } = payState
 
   const handleScreenshot = (e) => {
@@ -1037,7 +1079,7 @@ function StockOutView({ stock, allSKSItems, outflows, isAdmin, onAddOutflow, onD
             <textarea value={dispNotes} onChange={e => setDispNotes(e.target.value)} placeholder="Purpose, receipt reference…" style={{ minHeight: 52 }} />
           </div>
 
-          <DispatchPaymentSection totalItems={totalDispatch} payState={payState} onChange={setPayState} />
+          <DispatchPaymentSection payState={payState} onChange={setPayState} />
 
           {dispError && <div className="alert-strip alert-danger"><AlertCircle size={13} style={{ flexShrink: 0 }} /> {dispError}</div>}
 
@@ -1130,7 +1172,6 @@ function StockOutView({ stock, allSKSItems, outflows, isAdmin, onAddOutflow, onD
 // ════════════════════════════════════════════════════════════════════════════
 export default function SKSOverview() {
   const {
-    pickups,
     sksInflows, sksOutflows,
     addSksInflow, addSksOutflow,
     deleteSksInflow, deleteSksOutflow,
@@ -1157,9 +1198,6 @@ export default function SKSOverview() {
   const addCustomItem = useCallback(name => setCustomItems(prev => prev.includes(name) ? prev : [...prev, name]), [])
 
   const totalInStock    = Object.values(stock).reduce((s, v) => s + v, 0)
-  const totalReceived   = sksInflows.reduce((s, r) => s + (r.items || []).reduce((a, it) => a + it.qty, 0), 0)
-  const totalDispatched = sksOutflows.reduce((s, r) => s + (r.items || []).reduce((a, it) => a + it.qty, 0), 0)
-
   const TABS = [
     { id: 'stockin',   label: '↓ Add Stock',         count: null },
     { id: 'history',   label: '📋 Stock History', count: sksInflows.length || null },
@@ -1198,7 +1236,14 @@ export default function SKSOverview() {
         <StockInForm allSKSItems={allSKSItems} onAdd={addInflow} onAddCustomItem={addCustomItem} showToast={showToast} />
       )}
       {section === 'history' && (
-        <HistoryView inflows={sksInflows} isAdmin={isAdmin} onDelete={deleteInflow} showToast={showToast} />
+        <HistoryView
+          inflows={sksInflows}
+          outflows={sksOutflows}
+          isAdmin={isAdmin}
+          onDeleteInflow={deleteInflow}
+          onDeleteOutflow={deleteOutflow}
+          showToast={showToast}
+        />
       )}
       {section === 'warehouse' && (
         <WarehouseView

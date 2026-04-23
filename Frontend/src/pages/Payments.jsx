@@ -86,6 +86,56 @@ function OrderIdChip({ id }) {
   )
 }
 
+function ToastStack({ toasts, onRemove }) {
+  return (
+    <div style={{ position: 'fixed', right: 24, bottom: 24, zIndex: 9999, display: 'flex', flexDirection: 'column', gap: 8, pointerEvents: 'none' }}>
+      {toasts.map(t => {
+        const success = t.type === 'success'
+        const error = t.type === 'error'
+        const Icon = success ? CheckCircle : AlertCircle
+        return (
+          <div key={t.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 280, maxWidth: 380, padding: '12px 14px', borderRadius: 12, background: error ? 'var(--danger)' : success ? 'var(--secondary)' : 'var(--info)', color: 'white', boxShadow: 'var(--shadow-lg)', pointerEvents: 'auto' }}>
+            <Icon size={16} style={{ flexShrink: 0, marginTop: 2 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 800, fontSize: 13 }}>{t.message}</div>
+              {t.sub && <div style={{ fontSize: 12, opacity: 0.86, marginTop: 2 }}>{t.sub}</div>}
+            </div>
+            <button type="button" onClick={() => onRemove(t.id)} style={{ border: 0, background: 'transparent', color: 'white', cursor: 'pointer', padding: 2, opacity: 0.82 }}>
+              <X size={14} />
+            </button>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function useToastStack() {
+  const [toasts, setToasts] = useState([])
+  const showToast = useCallback((message, type = 'success', sub = '') => {
+    const id = Date.now() + Math.random()
+    setToasts(prev => [...prev, { id, message, type, sub }])
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3600)
+  }, [])
+  const removeToast = useCallback(id => setToasts(prev => prev.filter(t => t.id !== id)), [])
+  return { toasts, showToast, removeToast }
+}
+
+function FeedbackStrip({ feedback }) {
+  if (!feedback) return null
+  const styleMap = {
+    success: 'alert-success',
+    error: 'alert-danger',
+    info: 'alert-info',
+  }
+  return (
+    <div className={`alert-strip ${styleMap[feedback.type] || 'alert-info'}`} style={{ marginBottom: 14, alignItems: 'center' }}>
+      {feedback.type === 'success' ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
+      <span><strong>{feedback.message}</strong>{feedback.sub ? ` - ${feedback.sub}` : ''}</span>
+    </div>
+  )
+}
+
 // ── Status dot with label ─────────────────────────────────────────────────────
 function StatusPill({ status }) {
   const MAP = {
@@ -132,6 +182,7 @@ function RecordPaymentModal({ context, onClose, onSave, saving }) {
   const [notes,      setNotes]      = useState('')
   const [screenshot, setScreenshot] = useState(null)
   const [error,      setError]      = useState('')
+  const [uploadMessage, setUploadMessage] = useState('')
 
   const entered  = Number(amount) || 0
   const afterPay = Math.max(0, context.pending - entered)
@@ -143,21 +194,30 @@ function RecordPaymentModal({ context, onClose, onSave, saving }) {
   const handleScreenshot = (e) => {
     const file = e.target.files?.[0]; if (!file) return
     const reader = new FileReader()
-    reader.onload = ev => setScreenshot(ev.target.result)
+    reader.onload = ev => {
+      setScreenshot(ev.target.result)
+      setUploadMessage(`${file.name} uploaded successfully.`)
+      setError('')
+    }
+    reader.onerror = () => {
+      setUploadMessage('')
+      setError('Screenshot upload failed. Please try another image.')
+    }
     reader.readAsDataURL(file)
+    e.target.value = ''
   }
 
   const handleSave = () => {
     if (context.pending <= 0) { setError('No pending balance.'); return }
     if (entered <= 0)         { setError('Please enter a valid amount.'); return }
-    if (entered > context.pending + 0.01) { setError(`Maximum allPending: ${money(context.pending)}`); return }
+    if (entered > context.pending + 0.01) { setError(`Maximum allowed: ${money(context.pending)}`); return }
     if (hasRef && !reference.trim()) { setError(`Please enter the ${REF_LABELS[method] || 'reference number'}.`); return }
     onSave({ amount: entered, date, method, reference: reference.trim(), notes: notes.trim(), screenshot, isFull })
   }
 
   return (
     <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal" style={{ maxWidth: 440, width: '95vw' }}>
+      <div className="modal" style={{ maxWidth: 540, width: '95vw', maxHeight: 'calc(100vh - 24px)', overflow: 'hidden' }}>
         {/* Header */}
         <div className="modal-header" style={{ padding: '16px 20px 14px' }}>
           <div style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--primary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -187,13 +247,13 @@ function RecordPaymentModal({ context, onClose, onSave, saving }) {
         </div>
 
         {context.pending <= 0 ? (
-          <div style={{ padding: '32px 20px', textAlign: 'center' }}>
+          <div style={{ padding: '32px 20px', textAlign: 'center', overflowY: 'auto', flex: 1 }}>
             <CheckCircle size={40} color="var(--secondary)" style={{ margin: '0 auto 12px', display: 'block' }} />
             <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--secondary)', marginBottom: 4 }}>Fully Paid!</div>
             <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>No balance remaining for this entry.</div>
           </div>
         ) : (
-          <div style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 14, overflowY: 'auto', flex: 1 }}>
             {/* Amount + Date */}
             <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr', gap: 10 }}>
               <div className="form-group" style={{ margin: 0 }}>
@@ -218,7 +278,7 @@ function RecordPaymentModal({ context, onClose, onSave, saving }) {
             {/* Payment method */}
             <div>
               <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 7 }}>How was it paid? <span className="required">*</span></label>
-              <CompactMethodPicker value={method} onChange={m => { setMethod(m); setReference(''); setScreenshot(null); setError('') }} />
+              <CompactMethodPicker value={method} onChange={m => { setMethod(m); setReference(''); setScreenshot(null); setUploadMessage(''); setError('') }} />
             </div>
 
             {hasRef && (
@@ -240,7 +300,7 @@ function RecordPaymentModal({ context, onClose, onSave, saving }) {
                     <ScreenshotThumb src={screenshot} label="UPI Proof" />
                     <div>
                       <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--secondary)', marginBottom: 4 }}>Screenshot attached ✓</div>
-                      <button type="button" onClick={() => setScreenshot(null)}
+                      <button type="button" onClick={() => { setScreenshot(null); setUploadMessage('Screenshot removed.') }}
                         style={{ fontSize: 11.5, color: 'var(--danger)', background: 'var(--danger-bg)', border: '1px solid var(--danger)', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontWeight: 600 }}>
                         Remove
                       </button>
@@ -251,6 +311,11 @@ function RecordPaymentModal({ context, onClose, onSave, saving }) {
                     <Upload size={13} /> Upload Screenshot
                     <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleScreenshot} />
                   </label>
+                )}
+                {uploadMessage && (
+                  <div className="alert-strip alert-success" style={{ marginTop: 8, marginBottom: 0, padding: '7px 10px', fontSize: 11.5 }}>
+                    <CheckCircle size={12} /> {uploadMessage}
+                  </div>
                 )}
               </div>
             )}
@@ -268,11 +333,11 @@ function RecordPaymentModal({ context, onClose, onSave, saving }) {
           </div>
         )}
 
-        <div className="modal-footer" style={{ padding: '12px 20px', gap: 8 }}>
-          <button className="btn btn-ghost" onClick={onClose} style={{ flex: 1 }}>Cancel</button>
+        <div className="modal-footer" style={{ padding: '12px 20px', gap: 8, flexWrap: 'wrap', alignItems: 'stretch' }}>
+          <button className="btn btn-ghost" onClick={onClose} style={{ flex: '1 1 150px', justifyContent: 'center', minWidth: 0 }}>Cancel</button>
           {context.pending > 0 && (
             <button className="btn btn-primary" onClick={handleSave} disabled={saving || entered <= 0}
-              style={{ flex: 2, justifyContent: 'center' }}>
+              style={{ flex: '2 1 190px', justifyContent: 'center', minWidth: 0, whiteSpace: 'normal', textAlign: 'center' }}>
               {saving ? 'Saving…' : isFull ? '✓ Mark as Fully Paid' : `Record ${entered > 0 ? money(entered) : 'Payment'}`}
             </button>
           )}
@@ -650,6 +715,7 @@ function PartnerCard({ partner, onRecordPayment, onWriteOffEntry, onWriteOffPart
 function PartnerPaymentHub({ pickups, PickupPartners, recordPickupPartnerPayment, clearPartnerBalance }) {
   const { role } = useRole()
   const canWriteOff = role === 'admin' || role === 'manager'
+  const { toasts, showToast, removeToast } = useToastStack()
 
   const [datePreset,   setDatePreset]   = useState('all')
   const [customFrom,   setCustomFrom]   = useState('')
@@ -661,6 +727,20 @@ function PartnerPaymentHub({ pickups, PickupPartners, recordPickupPartnerPayment
   const [writeOffCtx,  setWriteOffCtx]  = useState(null)
   const [histPartner,  setHistPartner]  = useState(null)
   const [saving,       setSaving]       = useState(false)
+  const [feedback,     setFeedback]     = useState({
+    type: 'info',
+    message: 'Revenue Collection',
+    sub: 'Use filters, record payments, or open a partner history.',
+  })
+
+  const setContextFeedback = useCallback((message, type = 'info', sub = '') => {
+    setFeedback({ message, type, sub })
+  }, [])
+
+  const notify = useCallback((message, type = 'success', sub = '') => {
+    setContextFeedback(message, type, sub)
+    showToast(message, type, sub)
+  }, [setContextFeedback, showToast])
 
   const { from: dateFrom, to: dateTo } = useMemo(
     () => getDateRange(datePreset, customFrom, customTo),
@@ -734,20 +814,29 @@ function PartnerPaymentHub({ pickups, PickupPartners, recordPickupPartnerPayment
   const openPayModal = useCallback(({ partner, pickup }) => {
     if (partner) {
       setPayContext({ partnerName: partner.partnerName, pickuppartnerId: partner.pickuppartnerId, mobile: partner.mobile, isPartnerLevel: true, total: partner.total, paid: partner.paid, pending: partner.pending })
+      setContextFeedback('Record payment opened', 'info', `${partner.partnerName} has ${money(partner.pending)} pending.`)
     } else {
       const pp = PickupPartners.find(k => k.name === pickup.PickupPartner) || {}
       setPayContext({ partnerName: pickup.PickupPartner, pickuppartnerId: pp.id || pickup.PickupPartner, pickupId: pickup.id, orderId: pickup.orderId, donorName: pickup.donorName, isPartnerLevel: false, total: pickup._total, paid: pickup._paid, pending: pickup._pending })
+      setContextFeedback('Record payment opened', 'info', `${pickup.orderId || pickup.id} has ${money(pickup._pending)} pending.`)
     }
-  }, [PickupPartners])
+  }, [PickupPartners, setContextFeedback])
 
   const openWriteOffEntry = useCallback((pickup) => {
     const pp = PickupPartners.find(k => k.name === pickup.PickupPartner) || {}
     setWriteOffCtx({ mode: 'entry', partnerName: pickup.PickupPartner, pickuppartnerId: pp.id || pickup.PickupPartner, pickupId: pickup.id, orderId: pickup.orderId, donorName: pickup.donorName, pending: pickup._pending })
-  }, [PickupPartners])
+    setContextFeedback('Write-off review opened', 'info', `${pickup.orderId || pickup.id} pending amount is ${money(pickup._pending)}.`)
+  }, [PickupPartners, setContextFeedback])
 
   const openWriteOffPartner = useCallback((partner) => {
     setWriteOffCtx({ mode: 'partner', partnerName: partner.partnerName, pickuppartnerId: partner.pickuppartnerId, pending: partner.pending })
-  }, [])
+    setContextFeedback('Write-off review opened', 'info', `${partner.partnerName} pending amount is ${money(partner.pending)}.`)
+  }, [setContextFeedback])
+
+  const openHistory = useCallback((partner) => {
+    setHistPartner(partner)
+    setContextFeedback('Payment history opened', 'info', `${partner.partnerName} has ${partner.history.length} recorded payment update${partner.history.length !== 1 ? 's' : ''}.`)
+  }, [setContextFeedback])
 
   const handlePaySave = useCallback(async ({ amount, date, method, reference, notes, screenshot, isFull }) => {
     if (!payContext) return
@@ -764,9 +853,13 @@ function PartnerPaymentHub({ pickups, PickupPartners, recordPickupPartnerPayment
           amount, date, refMode: method, refValue: reference, notes, screenshot,
         })
       }
+      notify('Payment recorded successfully', 'success', `${money(amount)} received from ${payContext.partnerName}.`)
       setPayContext(null)
+    } catch (err) {
+      console.error(err)
+      notify('Payment update failed', 'error', 'No changes were saved. Please try again.')
     } finally { setSaving(false) }
-  }, [payContext, clearPartnerBalance, recordPickupPartnerPayment])
+  }, [payContext, clearPartnerBalance, recordPickupPartnerPayment, notify])
 
   const handleWriteOffConfirm = useCallback(async ({ reason }) => {
     if (!writeOffCtx) return
@@ -784,9 +877,13 @@ function PartnerPaymentHub({ pickups, PickupPartners, recordPickupPartnerPayment
           refMode: 'writeoff', refValue: '', notes: reason, screenshot: null, writeOff: true,
         })
       }
+      notify('Write-off saved', 'success', `${writeOffCtx.partnerName} balance updated.`)
       setWriteOffCtx(null)
+    } catch (err) {
+      console.error(err)
+      notify('Write-off failed', 'error', 'No changes were saved. Please try again.')
     } finally { setSaving(false) }
-  }, [writeOffCtx, clearPartnerBalance, recordPickupPartnerPayment])
+  }, [writeOffCtx, clearPartnerBalance, recordPickupPartnerPayment, notify])
 
   const handleExport = () => exportToExcel(
     partnerRows.map(r => ({
@@ -796,6 +893,16 @@ function PartnerPaymentHub({ pickups, PickupPartners, recordPickupPartnerPayment
     })),
     'Pickup_Partner_Payments'
   )
+
+  const handleExportWithFeedback = () => {
+    try {
+      handleExport()
+      notify('Export complete', 'success', `${partnerRows.length} partner rows downloaded.`)
+    } catch (err) {
+      console.error(err)
+      notify('Export failed', 'error', 'Please try exporting again.')
+    }
+  }
 
   return (
     <div>
@@ -841,6 +948,8 @@ function PartnerPaymentHub({ pickups, PickupPartners, recordPickupPartnerPayment
       )}
 
       {/* ── KPI CARDS ── */}
+      <FeedbackStrip feedback={feedback} />
+
       <div className="stat-grid" style={{ marginBottom: 20 }}>
         {[
           { label: 'Total Value',   val: fmtCurrency(globalKPIs.totalRevenue),  tone: 'orange', icon: IndianRupee,  hint: 'Total value of all completed pickups' },
@@ -871,7 +980,7 @@ function PartnerPaymentHub({ pickups, PickupPartners, recordPickupPartnerPayment
           <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-muted)', flexShrink: 0 }}>Pickup Date:</span>
           {DATE_PRESETS.map(p => (
             <button key={p.id} className={`btn btn-sm ${datePreset === p.id ? 'btn-primary' : 'btn-ghost'}`}
-              style={{ fontSize: 12 }} onClick={() => setDatePreset(p.id)}>
+              style={{ fontSize: 12 }} onClick={() => { setDatePreset(p.id); setContextFeedback('Date filter updated', 'info', `Showing ${p.label.toLowerCase()} records.`) }}>
               {p.label}
             </button>
           ))}
@@ -888,7 +997,7 @@ function PartnerPaymentHub({ pickups, PickupPartners, recordPickupPartnerPayment
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <div style={{ position: 'relative', flex: '2 1 200px', minWidth: 0 }}>
             <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
-            <input value={globalSearch} onChange={e => setGlobalSearch(e.target.value)}
+            <input value={globalSearch} onChange={e => { setGlobalSearch(e.target.value); setContextFeedback(e.target.value ? 'Search applied' : 'Search cleared', 'info', e.target.value ? `Looking for "${e.target.value}".` : 'Showing all matching partners.') }}
               placeholder="Search by partner name, donor, or order…"
               style={{ paddingLeft: 32, fontSize: 13, width: '100%' }} />
           </div>
@@ -901,7 +1010,7 @@ function PartnerPaymentHub({ pickups, PickupPartners, recordPickupPartnerPayment
               { id: 'clear',   label: 'All Paid',      count: partnerRows.filter(r => r.pending === 0).length },
             ].map(tab => (
               <button key={tab.id}
-                onClick={() => setStatusFilter(tab.id)}
+                onClick={() => { setStatusFilter(tab.id); setContextFeedback('Status filter updated', 'info', `${tab.label} selected.`) }}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 5,
                   padding: '6px 12px', borderRadius: 6, border: 'none', cursor: 'pointer',
@@ -923,7 +1032,7 @@ function PartnerPaymentHub({ pickups, PickupPartners, recordPickupPartnerPayment
             ))}
           </div>
 
-          <button className="btn btn-ghost btn-sm" onClick={handleExport} style={{ flexShrink: 0 }}>
+          <button className="btn btn-ghost btn-sm" onClick={handleExportWithFeedback} style={{ flexShrink: 0 }}>
             <Download size={13} /> Export
           </button>
         </div>
@@ -954,7 +1063,7 @@ function PartnerPaymentHub({ pickups, PickupPartners, recordPickupPartnerPayment
             onRecordPayment={openPayModal}
             onWriteOffEntry={openWriteOffEntry}
             onWriteOffPartner={openWriteOffPartner}
-            onViewHistory={setHistPartner}
+            onViewHistory={openHistory}
             canWriteOff={canWriteOff}
           />
         ))
@@ -964,6 +1073,7 @@ function PartnerPaymentHub({ pickups, PickupPartners, recordPickupPartnerPayment
       {payContext  && <RecordPaymentModal context={payContext}  onClose={() => setPayContext(null)}  onSave={handlePaySave}           saving={saving} />}
       {writeOffCtx && <WriteOffModal      context={writeOffCtx} onClose={() => setWriteOffCtx(null)} onConfirm={handleWriteOffConfirm} saving={saving} />}
       {histPartner && <HistoryModal       partner={histPartner} onClose={() => setHistPartner(null)} />}
+      <ToastStack toasts={toasts} onRemove={removeToast} />
     </div>
   )
 }

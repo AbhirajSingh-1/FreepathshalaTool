@@ -1,16 +1,9 @@
 // Frontend/src/pages/Pickuppartners.jsx
-// CHANGES v2:
-// • CoverageSelector: click-outside closes dropdown (useRef + useEffect)
-// • DocUpload: Aadhaar "View" fixed for data-URI images and PDFs
-// • Modal: wider (960px), cleaner 2-col layout, more spacious
-// • Status toggle: managers can also activate/deactivate
-// • Delete: existing deletePartner handles state cleanup (photo/aadhaar in state)
-// • can.editPartner expanded: managers can edit too
-
+ 
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import {
   Phone, Plus, Edit2, Trash2, X, Star, Mail,
-  IndianRupee, AlertCircle,
+  IndianRupee, AlertCircle, CheckCircle,
   ChevronDown, ChevronUp, Package,
   MapPin, Search, Users, Building2, Layers,
   UserCheck, UserX, RefreshCw, Upload, Image, FileText, Eye,
@@ -35,6 +28,41 @@ const DEFAULT_RATE_CHART = Object.fromEntries(
 )
 
 const isPartnerActive = (k) => k.isActive !== false
+
+function ToastStack({ toasts, onRemove }) {
+  return (
+    <div style={{ position: 'fixed', right: 24, bottom: 24, zIndex: 9999, display: 'flex', flexDirection: 'column', gap: 8, pointerEvents: 'none' }}>
+      {toasts.map(t => {
+        const success = t.type === 'success'
+        const error = t.type === 'error'
+        const Icon = success ? CheckCircle : AlertCircle
+        return (
+          <div key={t.id} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', minWidth: 260, maxWidth: 360, padding: '12px 14px', borderRadius: 12, background: error ? 'var(--danger)' : success ? 'var(--secondary)' : 'var(--info)', color: 'white', boxShadow: 'var(--shadow-lg)', pointerEvents: 'auto' }}>
+            <Icon size={16} style={{ marginTop: 2, flexShrink: 0 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 800, fontSize: 13 }}>{t.message}</div>
+              {t.sub && <div style={{ fontSize: 12, opacity: 0.85, marginTop: 2 }}>{t.sub}</div>}
+            </div>
+            <button type="button" onClick={() => onRemove(t.id)} style={{ border: 0, background: 'transparent', color: 'white', cursor: 'pointer', opacity: 0.8, padding: 2 }}>
+              <X size={14} />
+            </button>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function useToastStack() {
+  const [toasts, setToasts] = useState([])
+  const showToast = useCallback((message, type = 'success', sub = '') => {
+    const id = Date.now() + Math.random()
+    setToasts(prev => [...prev, { id, message, type, sub }])
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3500)
+  }, [])
+  const removeToast = useCallback(id => setToasts(prev => prev.filter(t => t.id !== id)), [])
+  return { toasts, showToast, removeToast }
+}
 
 // ── Rate Chart mini display ───────────────────────────────────────────────────
 function RateChartMini({ rateChart, expanded, onToggle }) {
@@ -369,11 +397,19 @@ function ExecutiveSectorSearch({ partners, onAddNew }) {
 function PartnerPaymentSummaryCards({ partner, raddiRecords }) {
   const stats = useMemo(() => {
     if (!partner?.name || !Array.isArray(raddiRecords)) return { totalPickups:0, totalAmount:0, received:0, pending:0 }
-    const records = raddiRecords.filter(r => r.PickupPartnerName === partner.name)
-    const totalAmount = records.reduce((s, r) => s + (r.totalAmount||0), 0)
-    const received    = records.filter(r => r.paymentStatus === 'Received').reduce((s, r) => s + (r.totalAmount||0), 0)
-    return { totalPickups:records.length, totalAmount, received, pending: totalAmount - received }
-  }, [raddiRecords, partner?.name])
+    const partnerName = partner.name.toLowerCase()
+    const records = raddiRecords.filter(r => (r.PickupPartnerName || '').toLowerCase() === partnerName)
+    const tx = Array.isArray(partner.transactions) ? partner.transactions : []
+    const fallbackTotal = records.reduce((s, r) => s + (Number(r.totalAmount) || 0), 0) || tx.reduce((s, r) => s + (Number(r.value) || 0), 0)
+    const fallbackReceived = records.reduce((s, r) => s + Math.min(Number(r.totalAmount) || 0, Number(r.amountPaid) || 0), 0) || tx.reduce((s, r) => s + (Number(r.paid) || 0), 0)
+    const hasPartnerPending = partner.pendingAmount !== undefined && partner.pendingAmount !== null && !Number.isNaN(Number(partner.pendingAmount))
+    const totalAmount = Number(partner.totalValue) || fallbackTotal
+    const received = Number(partner.amountReceived) || fallbackReceived
+    const pending = hasPartnerPending
+      ? Math.max(0, Number(partner.pendingAmount) || 0)
+      : Math.max(0, totalAmount - received)
+    return { totalPickups: Number(partner.totalPickups) || records.length || tx.length, totalAmount, received, pending }
+  }, [raddiRecords, partner])
 
   return (
     <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginTop:12, padding:'10px', background:'var(--bg)', borderRadius:10, border:'1px solid var(--border-light)' }}>
@@ -463,6 +499,15 @@ function DocUpload({ label, icon: Icon, value, accept, onChange, onRemove, previ
               <Upload size={11} /> Replace
               <input type="file" accept={accept} style={{ display: 'none' }} onChange={onChange} />
             </label>
+            {onRemove && (
+              <button
+                type="button"
+                onClick={onRemove}
+                style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', borderRadius: 6, border: '1.5px solid var(--danger)', background: 'var(--danger-bg)', cursor: 'pointer', fontSize: 11.5, color: 'var(--danger)', fontWeight: 600 }}
+              >
+                <X size={11} /> Remove
+              </button>
+            )}
           </div>
         </div>
       ) : (
@@ -484,15 +529,22 @@ export default function PickupPartners() {
 
   // Managers can also toggle active/inactive
   const canToggleStatus = role === 'admin' || role === 'manager'
+  const { toasts, showToast, removeToast } = useToastStack()
 
   const [statusTab, setStatusTab] = useState('active')
   const activeCount   = useMemo(() => partners.filter(isPartnerActive).length,  [partners])
   const inactiveCount = useMemo(() => partners.filter(p => !isPartnerActive(p)).length, [partners])
 
   const togglePartnerStatus = useCallback(async (k) => {
-    try { await updatePartner(k.id, { isActive: !isPartnerActive(k) }) }
-    catch (e) { console.error('Status toggle error:', e) }
-  }, [updatePartner])
+    try {
+      const nextActive = !isPartnerActive(k)
+      await updatePartner(k.id, { isActive: nextActive })
+      showToast(nextActive ? 'Partner reactivated' : 'Partner marked inactive', 'success', k.name || '')
+    } catch (e) {
+      console.error('Status toggle error:', e)
+      showToast('Status update failed', 'error', 'Please try again.')
+    }
+  }, [updatePartner, showToast])
 
   const [modal,          setModal]          = useState(false)
   const [form,           setForm]           = useState({
@@ -534,10 +586,15 @@ export default function PickupPartners() {
   const hasDirFilters = dirSearch || dirFilterCity || dirFilterSector || dirFilterSociety
   const clearDirFilters = () => { setDirSearch(''); setDirFilterCity(''); setDirFilterSector(''); setDirFilterSociety('') }
 
-  const handleFileUpload = (key) => (e) => {
+  const handleFileUpload = (key, label) => (e) => {
     const file = e.target.files?.[0]; if (!file) return
+    const hadFile = !!form[key]
     const reader = new FileReader()
-    reader.onload = ev => setForm(f => ({ ...f, [key]: ev.target.result }))
+    reader.onload = ev => {
+      setForm(f => ({ ...f, [key]: ev.target.result }))
+      showToast(`${label} ${hadFile ? 'replaced' : 'uploaded'}`, 'success', `${file.name} attached successfully.`)
+    }
+    reader.onerror = () => showToast(`${label} upload failed`, 'error', 'Please try another file.')
     reader.readAsDataURL(file)
     e.target.value = ''
   }
@@ -567,17 +624,27 @@ export default function PickupPartners() {
     try {
       const area = [...(form.sectors||[]), ...(form.societies||[])].filter(Boolean).join(', ') || form.area || ''
       editing?.id ? await updatePartner(editing.id, { ...form, area }) : await addPartner({ ...form, area })
+      showToast(editing?.id ? 'Pickup partner updated' : 'Pickup partner added', 'success', form.name.trim())
       close()
-    } catch { setError('Failed to save. Please try again.') }
+    } catch {
+      setError('Failed to save. Please try again.')
+      showToast('Save failed', 'error', 'The partner details were not saved.')
+    }
     finally { setSaving(false) }
-  }, [form, editing, addPartner, updatePartner, close])
+  }, [form, editing, addPartner, updatePartner, close, showToast])
 
   // FIX: Delete clears all partner data including photo/aadhaar (they're in state)
   const removeK = useCallback(async (id) => {
     if (!can.deletePartner) return
     if (!window.confirm('Remove this pickup partner? This will delete all their data including documents.')) return
-    try { await deletePartner(id) } catch (err) { console.error(err) }
-  }, [can.deletePartner, deletePartner])
+    try {
+      await deletePartner(id)
+      showToast('Pickup partner removed', 'success')
+    } catch (err) {
+      console.error(err)
+      showToast('Delete failed', 'error', 'The partner was not removed.')
+    }
+  }, [can.deletePartner, deletePartner, showToast])
 
   const toggleRate = useCallback((id) => setExpandedRates(prev => ({ ...prev, [id]: !prev[id] })), [])
 
@@ -737,16 +804,22 @@ export default function PickupPartners() {
                       value={form.photo}
                       accept="image/*"
                       preview
-                      onChange={handleFileUpload('photo')}
-                      onRemove={() => setForm(f => ({ ...f, photo: null }))}
+                      onChange={handleFileUpload('photo', 'Photo')}
+                      onRemove={() => {
+                        setForm(f => ({ ...f, photo: null }))
+                        showToast('Photo removed', 'info')
+                      }}
                     />
                     <DocUpload
                       label="Aadhaar"
                       icon={FileText}
                       value={form.aadhaarDoc}
                       accept="image/*,application/pdf"
-                      onChange={handleFileUpload('aadhaarDoc')}
-                      onRemove={() => setForm(f => ({ ...f, aadhaarDoc: null }))}
+                      onChange={handleFileUpload('aadhaarDoc', 'Aadhaar document')}
+                      onRemove={() => {
+                        setForm(f => ({ ...f, aadhaarDoc: null }))
+                        showToast('Aadhaar document removed', 'info')
+                      }}
                     />
                   </div>
                 </div>
@@ -777,6 +850,7 @@ export default function PickupPartners() {
       <div className="page-body">
         <ExecutiveSectorSearch partners={partners} onAddNew={() => open()}/>
         {modal && renderModal()}
+        <ToastStack toasts={toasts} onRemove={removeToast} />
       </div>
     )
   }
@@ -927,6 +1001,7 @@ export default function PickupPartners() {
       </div>
 
       {modal && renderModal()}
+      <ToastStack toasts={toasts} onRemove={removeToast} />
     </div>
   )
 }
