@@ -9,6 +9,7 @@ import {
   ChevronDown, ChevronUp, Activity,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { useRole } from '../context/RoleContext'
 import { fmtDate, exportToExcel } from '../utils/helpers'
 import { CITIES, CITY_SECTORS } from '../data/mockData'
 import { differenceInDays, parseISO } from 'date-fns'
@@ -112,6 +113,8 @@ function KpiCard({ tone, icon: Icon, value, label, desc, isActive, onClick }) {
 
 export default function Supporters() {
   const { donors, addDonor, updateDonor, deleteDonor } = useApp()
+  const { role } = useRole()
+  const isAdmin = role === 'admin'
 
   const [modal,        setModal]        = useState(false)
   const [editing,      setEditing]      = useState(null)
@@ -263,9 +266,11 @@ export default function Supporters() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-          <button className="btn btn-ghost btn-sm" onClick={handleExport}>
-            <Download size={13} /> Export ({filtered.length})
-          </button>
+          {isAdmin && (
+            <button className="btn btn-ghost btn-sm" onClick={handleExport}>
+              <Download size={13} /> Export ({filtered.length})
+            </button>
+          )}
           <button className="btn btn-primary btn-sm" onClick={() => openModal()}>
             <Plus size={13} /> Add Supporter
           </button>
@@ -278,6 +283,29 @@ export default function Supporters() {
           <Activity size={11} color="var(--primary)" /> Engagement Timeline
         </div>
         <div style={{ display: 'flex', gap: 0, borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border-light)' }}>
+          {/* Total Supporters — first cell */}
+          <button
+            onClick={() => setFilterStatus('all')}
+            style={{
+              flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
+              padding: '10px 8px', border: 'none', cursor: 'pointer',
+              background: filterStatus === 'all' ? 'var(--primary-light)' : 'var(--surface)',
+              transition: 'all 0.15s',
+              outline: filterStatus === 'all' ? '2px solid var(--primary)' : 'none',
+              outlineOffset: -2,
+            }}
+          >
+            <Users size={14} color={filterStatus === 'all' ? 'var(--primary)' : 'var(--text-muted)'} style={{ marginBottom: 4 }} />
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 800, color: filterStatus === 'all' ? 'var(--primary)' : 'var(--text-primary)', lineHeight: 1 }}>
+              {kpis.total}
+            </div>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: filterStatus === 'all' ? 'var(--primary)' : 'var(--text-muted)', marginTop: 2, textAlign: 'center', lineHeight: 1.3 }}>
+              Total
+            </div>
+            <div style={{ fontSize: 9.5, color: 'var(--text-muted)', marginTop: 1 }}>
+              All supporters
+            </div>
+          </button>
           {STATUS_KEYS.map((key, i) => {
             const cfg = STATUS_CONFIG[key]
             const Icon = cfg.icon
@@ -291,7 +319,7 @@ export default function Supporters() {
                   flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
                   padding: '10px 8px', border: 'none', cursor: 'pointer',
                   background: isActive ? cfg.bg : 'var(--surface)',
-                  borderLeft: i > 0 ? '1px solid var(--border-light)' : 'none',
+                  borderLeft: '1px solid var(--border-light)',
                   transition: 'all 0.15s',
                   outline: isActive ? `2px solid ${cfg.color}` : 'none',
                   outlineOffset: -2,
@@ -313,40 +341,7 @@ export default function Supporters() {
         </div>
       </div>
 
-      {/* ── Clickable KPI Cards ── */}
-      <div className="stat-grid" style={{ marginBottom: 20 }}>
-        <KpiCard
-          tone="orange" icon={Heart}
-          value={kpis.total} label="Total Supporters"
-          desc={`${supporters.filter(s => s.donorType === 'both').length} also RST/SKS donors`}
-          isActive={false}
-          onClick={() => setFilterStatus('all')}
-        />
-        <KpiCard
-          tone="green" icon={CheckCircle}
-          value={kpis['Active in 1 Month'] || 0}
-          label="Active in 1 Month"
-          desc="Last 30 days"
-          isActive={filterStatus === 'Active in 1 Month'}
-          onClick={() => handleKpiClick('Active in 1 Month')}
-        />
-        <KpiCard
-          tone="blue" icon={Clock}
-          value={kpis['Active in 3 Months'] || 0}
-          label="Active in 3 Months"
-          desc="31–90 days ago"
-          isActive={filterStatus === 'Active in 3 Months'}
-          onClick={() => handleKpiClick('Active in 3 Months')}
-        />
-        <KpiCard
-          tone="yellow" icon={AlertCircle}
-          value={kpis['Active in 6 Months'] || 0}
-          label="Active in 6 Months"
-          desc="91–180 days ago"
-          isActive={filterStatus === 'Active in 6 Months'}
-          onClick={() => handleKpiClick('Active in 6 Months')}
-        />
-      </div>
+
 
       {/* ── Active filter pill ── */}
       {activeFilterCfg && (

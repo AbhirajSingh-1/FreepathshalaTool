@@ -440,7 +440,7 @@ function DocUpload({ label, icon: Icon, value, accept, onChange, onRemove, previ
       </label>
       {value ? (
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-          {preview ? (
+          {preview && (
             <img
               src={value}
               alt={label}
@@ -448,10 +448,6 @@ function DocUpload({ label, icon: Icon, value, accept, onChange, onRemove, previ
               style={{ width: 64, height: 64, borderRadius: 8, objectFit: 'cover', border: '1.5px solid var(--secondary)', display: 'block', flexShrink: 0, cursor: 'pointer' }}
               title="Click to view full size"
             />
-          ) : (
-            <div style={{ flex: 1, padding: '7px 10px', background: 'var(--secondary-light)', borderRadius: 7, border: '1px solid rgba(27,94,53,0.25)', fontSize: 11.5, color: 'var(--secondary)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5 }}>
-              <FileText size={12} /> Document uploaded
-            </div>
           )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <button
@@ -461,13 +457,12 @@ function DocUpload({ label, icon: Icon, value, accept, onChange, onRemove, previ
             >
               <Eye size={11} /> View
             </button>
-            <button
-              type="button"
-              onClick={onRemove}
-              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', borderRadius: 6, border: '1.5px solid var(--danger)', background: 'var(--danger-bg)', cursor: 'pointer', fontSize: 11.5, color: 'var(--danger)', fontWeight: 600 }}
+            <label
+              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', borderRadius: 6, border: '1.5px solid var(--info)', background: 'var(--info-bg)', cursor: 'pointer', fontSize: 11.5, color: 'var(--info)', fontWeight: 600 }}
             >
-              <X size={11} /> Remove
-            </button>
+              <Upload size={11} /> Replace
+              <input type="file" accept={accept} style={{ display: 'none' }} onChange={onChange} />
+            </label>
           </div>
         </div>
       ) : (

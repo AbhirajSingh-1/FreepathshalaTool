@@ -735,73 +735,8 @@ function DispatchPaymentSection({ totalItems, payState, onChange }) {
 }
 
 // ── In Warehouse ──────────────────────────────────────────────────────────────
-function WarehouseView({ stock, allSKSItems, outflows, isAdmin, onAddOutflow, onDeleteOutflow, showToast }) {
-  const [showDispatch,  setShowDispatch]  = useState(false)
-  const [partnerName,   setPartnerName]   = useState('')
-  const [partnerPhone,  setPartnerPhone]  = useState('')
-  const [dispDate,      setDispDate]      = useState(todayStr())
-  const [dispQty,       setDispQty]       = useState({})
-  const [dispNotes,     setDispNotes]     = useState('')
-  const [dispError,     setDispError]     = useState('')
-  const [dispatching,   setDispatching]   = useState(false)
-
-  // Payment state for dispatch
-  const [payState, setPayState] = useState({
-    method: 'cash', amount: '', reference: '', notes: '', screenshot: null, totalValue: '',
-  })
-
+function WarehouseView({ stock, allSKSItems, outflows, isAdmin, onDeleteOutflow, showToast }) {
   const totalInStock   = Object.values(stock).reduce((s, v) => s + v, 0)
-  const totalDispatch  = Object.values(dispQty).reduce((s, v) => s + (Number(v) || 0), 0)
-  const filledDispatch = Object.entries(dispQty).filter(([, q]) => (Number(q) || 0) > 0)
-  const canDispatch    = partnerName.trim() && dispDate && totalDispatch > 0
-  const overDispatch   = filledDispatch.some(([name, qty]) => (Number(qty) || 0) > (stock[name] || 0))
-
-  const handleDispatch = () => {
-    setDispError('')
-    if (!partnerName.trim()) { setDispError('Please enter a partner / recipient name.'); return }
-    if (!dispDate)           { setDispError('Please select a dispatch date.'); return }
-    if (totalDispatch < 1)   { setDispError('Please enter quantity for at least one item.'); return }
-    if (overDispatch)        { setDispError('Some quantities exceed available stock. Please check.'); return }
-
-    setDispatching(true)
-    const items = filledDispatch.map(([name, qty]) => ({ name, qty: Number(qty) }))
-
-    // Compute payment status
-    const paid = Number(payState.amount) || 0
-    const total = Number(payState.totalValue) || 0
-    const paymentStatus = total === 0 ? 'Not Recorded' : paid >= total ? 'Paid' : paid > 0 ? 'Partially Paid' : 'Not Paid'
-
-    setTimeout(() => {
-      onAddOutflow({
-        id: nextOutId(),
-        date: dispDate,
-        partnerName: partnerName.trim(),
-        partnerPhone: partnerPhone.trim(),
-        items,
-        notes: dispNotes.trim(),
-        payment: {
-          method: payState.method,
-          amount: paid,
-          totalValue: total,
-          reference: payState.reference.trim(),
-          notes: payState.notes.trim(),
-          screenshot: payState.screenshot,
-          status: paymentStatus,
-        },
-      })
-
-      showToast(
-        'Items dispatched successfully',
-        'success',
-        `${totalDispatch} item${totalDispatch !== 1 ? 's' : ''} sent to ${partnerName.trim()}${paid > 0 ? ` · ₹${paid.toLocaleString('en-IN')} received` : ''}`
-      )
-
-      setDispQty({}); setPartnerName(''); setPartnerPhone(''); setDispNotes(''); setDispError('')
-      setPayState({ method: 'cash', amount: '', reference: '', notes: '', screenshot: null, totalValue: '' })
-      setDispatching(false)
-      setShowDispatch(false)
-    }, 350)
-  }
 
   const handleDeleteOutflow = (id) => {
     if (!window.confirm('Delete this dispatch record?')) return
@@ -858,14 +793,9 @@ function WarehouseView({ stock, allSKSItems, outflows, isAdmin, onAddOutflow, on
         <div className="card-header">
           <Boxes size={16} color="var(--secondary)" />
           <div className="card-title">Current Stock</div>
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-            <button className="btn btn-ghost btn-sm" onClick={handleExportStock}>
-              <Download size={13} /> Export
-            </button>
-            <button className={`btn btn-sm ${showDispatch ? 'btn-danger' : 'btn-primary'}`} onClick={() => { setShowDispatch(s => !s); setDispError('') }}>
-              {showDispatch ? <><X size={13} /> Cancel</> : <><ArrowUpCircle size={13} /> Stock Out</>}
-            </button>
-          </div>
+          <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} onClick={handleExportStock}>
+            <Download size={13} /> Export
+          </button>
         </div>
         <div className="table-wrap" style={{ border: 'none', boxShadow: 'none', borderRadius: 0 }}>
           <table>
@@ -874,7 +804,6 @@ function WarehouseView({ stock, allSKSItems, outflows, isAdmin, onAddOutflow, on
                 <th>Item</th>
                 <th>Category</th>
                 <th style={{ textAlign: 'right' }}>In Stock</th>
-                {showDispatch && <th style={{ textAlign: 'right' }}>Dispatch Qty</th>}
               </tr>
             </thead>
             <tbody>
@@ -882,8 +811,6 @@ function WarehouseView({ stock, allSKSItems, outflows, isAdmin, onAddOutflow, on
                 const cfg   = SKS_ITEM_CONFIG[item] || { icon: ShoppingBag, category: 'Custom' }
                 const Icon  = cfg.icon
                 const qty   = stock[item] || 0
-                const dQty  = Number(dispQty[item]) || 0
-                const isOver = dQty > qty
                 return (
                   <tr key={item} style={{ opacity: qty === 0 ? 0.4 : 1 }}>
                     <td>
@@ -899,18 +826,6 @@ function WarehouseView({ stock, allSKSItems, outflows, isAdmin, onAddOutflow, on
                         {qty}
                       </span>
                     </td>
-                    {showDispatch && (
-                      <td style={{ textAlign: 'right' }}>
-                        {qty > 0 ? (
-                          <input type="number" min={0} max={qty} inputMode="numeric"
-                            value={dispQty[item] || ''}
-                            onChange={e => setDispQty(q => ({ ...q, [item]: parseInt(e.target.value) || 0 }))}
-                            placeholder="0"
-                            style={{ width: 82, padding: '5px 9px', fontSize: 13, fontWeight: 700, textAlign: 'right', border: `1.5px solid ${isOver ? 'var(--danger)' : dQty > 0 ? 'var(--primary)' : 'var(--border)'}`, borderRadius: 6 }}
-                          />
-                        ) : <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>—</span>}
-                      </td>
-                    )}
                   </tr>
                 )
               })}
@@ -919,68 +834,7 @@ function WarehouseView({ stock, allSKSItems, outflows, isAdmin, onAddOutflow, on
         </div>
       </div>
 
-      {/* Dispatch form */}
-      {showDispatch && (
-        <div className="card" style={{ marginBottom: 16, border: '2px solid var(--primary)' }}>
-          <div className="card-header" style={{ background: 'var(--primary-light)' }}>
-            <ArrowUpCircle size={16} color="var(--primary)" />
-            <div className="card-title" style={{ color: 'var(--primary)' }}>Dispatch Details</div>
-            {totalDispatch > 0 && (
-              <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 700, color: 'var(--primary)', background: 'rgba(232,82,26,0.1)', padding: '3px 12px', borderRadius: 20, border: '1px solid rgba(232,82,26,0.2)' }}>
-                {totalDispatch} items ready to dispatch
-              </span>
-            )}
-          </div>
-          <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
-              <div className="form-group" style={{ margin: 0 }}>
-                <label>Recipient / Partner Name <span className="required">*</span></label>
-                <input value={partnerName} onChange={e => setPartnerName(e.target.value)} placeholder="e.g. Teach for India" />
-              </div>
-              <div className="form-group" style={{ margin: 0 }}>
-                <label>Contact Number</label>
-                <input value={partnerPhone} onChange={e => setPartnerPhone(e.target.value)} placeholder="10-digit" maxLength={10} inputMode="numeric" />
-              </div>
-              <div className="form-group" style={{ margin: 0 }}>
-                <label>Dispatch Date <span className="required">*</span></label>
-                <input type="date" value={dispDate} onChange={e => setDispDate(e.target.value)} />
-              </div>
-            </div>
 
-            <div className="form-group" style={{ margin: 0 }}>
-              <label>Notes</label>
-              <textarea value={dispNotes} onChange={e => setDispNotes(e.target.value)} placeholder="Purpose, receipt reference…" style={{ minHeight: 52 }} />
-            </div>
-
-            {/* ── PAYMENT SECTION ── */}
-            <DispatchPaymentSection
-              totalItems={totalDispatch}
-              payState={payState}
-              onChange={setPayState}
-            />
-
-            {dispError && (
-              <div className="alert-strip alert-danger">
-                <AlertCircle size={13} style={{ flexShrink: 0 }} /> {dispError}
-              </div>
-            )}
-
-            {filledDispatch.length > 0 && !overDispatch && (
-              <div style={{ padding: '8px 12px', background: 'var(--primary-light)', borderRadius: 8, fontSize: 13, fontWeight: 700, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Package size={14} />
-                Dispatching: {filledDispatch.map(([n, q]) => `${n} ×${q}`).join(' · ')}
-              </div>
-            )}
-
-            <button className="btn btn-primary" onClick={handleDispatch} disabled={!canDispatch || dispatching || overDispatch}
-              style={{ width: '100%', justifyContent: 'center', padding: '10px', opacity: (canDispatch && !overDispatch) ? 1 : 0.5 }}>
-              {dispatching
-                ? <><span className="spin" style={{ display: 'inline-block', width: 14, height: 14, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: 'white', borderRadius: '50%' }} /> Dispatching…</>
-                : <><ArrowUpCircle size={15} /> Confirm Dispatch{Number(payState.amount) > 0 ? ` + Record ₹${Number(payState.amount).toLocaleString('en-IN')}` : ''}</>}
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Dispatch history */}
       {outflows.length > 0 && (
@@ -1055,6 +909,239 @@ function WarehouseView({ stock, allSKSItems, outflows, isAdmin, onAddOutflow, on
   )
 }
 
+// ── Stock Out Tab ─────────────────────────────────────────────────────────────
+function StockOutView({ stock, allSKSItems, outflows, isAdmin, onAddOutflow, onDeleteOutflow, showToast }) {
+  const [partnerName,  setPartnerName]  = useState('')
+  const [partnerPhone, setPartnerPhone] = useState('')
+  const [dispDate,     setDispDate]     = useState(todayStr())
+  const [dispQty,      setDispQty]      = useState({})
+  const [dispNotes,    setDispNotes]    = useState('')
+  const [dispError,    setDispError]    = useState('')
+  const [dispatching,  setDispatching]  = useState(false)
+  const [payState, setPayState] = useState({
+    method: 'cash', amount: '', reference: '', notes: '', screenshot: null, totalValue: '',
+  })
+
+  const totalDispatch  = Object.values(dispQty).reduce((s, v) => s + (Number(v) || 0), 0)
+  const filledDispatch = Object.entries(dispQty).filter(([, q]) => (Number(q) || 0) > 0)
+  const canDispatch    = partnerName.trim() && dispDate && totalDispatch > 0
+  const overDispatch   = filledDispatch.some(([name, qty]) => (Number(qty) || 0) > (stock[name] || 0))
+
+  const handleDispatch = () => {
+    setDispError('')
+    if (!partnerName.trim()) { setDispError('Please enter a partner / recipient name.'); return }
+    if (!dispDate)           { setDispError('Please select a dispatch date.'); return }
+    if (totalDispatch < 1)   { setDispError('Please enter quantity for at least one item.'); return }
+    if (overDispatch)        { setDispError('Some quantities exceed available stock. Please check.'); return }
+    setDispatching(true)
+    const items = filledDispatch.map(([name, qty]) => ({ name, qty: Number(qty) }))
+    const paid = Number(payState.amount) || 0
+    const total = Number(payState.totalValue) || 0
+    const paymentStatus = total === 0 ? 'Not Recorded' : paid >= total ? 'Paid' : paid > 0 ? 'Partially Paid' : 'Not Paid'
+    setTimeout(() => {
+      onAddOutflow({
+        id: nextOutId(), date: dispDate,
+        partnerName: partnerName.trim(), partnerPhone: partnerPhone.trim(),
+        items, notes: dispNotes.trim(),
+        payment: { method: payState.method, amount: paid, totalValue: total, reference: payState.reference.trim(), notes: payState.notes.trim(), screenshot: payState.screenshot, status: paymentStatus },
+      })
+      showToast('Items dispatched successfully', 'success',
+        `${totalDispatch} item${totalDispatch !== 1 ? 's' : ''} sent to ${partnerName.trim()}${paid > 0 ? ` · ₹${paid.toLocaleString('en-IN')} received` : ''}`)
+      setDispQty({}); setPartnerName(''); setPartnerPhone(''); setDispNotes(''); setDispError('')
+      setPayState({ method: 'cash', amount: '', reference: '', notes: '', screenshot: null, totalValue: '' })
+      setDispatching(false)
+    }, 350)
+  }
+
+  const handleDeleteOutflow = (id) => {
+    if (!window.confirm('Delete this dispatch record?')) return
+    onDeleteOutflow(id)
+    showToast('Dispatch record deleted', 'info')
+  }
+
+  return (
+    <div>
+      {/* KPIs */}
+      <div className="stat-grid" style={{ marginBottom: 20 }}>
+        <div className="stat-card green">
+          <div className="stat-icon"><Boxes size={18} /></div>
+          <div className="stat-value">{Object.values(stock).reduce((s, v) => s + v, 0)}</div>
+          <div className="stat-label">Available in Stock</div>
+        </div>
+        <div className="stat-card orange">
+          <div className="stat-icon"><ArrowUpCircle size={18} /></div>
+          <div className="stat-value">{outflows.reduce((s, r) => s + (r.items || []).reduce((a, it) => a + it.qty, 0), 0)}</div>
+          <div className="stat-label">Total Dispatched</div>
+          <div className="stat-change up">{outflows.length} dispatches</div>
+        </div>
+        <div className="stat-card blue">
+          <div className="stat-icon"><IndianRupee size={18} /></div>
+          <div className="stat-value">{fmtCurrency(outflows.reduce((s, r) => s + (r.payment?.amount || 0), 0))}</div>
+          <div className="stat-label">Payments Received</div>
+        </div>
+      </div>
+
+      {/* Dispatch form */}
+      <div className="card" style={{ marginBottom: 16, border: '2px solid var(--primary)' }}>
+        <div className="card-header" style={{ background: 'var(--primary-light)' }}>
+          <ArrowUpCircle size={16} color="var(--primary)" />
+          <div className="card-title" style={{ color: 'var(--primary)' }}>Dispatch Items</div>
+          {totalDispatch > 0 && (
+            <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 700, color: 'var(--primary)', background: 'rgba(232,82,26,0.1)', padding: '3px 12px', borderRadius: 20, border: '1px solid rgba(232,82,26,0.2)' }}>
+              {totalDispatch} items ready
+            </span>
+          )}
+        </div>
+        <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label>Recipient / Partner Name <span className="required">*</span></label>
+              <input value={partnerName} onChange={e => setPartnerName(e.target.value)} placeholder="e.g. Teach for India" />
+            </div>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label>Contact Number</label>
+              <input value={partnerPhone} onChange={e => setPartnerPhone(e.target.value)} placeholder="10-digit" maxLength={10} inputMode="numeric" />
+            </div>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label>Dispatch Date <span className="required">*</span></label>
+              <input type="date" value={dispDate} onChange={e => setDispDate(e.target.value)} />
+            </div>
+          </div>
+
+          {/* Item quantity table */}
+          <div className="table-wrap" style={{ border: '1.5px solid var(--primary)', boxShadow: 'none', borderRadius: 10 }}>
+            <table>
+              <thead>
+                <tr><th>Item</th><th>Category</th><th style={{ textAlign: 'right' }}>Available</th><th style={{ textAlign: 'right' }}>Dispatch Qty</th></tr>
+              </thead>
+              <tbody>
+                {allSKSItems.map(item => {
+                  const cfg = SKS_ITEM_CONFIG[item] || { icon: ShoppingBag, category: 'Custom' }
+                  const Icon = cfg.icon
+                  const qty = stock[item] || 0
+                  const dQty = Number(dispQty[item]) || 0
+                  const isOver = dQty > qty
+                  return (
+                    <tr key={item} style={{ opacity: qty === 0 ? 0.4 : 1 }}>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <Icon size={14} color={qty > 0 ? 'var(--secondary)' : 'var(--text-muted)'} />
+                          <span style={{ fontWeight: 600 }}>{item}</span>
+                        </div>
+                      </td>
+                      <td><span className="badge badge-muted" style={{ fontSize: 10 }}>{cfg.category}</span></td>
+                      <td style={{ textAlign: 'right', fontFamily: 'var(--font-display)', fontWeight: 700, color: qty > 0 ? 'var(--secondary)' : 'var(--text-muted)' }}>{qty}</td>
+                      <td style={{ textAlign: 'right' }}>
+                        {qty > 0 ? (
+                          <input type="number" min={0} max={qty} inputMode="numeric"
+                            value={dispQty[item] || ''} onChange={e => setDispQty(q => ({ ...q, [item]: parseInt(e.target.value) || 0 }))}
+                            placeholder="0"
+                            style={{ width: 82, padding: '5px 9px', fontSize: 13, fontWeight: 700, textAlign: 'right', border: `1.5px solid ${isOver ? 'var(--danger)' : dQty > 0 ? 'var(--primary)' : 'var(--border)'}`, borderRadius: 6 }}
+                          />
+                        ) : <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>—</span>}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="form-group" style={{ margin: 0 }}>
+            <label>Notes</label>
+            <textarea value={dispNotes} onChange={e => setDispNotes(e.target.value)} placeholder="Purpose, receipt reference…" style={{ minHeight: 52 }} />
+          </div>
+
+          <DispatchPaymentSection totalItems={totalDispatch} payState={payState} onChange={setPayState} />
+
+          {dispError && <div className="alert-strip alert-danger"><AlertCircle size={13} style={{ flexShrink: 0 }} /> {dispError}</div>}
+
+          {filledDispatch.length > 0 && !overDispatch && (
+            <div style={{ padding: '8px 12px', background: 'var(--primary-light)', borderRadius: 8, fontSize: 13, fontWeight: 700, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Package size={14} />
+              Dispatching: {filledDispatch.map(([n, q]) => `${n} ×${q}`).join(' · ')}
+            </div>
+          )}
+
+          <button className="btn btn-primary" onClick={handleDispatch} disabled={!canDispatch || dispatching || overDispatch}
+            style={{ width: '100%', justifyContent: 'center', padding: '10px', opacity: (canDispatch && !overDispatch) ? 1 : 0.5 }}>
+            {dispatching
+              ? <><span className="spin" style={{ display: 'inline-block', width: 14, height: 14, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: 'white', borderRadius: '50%' }} /> Dispatching…</>
+              : <><ArrowUpCircle size={15} /> Confirm Dispatch{Number(payState.amount) > 0 ? ` + Record ₹${Number(payState.amount).toLocaleString('en-IN')}` : ''}</>}
+          </button>
+        </div>
+      </div>
+
+      {/* Dispatch history */}
+      {outflows.length > 0 && (
+        <div className="card">
+          <div className="card-header">
+            <ArrowUpCircle size={16} color="var(--primary)" />
+            <div className="card-title">Dispatch History</div>
+            {!isAdmin && <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)', padding: '2px 9px', background: 'var(--border-light)', borderRadius: 20 }}>🔒 Delete: Admin only</span>}
+          </div>
+          <div>
+            {[...outflows].sort((a, b) => (b.date || '').localeCompare(a.date || '')).map((r, i) => {
+              const totalQ = (r.items || []).reduce((s, it) => s + it.qty, 0)
+              const pay = r.payment || {}
+              const payPaid = Number(pay.amount) || 0
+              return (
+                <div key={r.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 16px', borderBottom: i < outflows.length - 1 ? '1px solid var(--border-light)' : 'none' }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 8, background: 'var(--primary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <ArrowUpCircle size={15} color="var(--primary)" />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+                      <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 700, color: 'white', background: 'var(--primary)', padding: '1px 6px', borderRadius: 4 }}>{r.id}</span>
+                      <span style={{ fontWeight: 700, fontSize: 13 }}>{r.partnerName}</span>
+                      {r.partnerPhone && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{r.partnerPhone}</span>}
+                      <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 'auto' }}>{fmtDate(r.date)}</span>
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginBottom: 4 }}>
+                      {(r.items || []).map(it => (
+                        <span key={it.name} style={{ fontSize: 10.5, padding: '1px 8px', borderRadius: 20, background: 'var(--primary-light)', color: 'var(--primary)', fontWeight: 600 }}>
+                          {it.name} ×{it.qty}
+                        </span>
+                      ))}
+                    </div>
+                    {payPaid > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--secondary)', background: 'var(--secondary-light)', padding: '2px 9px', borderRadius: 20 }}>
+                          ₹{payPaid.toLocaleString('en-IN')} received · {pay.method?.toUpperCase() || 'CASH'}
+                        </span>
+                        {pay.status && (
+                          <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 20, fontWeight: 700, background: pay.status === 'Paid' ? 'var(--secondary-light)' : pay.status === 'Partially Paid' ? 'var(--warning-bg)' : 'var(--border-light)', color: pay.status === 'Paid' ? 'var(--secondary)' : pay.status === 'Partially Paid' ? '#92400E' : 'var(--text-muted)' }}>
+                            {pay.status}
+                          </span>
+                        )}
+                        {pay.screenshot && <ScreenshotThumb src={pay.screenshot} label={`Payment Proof — ${r.partnerName}`} />}
+                      </div>
+                    )}
+                    {r.notes && <div style={{ fontSize: 11.5, color: 'var(--text-muted)', fontStyle: 'italic', marginTop: 3 }}>{r.notes}</div>}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 800, color: 'var(--primary)', lineHeight: 1 }}>-{totalQ}</div>
+                      <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>items</div>
+                    </div>
+                    {isAdmin && (
+                      <button onClick={() => handleDeleteOutflow(r.id)}
+                        style={{ width: 30, height: 30, borderRadius: 7, border: '1px solid var(--danger)', background: 'var(--danger-bg)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--danger)' }}
+                        title="Delete (Admin only)">
+                        <Trash2 size={12} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 export default function SKSOverview() {
   const {
@@ -1092,6 +1179,7 @@ export default function SKSOverview() {
     { id: 'stockin',   label: '↓ Stock In',         count: null },
     { id: 'history',   label: '📋 Stock In History', count: sksInflows.length || null },
     { id: 'warehouse', label: '📦 In Warehouse',     count: totalInStock > 0 ? totalInStock : null },
+    { id: 'stockout',  label: '↑ Stock Out',         count: sksOutflows.length || null },
   ]
 
   return (
@@ -1156,6 +1244,12 @@ export default function SKSOverview() {
       )}
       {section === 'warehouse' && (
         <WarehouseView
+          stock={stock} allSKSItems={allSKSItems} outflows={sksOutflows}
+          isAdmin={isAdmin} onDeleteOutflow={deleteOutflow} showToast={showToast}
+        />
+      )}
+      {section === 'stockout' && (
+        <StockOutView
           stock={stock} allSKSItems={allSKSItems} outflows={sksOutflows}
           isAdmin={isAdmin} onAddOutflow={addOutflow} onDeleteOutflow={deleteOutflow} showToast={showToast}
         />

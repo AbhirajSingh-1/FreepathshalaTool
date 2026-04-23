@@ -509,6 +509,8 @@ export default function Pickups({
   const [errors,     setErrors]     = useState({})
   const [toast,      setToast]      = useState(null)
   const [donorModal, setDonorModal] = useState(false)
+  const [rstOpen,    setRstOpen]    = useState(false)
+  const [sksOpen,    setSksOpen]    = useState(false)
 
   // Indicates whether we are updating an existing scheduled pickup
   const [targetPickupId, setTargetPickupId] = useState(null)
@@ -831,37 +833,89 @@ const rateChart      = selectedpickuppartner?.rateChart || null
               )}
             </div>
 
-            {/* 4. RST Items */}
-            <div className="form-group" style={{ margin: 0 }}>
-              <SectionLabel badge="RST" badgeClass="badge-success" title="Raddi Se Tarakki — Scrap Items" count={form.rstItems.length} />
-              <RSTItemChips items={RST_ITEMS} selected={form.rstItems} weights={form.rstItemWeights} onToggle={toggleRSTItem} onWeight={updateRstWeight} rstOthers={form.rstOthers} onOthersChange={others => setForm(f => ({ ...f, rstOthers: others }))} />
-              {rateChart && form.rstItems.length > 0 && (
-                <>
-                  <div style={{ marginTop: 10, fontSize: 11.5, fontWeight: 600, color: 'var(--secondary)' }}>Rate breakdown — {selectedpickuppartner?.name}</div>
-                  <RateBreakdown rstItems={form.rstItems} rstItemWeights={form.rstItemWeights} rateChart={rateChart} rstOthers={form.rstOthers} />
-                </>
+            {/* 4. RST Items — Collapsible */}
+            <div style={{ margin: 0 }}>
+              <button
+                type="button"
+                onClick={() => setRstOpen(o => !o)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', width: '100%',
+                  background: rstOpen || form.rstItems.length > 0 ? 'var(--secondary)' : 'var(--surface)',
+                  border: `1.5px solid ${rstOpen || form.rstItems.length > 0 ? 'var(--secondary)' : 'var(--border)'}`,
+                  borderRadius: rstOpen || form.rstItems.length > 0 ? '10px 10px 0 0' : 10,
+                  cursor: 'pointer', userSelect: 'none', transition: 'all 0.18s',
+                }}
+              >
+                <span style={{ width: 28, height: 28, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', background: rstOpen || form.rstItems.length > 0 ? 'rgba(255,255,255,0.2)' : 'var(--secondary-light)', flexShrink: 0, fontSize: 12, fontWeight: 800, color: rstOpen || form.rstItems.length > 0 ? '#fff' : 'var(--secondary)' }}>RST</span>
+                <div style={{ flex: 1, textAlign: 'left' }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: rstOpen || form.rstItems.length > 0 ? '#fff' : 'var(--text-primary)', lineHeight: 1.2 }}>Raddi Se Tarakki</div>
+                  <div style={{ fontSize: 10.5, color: rstOpen || form.rstItems.length > 0 ? 'rgba(255,255,255,0.7)' : 'var(--text-muted)', lineHeight: 1.3 }}>Scrap Items</div>
+                </div>
+                {form.rstItems.length > 0 && (
+                  <span style={{ background: rstOpen ? 'rgba(255,255,255,0.25)' : 'var(--secondary)', color: 'white', borderRadius: 20, fontSize: 10.5, padding: '2px 9px', fontWeight: 700 }}>{form.rstItems.length} selected</span>
+                )}
+                <ChevronDown size={18} color={rstOpen || form.rstItems.length > 0 ? '#fff' : 'var(--text-muted)'} style={{ flexShrink: 0, transition: 'transform 0.2s', transform: rstOpen ? 'rotate(180deg)' : 'none' }} />
+              </button>
+              {(rstOpen || form.rstItems.length > 0) && (
+                <div style={{ padding: '14px', border: '1.5px solid var(--secondary)', borderTop: 'none', borderRadius: '0 0 10px 10px', background: 'var(--surface)' }}>
+                  <RSTItemChips items={RST_ITEMS} selected={form.rstItems} weights={form.rstItemWeights} onToggle={toggleRSTItem} onWeight={updateRstWeight} rstOthers={form.rstOthers} onOthersChange={others => setForm(f => ({ ...f, rstOthers: others }))} />
+                  {rateChart && form.rstItems.length > 0 && (
+                    <>
+                      <div style={{ marginTop: 10, fontSize: 11.5, fontWeight: 600, color: 'var(--secondary)' }}>Rate breakdown — {selectedpickuppartner?.name}</div>
+                      <RateBreakdown rstItems={form.rstItems} rstItemWeights={form.rstItemWeights} rateChart={rateChart} rstOthers={form.rstOthers} />
+                    </>
+                  )}
+                </div>
               )}
             </div>
 
-            {/* 5. SKS Items */}
-            <div className="form-group" style={{ margin: 0 }}>
-              <SectionLabel badge="SKS" badgeClass="badge-info" title="Sammaan Ka Saaman — Goods Donated" count={form.sksItems.length} />
-              <SKSItemChips items={SKS_ITEMS} selected={form.sksItems} otherText={form.sksOtherText} onChange={items => setForm(f => ({ ...f, sksItems: items, sksOtherText: items.includes('Others') ? f.sksOtherText : '' }))} onOtherText={v => set('sksOtherText', v)} />
+            {/* 5. SKS Items — Collapsible */}
+            <div style={{ margin: 0 }}>
+              <button
+                type="button"
+                onClick={() => setSksOpen(o => !o)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', width: '100%',
+                  background: sksOpen || form.sksItems.length > 0 ? 'var(--info)' : 'var(--surface)',
+                  border: `1.5px solid ${sksOpen || form.sksItems.length > 0 ? 'var(--info)' : 'var(--border)'}`,
+                  borderRadius: sksOpen || form.sksItems.length > 0 ? '10px 10px 0 0' : 10,
+                  cursor: 'pointer', userSelect: 'none', transition: 'all 0.18s',
+                }}
+              >
+                <span style={{ width: 28, height: 28, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', background: sksOpen || form.sksItems.length > 0 ? 'rgba(255,255,255,0.2)' : 'var(--info-bg)', flexShrink: 0, fontSize: 12, fontWeight: 800, color: sksOpen || form.sksItems.length > 0 ? '#fff' : 'var(--info)' }}>SKS</span>
+                <div style={{ flex: 1, textAlign: 'left' }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: sksOpen || form.sksItems.length > 0 ? '#fff' : 'var(--text-primary)', lineHeight: 1.2 }}>Sammaan Ka Saaman</div>
+                  <div style={{ fontSize: 10.5, color: sksOpen || form.sksItems.length > 0 ? 'rgba(255,255,255,0.7)' : 'var(--text-muted)', lineHeight: 1.3 }}>Goods Donated</div>
+                </div>
+                {form.sksItems.length > 0 && (
+                  <span style={{ background: sksOpen ? 'rgba(255,255,255,0.25)' : 'var(--info)', color: 'white', borderRadius: 20, fontSize: 10.5, padding: '2px 9px', fontWeight: 700 }}>{form.sksItems.length} selected</span>
+                )}
+                <ChevronDown size={18} color={sksOpen || form.sksItems.length > 0 ? '#fff' : 'var(--text-muted)'} style={{ flexShrink: 0, transition: 'transform 0.2s', transform: sksOpen ? 'rotate(180deg)' : 'none' }} />
+              </button>
+              {(sksOpen || form.sksItems.length > 0) && (
+                <div style={{ padding: '14px', border: '1.5px solid var(--info)', borderTop: 'none', borderRadius: '0 0 10px 10px', background: 'var(--surface)' }}>
+                  <SKSItemChips items={SKS_ITEMS} selected={form.sksItems} otherText={form.sksOtherText} onChange={items => setForm(f => ({ ...f, sksItems: items, sksOtherText: items.includes('Others') ? f.sksOtherText : '' }))} onOtherText={v => set('sksOtherText', v)} />
+                </div>
+              )}
             </div>
 
             {/* 6. Payment */}
             <div style={{ background: 'var(--bg)', borderRadius: 10, padding: 14, border: '1px solid var(--border-light)' }}>
+              <style>{`@media (max-width: 480px) { .payment-grid-row { grid-template-columns: 1fr !important; } }`}</style>
               <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
                 <IndianRupee size={13} color="var(--warning)" /> Payment Details
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="payment-grid-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div className="form-group" style={{ margin: 0 }}>
-                  <label>Total Value (₹) {rstEstimatedValue > 0 && <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--secondary)', marginLeft: 6, background: 'var(--secondary-light)', padding: '1px 6px', borderRadius: 4 }}>Auto-filled ✓</span>}</label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                    <span>Total Value (₹)</span>
+                    {rstEstimatedValue > 0 && <span style={{ fontSize: 9, fontWeight: 600, color: 'var(--secondary)', background: 'var(--secondary-light)', padding: '1px 5px', borderRadius: 4, whiteSpace: 'nowrap' }}>Auto ✓</span>}
+                  </label>
                   <input type="text" inputMode="numeric" placeholder="0" value={form.totalValue} onChange={e => set('totalValue', e.target.value.replace(/[^0-9]/g, ''))} />
                 </div>
                 <div className="form-group" style={{ margin: 0 }}>
                   <label>Amount Paid (₹)</label>
-                  <input type="text" inputMode="numeric" placeholder="0" value={form.amountPaid} onChange={e => set('amountPaid', e.target.value.replace(/[^0-9]/g, ''))} />
+                  <input type="textF" inputMode="numeric" placeholder="0" value={form.amountPaid} onChange={e => set('amountPaid', e.target.value.replace(/[^0-9]/g, ''))} />
                 </div>
               </div>
               <div className="form-group" style={{ margin: '12px 0 0' }}>
@@ -901,29 +955,7 @@ const rateChart      = selectedpickuppartner?.rateChart || null
 
         {/* ── RIGHT ── */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div className="card">
-            <div className="card-header">
-              <Clock size={15} color="var(--info)" />
-              <div className="card-title" style={{ fontSize: 13.5 }}>Quick Guide</div>
-            </div>
-            <div className="card-body" style={{ fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.8, padding: '12px 16px' }}>
-              {[
-                ['1.', 'Search or add a donor.'],
-                ['2.', 'If the donor has a pickup scheduled today, it auto-links. ✓'],
-                ['3.', 'Pickup date is locked to today.'],
-                ['4.', 'Assign a partner — sector-matched shown first.'],
-                ['5.', 'Tick RST items and fill weights. "Others" supports multiple entries.'],
-                ['6.', 'Total Value auto-fills from rates × weights.'],
-                ['7.', 'Tick SKS items (checkbox only).'],
-                ['8.', 'Set payment details and hit Save.'],
-              ].map(([n, t]) => (
-                <div key={n} style={{ display: 'flex', gap: 10, marginBottom: 4 }}>
-                  <span style={{ fontWeight: 700, color: 'var(--primary)', flexShrink: 0 }}>{n}</span>
-                  <span>{t}</span>
-                </div>
-              ))}
-            </div>
-          </div>
+           
           <DonorPickupHistory donor={selectedDonor} pickups={pickups} />
         </div>
       </div>

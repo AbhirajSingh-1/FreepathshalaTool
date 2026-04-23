@@ -114,63 +114,62 @@ function FiltersPanel({ filters, onChange, pickups }) {
   return (
     <div style={{
       background: 'var(--surface)', border: '1px solid var(--border-light)',
-      borderRadius: 'var(--radius)', padding: '10px 14px',
+      borderRadius: 'var(--radius)', padding: '8px 12px',
       marginBottom: 14, boxShadow: 'var(--shadow)',
     }}>
-      {/* Single-row filter line */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-        <Filter size={13} color="var(--primary)" style={{ flexShrink: 0 }} />
-        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', flexShrink: 0, marginRight: 2 }}>Period:</span>
+      {/* Single-row filter line: period left, location right */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'nowrap', overflowX: 'auto' }}>
+        <Filter size={12} color="var(--primary)" style={{ flexShrink: 0 }} />
 
         {PERIOD_OPTIONS.map(o => (
           <button key={o.id} className={`btn btn-sm ${period === o.id ? 'btn-primary' : 'btn-ghost'}`}
-            style={{ fontSize: 11.5, padding: '4px 9px' }}
+            style={{ fontSize: 11, padding: '3px 8px', whiteSpace: 'nowrap', flexShrink: 0 }}
             onClick={() => onChange({ ...filters, period: o.id })}>
             {o.label}
           </button>
         ))}
 
-        {/* Divider */}
-        <div style={{ width: 1, height: 18, background: 'var(--border)', flexShrink: 0, margin: '0 4px' }} />
+        {/* Divider + push right */}
+        <div style={{ width: 1, height: 18, background: 'var(--border)', flexShrink: 0, marginLeft: 'auto' }} />
 
-        {/* Location filters inline */}
+        {/* Location + partner filters — right side */}
         <select value={city} onChange={e => onChange({ ...filters, city: e.target.value, sector: '' })}
-          style={{ fontSize: 12, padding: '4px 8px', minWidth: 100, height: 30 }}>
+          style={{ fontSize: 11, padding: '2px 4px', width: 'auto', minWidth: 0, maxWidth: 100, height: 26, flexShrink: 0 }}>
           <option value="">All Cities</option>
           {CITIES.map(c => <option key={c}>{c}</option>)}
         </select>
         <select value={sector} onChange={e => onChange({ ...filters, sector: e.target.value })}
           disabled={!city}
-          style={{ fontSize: 12, padding: '4px 8px', minWidth: 120, height: 30 }}>
-          <option value="">{city ? 'All Sectors' : 'City first'}</option>
+          style={{ fontSize: 11, padding: '2px 4px', width: 'auto', minWidth: 0, maxWidth: 110, height: 26, flexShrink: 0 }}>
+          <option value="">{city ? 'All Sectors' : '—'}</option>
           {sectorOptions.map(s => <option key={s}>{s}</option>)}
         </select>
         <select value={PickupPartner} onChange={e => onChange({ ...filters, PickupPartner: e.target.value })}
-          style={{ fontSize: 12, padding: '4px 8px', minWidth: 130, height: 30 }}>
+          style={{ fontSize: 11, padding: '2px 4px', width: 'auto', minWidth: 0, maxWidth: 110, height: 26, flexShrink: 0 }}>
           <option value="">All Partners</option>
           {pickuppartnerNames.map(k => <option key={k}>{k}</option>)}
         </select>
 
         {hasLocFilter && (
-          <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: 'var(--danger)', padding: '4px 8px' }}
+          <button className="btn btn-ghost btn-sm" style={{ fontSize: 10.5, color: 'var(--danger)', padding: '3px 6px', flexShrink: 0 }}
             onClick={() => onChange({ ...filters, city: '', sector: '', PickupPartner: '' })}>
-            <X size={11} /> Clear
+            <X size={10} />
           </button>
         )}
         <button className="btn btn-ghost btn-sm"
-          style={{ fontSize: 11, marginLeft: 'auto', padding: '4px 9px' }}
+          style={{ fontSize: 10.5, padding: '3px 7px', flexShrink: 0 }}
           onClick={() => onChange({ period: 'current_month', customFrom: '', customTo: '', city: '', sector: '', PickupPartner: '' })}>
-          <RefreshCw size={10} /> Reset
+          <RefreshCw size={10} />
         </button>
       </div>
 
       {/* Custom date row (only when custom selected) */}
       {period === 'custom' && (
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', flexShrink: 0 }}>From:</span>
-          <input type="date" value={customFrom} onChange={e => onChange({ ...filters, customFrom: e.target.value })} style={{ width: 140, fontSize: 12 }} />
-          <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', flexShrink: 0 }}>To:</span>
-          <input type="date" value={customTo} onChange={e => onChange({ ...filters, customTo: e.target.value })} style={{ width: 140, fontSize: 12 }} />
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', flexShrink: 0 }}>From:</span>
+          <input type="date" value={customFrom} onChange={e => onChange({ ...filters, customFrom: e.target.value })} style={{ width: 130, fontSize: 12, height: 28 }} />
+          <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', flexShrink: 0 }}>To:</span>
+          <input type="date" value={customTo} onChange={e => onChange({ ...filters, customTo: e.target.value })} style={{ width: 130, fontSize: 12, height: 28 }} />
         </div>
       )}
     </div>

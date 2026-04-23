@@ -10,6 +10,7 @@ import { useApp }   from '../context/AppContext'
 import { useRole }  from '../context/RoleContext'
 import PickupTabs   from '../components/PickupTabs'
 import { fmtDate, fmtCurrency } from '../utils/helpers'
+import { CITIES, CITY_SECTORS } from '../data/mockData'
 
 // ── Period helpers ─────────────────────────────────────────────────────────────
 const padM = (n) => String(n).padStart(2, '0')
@@ -123,6 +124,8 @@ export default function PickupOverview() {
   const [dateFrom,   setDateFrom]  = useState(defaultFrom)
   const [dateTo,     setDateTo]    = useState(defaultTo)
   const [sector,     setSector]    = useState('')
+  const [city,       setCity]      = useState('')
+  const [society,    setSociety]   = useState('')
   const [showFilters, setShowFilters] = useState(false)
 
   // Scheduler sub-filters
@@ -140,16 +143,26 @@ export default function PickupOverview() {
     }
   }
 
-  const allSectors = useMemo(() => [...new Set(pickups.map(p => p.sector).filter(Boolean))].sort(), [pickups])
+  const allSectors = useMemo(() => {
+    if (city) return CITY_SECTORS[city] || []
+    return [...new Set(pickups.map(p => p.sector).filter(Boolean))].sort()
+  }, [pickups, city])
+
+  const allSocieties = useMemo(() => {
+    if (!sector) return []
+    return [...new Set(pickups.map(p => p.society).filter(Boolean))].sort()
+  }, [pickups, sector])
 
   const filteredPickups = useMemo(() =>
     pickups.filter(p => {
       const d = p.date || ''
       const inDate = (!dateFrom || d >= dateFrom) && (!dateTo || d <= dateTo)
+      const inCity = !city || p.city === city
       const inSec  = !sector || p.sector === sector
-      return inDate && inSec
+      const inSoc  = !society || p.society === society
+      return inDate && inCity && inSec && inSoc
     }),
-    [pickups, dateFrom, dateTo, sector]
+    [pickups, dateFrom, dateTo, city, sector, society]
   )
 
   const individualPickups  = useMemo(() => filteredPickups.filter(p => p.pickupMode !== 'Drive'), [filteredPickups])
@@ -221,30 +234,71 @@ export default function PickupOverview() {
       {/* ── OVERVIEW SECTION ── */}
       {section === 'overview' && (
         <>
-          {/* Period bar */}
-          <div className="card" style={{ marginBottom: 20, padding: '8px 16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Period:</span>
-                <span style={{ fontSize: 12.5, color: 'var(--primary)', fontWeight: 600 }}>{periodLabel}</span>
-              </div>
-              {/* Date range manual inputs */}
-              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label style={{ fontSize: 10.5, fontWeight: 600 }}>From</label>
-                  <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ width: 140 }} />
-                </div>
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label style={{ fontSize: 10.5, fontWeight: 600 }}>To</label>
-                  <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={{ width: 140 }} />
-                </div>
-                <select value={sector} onChange={e => setSector(e.target.value)} style={{ fontSize: 12, minWidth: 140 }}>
-                  <option value="">All Sectors</option>
-                  {allSectors.map(s => <option key={s}>{s}</option>)}
+          {/* Compact single-row filter bar */}
+          <div style={{ marginBottom: 20, background: 'var(--surface)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow)', padding: '8px 14px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'nowrap', overflowX: 'auto' }}>
+              {/* Period preset buttons */}
+              {last5.map(ym => {
+                const [y, m] = ym.split('-')
+                const r = getMonthRange(ym)
+                const active = dateFrom === r.from && dateTo === r.to
+                return (
+                  <button key={ym} className={`btn btn-sm ${active ? 'btn-primary' : 'btn-ghost'}`}
+                    style={{ fontSize: 11, padding: '3px 8px', whiteSpace: 'nowrap', flexShrink: 0 }}
+                    onClick={() => { setDateFrom(r.from); setDateTo(r.to) }}>
+                    {MONTHS_SHORT[+m - 1]} {y}
+                  </button>
+                )
+              })}
+              <button className={`btn btn-sm ${!dateFrom && !dateTo ? 'btn-primary' : 'btn-ghost'}`}
+                style={{ fontSize: 11, padding: '3px 8px', whiteSpace: 'nowrap', flexShrink: 0 }}
+                onClick={() => { setDateFrom(''); setDateTo('') }}>All</button>
+
+              {/* Divider + push right */}
+              <div style={{ width: 1, height: 18, background: 'var(--border)', flexShrink: 0, marginLeft: 'auto' }} />
+
+              {/* From / To date inputs */}
+              <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+                style={{ width: 125, fontSize: 11.5, height: 28, padding: '2px 6px', flexShrink: 0 }} />
+              <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>–</span>
+              <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+                style={{ width: 125, fontSize: 11.5, height: 28, padding: '2px 6px', flexShrink: 0 }} />
+
+              {/* City → Sector → Society cascading */}
+              <select value={city} onChange={e => { setCity(e.target.value); setSector(''); setSociety('') }}
+                style={{ fontSize: 11, width: 'auto', minWidth: 0, maxWidth: 100, height: 26, padding: '2px 4px', flexShrink: 0 }}>
+                <option value="">All Cities</option>
+                {CITIES.map(c => <option key={c}>{c}</option>)}
+              </select>
+              <select value={sector} onChange={e => { setSector(e.target.value); setSociety('') }}
+                disabled={!city && allSectors.length === 0}
+                style={{ fontSize: 11, width: 'auto', minWidth: 0, maxWidth: 110, height: 26, padding: '2px 4px', flexShrink: 0 }}>
+                <option value="">All Sectors</option>
+                {allSectors.map(s => <option key={s}>{s}</option>)}
+              </select>
+              {sector && allSocieties.length > 0 && (
+                <select value={society} onChange={e => setSociety(e.target.value)}
+                  style={{ fontSize: 11, width: 'auto', minWidth: 0, maxWidth: 110, height: 26, padding: '2px 4px', flexShrink: 0 }}>
+                  <option value="">All Societies</option>
+                  {allSocieties.map(s => <option key={s}>{s}</option>)}
                 </select>
-              </div>
+              )}
+
+              {(dateFrom || dateTo || city || sector || society) && (
+                <button className="btn btn-ghost btn-sm" onClick={() => { setDateFrom(defaultFrom); setDateTo(defaultTo); setCity(''); setSector(''); setSociety('') }}
+                  style={{ color: 'var(--danger)', fontSize: 10.5, padding: '3px 6px', flexShrink: 0 }}>
+                  <X size={10} />
+                </button>
+              )}
             </div>
-            <PeriodBar dateFrom={dateFrom} dateTo={dateTo} onRange={(f, t) => { setDateFrom(f); setDateTo(t) }} last5={last5} />
+            {/* Period label */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+              <Calendar size={12} color="var(--primary)" />
+              <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--primary)' }}>{periodLabel}</span>
+              {city && <span style={{ fontSize: 11, padding: '1px 8px', borderRadius: 20, background: 'var(--info-bg)', color: 'var(--info)', fontWeight: 600 }}>🏙 {city}</span>}
+              {sector && <span style={{ fontSize: 11, padding: '1px 8px', borderRadius: 20, background: 'var(--secondary-light)', color: 'var(--secondary)', fontWeight: 600 }}>📍 {sector}</span>}
+              {society && <span style={{ fontSize: 11, padding: '1px 8px', borderRadius: 20, background: 'var(--warning-bg)', color: '#92400E', fontWeight: 600 }}>🏘 {society}</span>}
+            </div>
           </div>
 
           {/* KPIs */}
