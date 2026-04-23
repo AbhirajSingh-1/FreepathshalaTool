@@ -757,25 +757,29 @@ function WarehouseView({ stock, allSKSItems, outflows, isAdmin, onDeleteOutflow,
   return (
     <div>
       {/* KPIs */}
-      <div className="stat-grid" style={{ marginBottom: 20 }}>
-        <div className="stat-card green">
-          <div className="stat-icon"><Boxes size={18} /></div>
-          <div className="stat-value">{totalInStock}</div>
-          <div className="stat-label">Total In Warehouse</div>
-          <div className="stat-change up">{allSKSItems.filter(i => (stock[i] || 0) > 0).length} item types</div>
-        </div>
-        <div className="stat-card orange">
-          <div className="stat-icon"><ArrowUpCircle size={18} /></div>
-          <div className="stat-value">{outflows.reduce((s, r) => s + (r.items || []).reduce((a, it) => a + it.qty, 0), 0)}</div>
-          <div className="stat-label">Total Dispatched</div>
-          <div className="stat-change up">{outflows.length} dispatches</div>
-        </div>
-        <div className="stat-card blue">
-          <div className="stat-icon"><IndianRupee size={18} /></div>
-          <div className="stat-value">{fmtCurrency(outflows.reduce((s, r) => s + (r.payment?.amount || 0), 0))}</div>
-          <div className="stat-label">Payments Received</div>
-        </div>
-      </div>
+      <div 
+  className="stat-grid" 
+  style={{ 
+    marginBottom: 10,
+    display: "flex",
+    justifyContent: "flex-start"
+  }}
+>
+  <div 
+    className="stat-card green"
+    style={{
+      width: "220px",
+      maxWidth: "100%"
+    }}
+  >
+    <div className="stat-icon"><Boxes size={18} /></div>
+    <div className="stat-value">{totalInStock}</div>
+    <div className="stat-label">Total In Warehouse</div>
+    <div className="stat-change up">
+      {allSKSItems.filter(i => (stock[i] || 0) > 0).length} item types
+    </div>
+  </div>
+</div>
 
       {/* Low stock alert */}
       {allSKSItems.filter(i => (stock[i] || 0) > 0 && (stock[i] || 0) < 3).length > 0 && (
@@ -1176,10 +1180,10 @@ export default function SKSOverview() {
   const totalDispatched = sksOutflows.reduce((s, r) => s + (r.items || []).reduce((a, it) => a + it.qty, 0), 0)
 
   const TABS = [
-    { id: 'stockin',   label: '↓ Stock In',         count: null },
-    { id: 'history',   label: '📋 Stock In History', count: sksInflows.length || null },
-    { id: 'warehouse', label: '📦 In Warehouse',     count: totalInStock > 0 ? totalInStock : null },
-    { id: 'stockout',  label: '↑ Stock Out',         count: sksOutflows.length || null },
+    { id: 'stockin',   label: '↓ Add Stock',         count: null },
+    { id: 'history',   label: '📋 Stock History', count: sksInflows.length || null },
+    { id: 'warehouse', label: '📦 Warehouse Stock',     count: totalInStock > 0 ? totalInStock : null },
+    { id: 'stockout',  label: '↑ Sell Stock',         count: sksOutflows.length || null },
   ]
 
   return (

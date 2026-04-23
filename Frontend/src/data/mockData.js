@@ -297,7 +297,7 @@ export const PickupPartners = [
     ],
   },
   {
-    id: 'K-002', name: 'Raju PickupPartnerh', mobile: '9654321009',
+    id: 'K-002', name: 'Raju kumar', mobile: '9654321009',
     email: '',
     sectors: ['Sector 5', 'Sector 15'],
     societies: ['Patel Enclave', 'Shanti Nagar'],
@@ -351,7 +351,7 @@ export const pickups = [
     date: '2026-03-01', status: 'Completed', type: 'RST+SKS', pickupMode: 'Individual',
     rstItems: ['Iron', 'E-Waste'], sksItems: ['Kids Clothes', 'Toys'],
     totalKgs: 8.0, totalValue: 180, amountPaid: 100, paymentStatus: 'Partially Paid',
-    PickupPartner: 'Raju PickupPartnerh', pickuppartneradiMobile: '9654321009',
+    PickupPartner: 'Raju kumar', pickuppartneradiMobile: '9654321009',
     nextDate: '2026-04-02', notes: '',
   },
   {

@@ -261,9 +261,6 @@ export default function Supporters() {
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 16, color: 'var(--primary)' }}>Supporters &amp; Contributors</div>
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
-            Engagement tracked by last activity date — status updates automatically. Click any category to filter.
-          </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
           {isAdmin && (
@@ -280,7 +277,7 @@ export default function Supporters() {
       {/* ── Engagement Status Legend ── */}
       <div style={{ marginBottom: 16, padding: '10px 14px', background: 'var(--surface)', borderRadius: 10, border: '1px solid var(--border-light)', boxShadow: 'var(--shadow)' }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
-          <Activity size={11} color="var(--primary)" /> Engagement Timeline
+          <Activity size={11} color="var(--primary)" /> Supporters Insights
         </div>
         <div style={{ display: 'flex', gap: 0, borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border-light)' }}>
           {/* Total Supporters — first cell */}
@@ -642,7 +639,7 @@ export default function Supporters() {
                 </div>
                 <div className="form-group">
                   <label style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <Calendar size={12} color="var(--info)" /> Last Activity Date
+                    <Calendar size={12} color="var(--info)" />Date
                     <span style={{ fontSize: 10.5, fontWeight: 400, color: 'var(--text-muted)' }}>(auto-sets status)</span>
                   </label>
                   <input type="date" value={form.lastSupportDate}
