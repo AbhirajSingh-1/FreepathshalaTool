@@ -981,7 +981,7 @@ export default function PickupPartners() {
                 )}
 
                 {/* Payment stats row */}
-                <PartnerPaymentSummaryCards partner={k} raddiRecords={raddiRecords||[]}/>
+               
                 <RateChartMini rateChart={k.rateChart} expanded={!!expandedRates[k.id]} onToggle={() => toggleRate(k.id)}/>
 
                 {/* Status toggle */}

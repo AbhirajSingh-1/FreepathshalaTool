@@ -259,7 +259,7 @@ function RecordPaymentModal({ context, onClose, onSave, saving }) {
               <Check size={26} color="var(--secondary)"/>
             </div>
             <div style={{ fontWeight:700, fontSize:16, color:'var(--secondary)' }}>Fully Paid</div>
-            <div style={{ fontSize:13, color:'var(--text-muted)', marginTop:4 }}>No outstanding balance.</div>
+            <div style={{ fontSize:13, color:'var(--text-muted)', marginTop:4 }}>No Pending balance.</div>
           </div>
         ) : (
           <div style={{ padding:'20px 24px', display:'flex', flexDirection:'column', gap:16, overflowY:'auto', maxHeight:440 }}>
@@ -514,7 +514,7 @@ function PickupRow({ pickup, onPay, onWriteOff, canWriteOff }) {
               style={{ fontSize:11.5, padding:'5px 10px', borderRadius:6,
                 border:'1px solid rgba(239,68,68,0.35)', background:'var(--danger-bg)',
                 color:'var(--danger)', cursor:'pointer', fontWeight:600 }}>
-              W/O
+              Write off
             </button>
           )}
         </div>
@@ -634,7 +634,7 @@ function PartnerRow({ partner, onRecordPayment, onWriteOffEntry, onWriteOffPartn
                   style={{ padding:'7px 12px', borderRadius:8, border:'1.5px solid rgba(239,68,68,0.3)',
                     background:'var(--danger-bg)', color:'var(--danger)', cursor:'pointer',
                     fontSize:12, fontWeight:700, display:'flex', alignItems:'center', gap:4 }}>
-                  W/O All
+                  Write off All
                 </button>
               )}
             </>
@@ -826,7 +826,7 @@ function PartnerPaymentHub({ pickups, PickupPartners, recordPickupPartnerPayment
         {money(kpis.totalPending)}
       </div>
       <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 6 }}>
-        {kpis.withPending} of {kpis.totalPartners} partners have outstanding dues
+        {kpis.withPending} of {kpis.totalPartners} partners have Pending dues
       </div>
     </div>
 
@@ -837,22 +837,22 @@ function PartnerPaymentHub({ pickups, PickupPartners, recordPickupPartnerPayment
     <div style={{ display: 'flex', gap: 10, flexShrink: 0, flexWrap: 'wrap' }}>
       {[
         {
-          label: 'Total Billed', value: money(kpis.totalRevenue),
+          label: 'Total Value', value: money(kpis.totalRevenue),
           sub: `${kpis.totalPartners} partners`,
           bg: 'rgba(255,255,255,0.06)', border: 'rgba(255,255,255,0.1)',
-          labelColor: 'rgba(255,255,255,0.4)', valueColor: '#f1f5f9', subColor: 'rgba(255,255,255,0.3)',
+          labelColor: 'rgba(255,255,255,0.4)', valueColor: '#f1f5f9', subColor: 'rgb(255, 255, 255)',
         },
         {
-          label: 'Received', value: money(kpis.totalReceived),
+          label: 'Amount Received', value: money(kpis.totalReceived),
           sub: `${collectionPct}% collected`,
           bg: 'rgba(34,197,94,0.12)', border: 'rgba(34,197,94,0.25)',
           labelColor: '#4ade80', valueColor: '#4ade80', subColor: 'rgba(74,222,128,0.6)',
         },
         {
-          label: 'Written Off', value: money(kpis.totalWriteOff),
+          label: 'Amount Written Off', value: money(kpis.totalWriteOff),
           sub: 'non-recoverable',
           bg: 'rgba(255,255,255,0.03)', border: 'rgba(255,255,255,0.06)',
-          labelColor: 'rgba(255,255,255,0.2)', valueColor: 'rgba(255,255,255,0.25)', subColor: 'rgba(255,255,255,0.15)',
+          labelColor: 'rgba(255, 255, 255, 0.52)', valueColor: 'rgb(255, 255, 255)', subColor: 'rgb(255, 255, 255)',
         },
       ].map(s => (
         <div key={s.label} style={{ background: s.bg, border: `1px solid ${s.border}`, borderRadius: 12, padding: '14px 18px', minWidth: 110 }}>
@@ -909,7 +909,7 @@ function PartnerPaymentHub({ pickups, PickupPartners, recordPickupPartnerPayment
               padding: 3,
             }}
           >
-            {DATE_PRESETS.map((p) => (
+            {DATE_PRESETS.filter((p) => p.id !== 'all').map((p) => (
               <button
                 key={p.id}
                 onClick={() => setDatePreset(p.id)}
@@ -1000,7 +1000,7 @@ function PartnerPaymentHub({ pickups, PickupPartners, recordPickupPartnerPayment
               maxWidth: 160,
             }}
           >
-            <option value="">All Partners</option>
+            <option value="">Select Partner</option>
             {PickupPartners.map((k) => (
               <option key={k.id} value={k.name}>
                 {k.name}
