@@ -3,7 +3,7 @@
 import { useState, useMemo, useCallback } from 'react'
 import {
   ArrowDownCircle, ArrowUpCircle, Package, Boxes,
-  Plus, X, CheckCircle, Download, Trash2,
+  Plus, X, CheckCircle, Download, Trash2, Edit2,
   MapPin, Calendar, Search,
   ShoppingBag, Shirt, Footprints, Gift, Dumbbell, BookOpen,
   UtensilsCrossed, Armchair, Monitor, Laptop, Wind, Microwave,
@@ -385,7 +385,7 @@ function StockInForm({ allSKSItems, onAdd, onAddCustomItem, showToast }) {
                       <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{cfg.category}</div>
                     </div>
                   </div>
-                  <input type="number" min={0} inputMode="numeric"
+                  <input type="number" onWheel={(e) => e.target.blur()} min={0} inputMode="numeric"
                     value={itemQty[item] || ''}
                     onChange={e => setItemQty(q => ({ ...q, [item]: parseInt(e.target.value) || 0 }))}
                     placeholder="0"
@@ -554,7 +554,7 @@ function HistoryView({ inflows, outflows = [], isAdmin, onDeleteInflow, onDelete
         <span><strong style={{ color: 'var(--primary)' }}>-{totalOutQty}</strong> stock out</span>
         {!isAdmin && (
           <span style={{ marginLeft: 'auto', fontSize: 11, padding: '2px 10px', background: 'var(--border-light)', borderRadius: 20, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
-            🔒 Delete: Admin only
+            🔒 Edit: Admin only
           </span>
         )}
         <button className="btn btn-ghost btn-sm" onClick={handleExport} style={{ marginLeft: isAdmin ? 'auto' : 0 }}>
@@ -590,7 +590,7 @@ function HistoryView({ inflows, outflows = [], isAdmin, onDeleteInflow, onDelete
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 5 }}>
                       <span style={{ fontSize: 10.5, fontWeight: 800, color: tone, background: toneBg, padding: '2px 8px', borderRadius: 20 }}>{r.movementLabel}</span>
-                      <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 700, color: 'white', background: tone, padding: '2px 7px', borderRadius: 4 }}>{r.id}</span>
+              <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 700, color: 'white', background: tone, padding: '2px 7px', borderRadius: 4 }}>{r.id}</span>
                       <span style={{ fontWeight: 700, fontSize: 13 }}>{fmtDate(r.date)}</span>
                     </div>
                     <div style={{ fontSize: 12, color: tone, display: 'flex', alignItems: 'center', gap: 5, marginBottom: 7 }}>
@@ -616,10 +616,10 @@ function HistoryView({ inflows, outflows = [], isAdmin, onDeleteInflow, onDelete
                     </div>
                     {hasDetails && <span style={{ color: 'var(--text-muted)' }}>{isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</span>}
                     {isAdmin && (
-                      <button onClick={e => { e.stopPropagation(); handleDelete(r) }}
-                        style={{ width: 30, height: 30, borderRadius: 7, border: '1px solid var(--danger)', background: 'var(--danger-bg)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--danger)' }}
-                        title="Delete record (Admin only)">
-                        <Trash2 size={12} />
+                      <button onClick={e => { e.stopPropagation(); showToast('Edit functionality coming soon', 'info') }}
+                        style={{ width: 30, height: 30, borderRadius: 7, border: '1px solid var(--info)', background: 'var(--info-bg)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--info)' }}
+                        title="Edit record (Admin only)">
+                        <Edit2 size={12} />
                       </button>
                     )}
                   </div>
@@ -693,14 +693,14 @@ function DispatchPaymentSection({ payState, onChange }) {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
         <div className="form-group" style={{ margin: 0 }}>
           <label style={{ fontSize: 11.5 }}>Total Goods Value (₹)</label>
-          <input type="number" min={0} inputMode="decimal"
+          <input type="number" onWheel={(e) => e.target.blur()} min={0} inputMode="decimal"
             value={payState.totalValue || ''}
             onChange={e => onChange({ ...payState, totalValue: e.target.value })}
             placeholder="Estimated value of goods" />
         </div>
         <div className="form-group" style={{ margin: 0 }}>
           <label style={{ fontSize: 11.5 }}>Amount Received (₹)</label>
-          <input type="number" min={0} inputMode="decimal"
+          <input type="number" onWheel={(e) => e.target.blur()} min={0} inputMode="decimal"
             value={amount}
             onChange={e => onChange({ ...payState, amount: e.target.value })}
             placeholder="0" />
@@ -888,7 +888,7 @@ function WarehouseView({ stock, allSKSItems, outflows, isAdmin, onDeleteOutflow,
           <div className="card-header">
             <ArrowUpCircle size={16} color="var(--primary)" />
             <div className="card-title">Dispatch History</div>
-            {!isAdmin && <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)', padding: '2px 9px', background: 'var(--border-light)', borderRadius: 20 }}>🔒 Delete: Admin only</span>}
+            {!isAdmin && <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)', padding: '2px 9px', background: 'var(--border-light)', borderRadius: 20 }}>🔒 Edit: Admin only</span>}
           </div>
           <div>
             {[...outflows].sort((a, b) => (b.date || '').localeCompare(a.date || '')).map((r, i) => {
@@ -1060,7 +1060,7 @@ function StockOutView({ stock, allSKSItems, outflows, isAdmin, onAddOutflow, onD
                       <td style={{ textAlign: 'right', fontFamily: 'var(--font-display)', fontWeight: 700, color: qty > 0 ? 'var(--secondary)' : 'var(--text-muted)' }}>{qty}</td>
                       <td style={{ textAlign: 'right' }}>
                         {qty > 0 ? (
-                          <input type="number" min={0} max={qty} inputMode="numeric"
+                          <input type="number" onWheel={(e) => e.target.blur()} min={0} max={qty} inputMode="numeric"
                             value={dispQty[item] || ''} onChange={e => setDispQty(q => ({ ...q, [item]: parseInt(e.target.value) || 0 }))}
                             placeholder="0"
                             style={{ width: 82, padding: '5px 9px', fontSize: 13, fontWeight: 700, textAlign: 'right', border: `1.5px solid ${isOver ? 'var(--danger)' : dQty > 0 ? 'var(--primary)' : 'var(--border)'}`, borderRadius: 6 }}
@@ -1105,7 +1105,7 @@ function StockOutView({ stock, allSKSItems, outflows, isAdmin, onAddOutflow, onD
           <div className="card-header">
             <ArrowUpCircle size={16} color="var(--primary)" />
             <div className="card-title">Dispatch History</div>
-            {!isAdmin && <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)', padding: '2px 9px', background: 'var(--border-light)', borderRadius: 20 }}>🔒 Delete: Admin only</span>}
+            {!isAdmin && <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)', padding: '2px 9px', background: 'var(--border-light)', borderRadius: 20 }}>🔒 Edit: Admin only</span>}
           </div>
           <div>
             {[...outflows].sort((a, b) => (b.date || '').localeCompare(a.date || '')).map((r, i) => {

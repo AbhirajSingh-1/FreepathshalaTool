@@ -782,8 +782,13 @@ export default function PickupPartners() {
                             min={0}
                             step={0.5}
                             inputMode="decimal"
+                            onWheel={(e) => e.target.blur()}
                             value={rateChartSafe[item] ?? ''}
-                            onChange={e => setForm(f => ({ ...f, rateChart: { ...rateChartSafe, [item]: parseFloat(e.target.value) || 0 } }))}
+                            onChange={e => {
+                              let val = e.target.value;
+                              if (/^0\d/.test(val)) val = val.replace(/^0+/, '');
+                              setForm(f => ({ ...f, rateChart: { ...rateChartSafe, [item]: val } }));
+                            }}
                             style={{ width: '100%', padding: '3px 4px 3px 16px', fontSize: 11.5, fontWeight: 700, textAlign: 'right', border: '1px solid var(--border)', borderRadius: 4, background: 'white' }}
                           />
                         </div>

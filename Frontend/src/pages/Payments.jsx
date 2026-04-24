@@ -271,7 +271,7 @@ function RecordPaymentModal({ context, onClose, onSave, saving }) {
                   <span>Amount (₹) <span className="required">*</span></span>
                   {isFull && <span style={{ fontSize:10, color:'var(--secondary)', background:'var(--secondary-light)', padding:'1px 7px', borderRadius:20, fontWeight:700 }}>Full ✓</span>}
                 </label>
-                <input type="number" min={0} max={context.pending} inputMode="decimal" autoFocus
+                <input type="number" onWheel={(e) => e.target.blur()} min={0} max={context.pending} inputMode="decimal" autoFocus
                   value={amount} onChange={e => { setAmount(e.target.value); setError('') }}
                   placeholder={`≤ ${money(context.pending)}`}
                   style={{ fontWeight:700, fontSize:17, borderColor:entered>0?'var(--primary)':undefined }}/>
@@ -483,13 +483,13 @@ function PickupRow({ pickup, onPay, onWriteOff, canWriteOff }) {
 
   return (
     <div style={{
-      display:'grid', gridTemplateColumns:'1fr auto auto',
+      display:'flex', flexWrap:'wrap', justifyContent:'space-between',
       alignItems:'center', gap:16, padding:'10px 20px',
       borderBottom:'1px solid var(--border-light)',
       background: pending>0 ? 'rgba(239,68,68,0.015)' : 'transparent',
       transition:'background 0.1s',
     }}>
-      <div style={{ minWidth:0 }}>
+      <div style={{ flex:'1 1 250px', minWidth:0 }}>
         <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:3, flexWrap:'wrap' }}>
           <OrderIdChip id={pickup.orderId||pickup.id}/>
           <span style={{ fontWeight:600, fontSize:13 }}>{pickup.donorName}</span>
@@ -516,24 +516,26 @@ function PickupRow({ pickup, onPay, onWriteOff, canWriteOff }) {
           {pending>0 && <span>Amount Due: <strong style={{ color:'var(--danger)' }}>{money(pending)}</strong></span>}
         </div>
       </div>
-      <PayStatusDot status={ps}/>
-      {isPending && pending > 0 && (
-        <div style={{ display:'flex', gap:6 }}>
-          <button className="btn btn-outline btn-sm"
-            onClick={() => onPay({ pickup:{...pickup,_total:total,_paid:paid,_pending:pending} })}
-            style={{ fontSize:11.5, padding:'5px 12px' }}>
-            Pay
-          </button>
-          {canWriteOff && (
-            <button onClick={() => onWriteOff({...pickup,_total:total,_paid:paid,_pending:pending})}
-              style={{ fontSize:11.5, padding:'5px 10px', borderRadius:6,
-                border:'1px solid rgba(239,68,68,0.35)', background:'var(--danger-bg)',
-                color:'var(--danger)', cursor:'pointer', fontWeight:600 }}>
-              Write off
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <PayStatusDot status={ps}/>
+        {isPending && pending > 0 && (
+          <div style={{ display:'flex', gap:6, flexWrap: 'wrap' }}>
+            <button className="btn btn-outline btn-sm"
+              onClick={() => onPay({ pickup:{...pickup,_total:total,_paid:paid,_pending:pending} })}
+              style={{ fontSize:11.5, padding:'5px 12px' }}>
+              Pay
             </button>
-          )}
-        </div>
-      )}
+            {canWriteOff && (
+              <button onClick={() => onWriteOff({...pickup,_total:total,_paid:paid,_pending:pending})}
+                style={{ fontSize:11.5, padding:'5px 10px', borderRadius:6,
+                  border:'1px solid rgba(239,68,68,0.35)', background:'var(--danger-bg)',
+                  color:'var(--danger)', cursor:'pointer', fontWeight:600 }}>
+                Write off
+              </button>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -631,7 +633,7 @@ function PartnerRow({ partner, onRecordPayment, onWriteOffEntry, onWriteOffPartn
         </div>
 
         {/* Actions */}
-        <div style={{ display:'flex', gap:8, flex:'0 0 auto', alignItems:'center' }}>
+        <div style={{ display:'flex', gap:8, flex:'1 1 auto', alignItems:'center', flexWrap:'wrap' }}>
           <button className="btn btn-ghost btn-sm" onClick={() => onViewHistory(partner)}
             style={{ fontSize:12, display:'flex', alignItems:'center', gap:4 }}>
             <History size={13}/> History
@@ -856,7 +858,7 @@ function PartnerPaymentHub({ pickups, PickupPartners, recordPickupPartnerPayment
     <div style={{ width: 1, alignSelf: 'stretch', background: 'rgba(255,255,255,0.1)', flexShrink: 0 }} />
 
     {/* Stat cards */}
-    <div style={{ display: 'flex', gap: 10, flexShrink: 0, flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', gap: 10, flex: '1 1 250px', flexWrap: 'wrap', minWidth: 0 }}>
       {[
         {
           label: 'Total Value', value: money(kpis.totalRevenue),
@@ -877,7 +879,7 @@ function PartnerPaymentHub({ pickups, PickupPartners, recordPickupPartnerPayment
           labelColor: 'rgba(255, 255, 255, 0.52)', valueColor: 'rgb(255, 255, 255)', subColor: 'rgb(255, 255, 255)',
         },
       ].map(s => (
-        <div key={s.label} style={{ background: s.bg, border: `1px solid ${s.border}`, borderRadius: 12, padding: '14px 18px', minWidth: 110 }}>
+        <div key={s.label} style={{ flex: '1 1 110px', background: s.bg, border: `1px solid ${s.border}`, borderRadius: 12, padding: '14px 18px', minWidth: 110 }}>
           <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: s.labelColor, marginBottom: 6 }}>
             {s.label}
           </div>
@@ -1022,7 +1024,7 @@ function PartnerPaymentHub({ pickups, PickupPartners, recordPickupPartnerPayment
               maxWidth: 160,
             }}
           >
-            <option value="">Select Partner</option>
+            <option value="">Select All Partner</option>
             {PickupPartners.map((k) => (
               <option key={k.id} value={k.name}>
                 {k.name}
