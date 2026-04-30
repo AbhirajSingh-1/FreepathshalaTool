@@ -35,27 +35,25 @@ function pickupPendingAmount(pickup) {
 
 function pickupTransactionSummary(pickup) {
   return {
-    date: pickup.date || "",
-    pickupId: pickup.id,
-    donor: pickup.donorName || "",
-    society: pickup.society || "",
-    value: toNumber(pickup.totalValue),
-    paid: toNumber(pickup.amountPaid),
-    status: pickup.paymentStatus || derivePaymentStatus(pickup.totalValue, pickup.amountPaid)
+    date:      pickup.date || "",
+    pickupId:  pickup.id,
+    donor:     pickup.donorName || "",
+    society:   pickup.society || "",
+    value:     toNumber(pickup.totalValue),
+    paid:      toNumber(pickup.amountPaid),
+    status:    pickup.paymentStatus || derivePaymentStatus(pickup.totalValue, pickup.amountPaid)
   };
 }
 
 async function resolveDonorAndPartner(tx, data) {
-  let donorRef = null;
-  let donor = null;
+  let donorRef = null, donor = null;
   if (data.donorId) {
     donorRef = donorsCollection().doc(data.donorId);
     const donorDoc = await tx.get(donorRef);
     if (donorDoc.exists) donor = fromDoc(donorDoc);
   }
 
-  let partnerRef = null;
-  let partner = null;
+  let partnerRef = null, partner = null;
   if (data.partnerId) {
     partnerRef = partnersCollection().doc(data.partnerId);
     const partnerDoc = await tx.get(partnerRef);
@@ -63,41 +61,38 @@ async function resolveDonorAndPartner(tx, data) {
   } else {
     const partnerName = data.PickupPartner || data.pickupPartnerName;
     const match = await findPartnerByName(partnerName, tx);
-    if (match) {
-      partnerRef = match.ref;
-      partner = match.data;
-    }
+    if (match) { partnerRef = match.ref; partner = match.data; }
   }
 
   return { donorRef, donor, partnerRef, partner };
 }
 
 function buildPickupPayload(data, donor, partner, id) {
-  const donorSnapshot = donor ? buildDonorSnapshot(donor) : {};
-  const partnerSnapshot = partner ? buildPartnerSnapshot(partner) : {};
-  const totalValue = toNumber(data.totalValue);
-  const amountPaid = toNumber(data.amountPaid);
-  const paymentStatus = derivePaymentStatus(totalValue, amountPaid, data.paymentStatus);
-  const rstItems = data.rstItems || [];
-  const sksItems = data.sksItems || [];
+  const donorSnapshot   = donor   ? buildDonorSnapshot(donor)     : {};
+  const partnerSnapshot = partner ? buildPartnerSnapshot(partner)  : {};
+  const totalValue      = toNumber(data.totalValue);
+  const amountPaid      = toNumber(data.amountPaid);
+  const paymentStatus   = derivePaymentStatus(totalValue, amountPaid, data.paymentStatus);
+  const rstItems        = data.rstItems || [];
+  const sksItems        = data.sksItems || [];
 
   return cleanUndefined({
     ...data,
     ...donorSnapshot,
     ...partnerSnapshot,
     id,
-    orderId: data.orderId || id,
-    donorId: data.donorId || donor?.id || null,
-    partnerId: data.partnerId || partner?.id || null,
-    donorSnapshot: donor ? buildDonorSnapshot(donor) : null,
-    pickupPartnerSnapshot: partner ? buildPartnerSnapshot(partner) : null,
-    status: data.status || "Pending",
-    type: data.type || inferPickupType(rstItems, sksItems, "RST"),
-    pickupMode: data.pickupMode || "Individual",
+    orderId:                 data.orderId || id,
+    donorId:                 data.donorId  || donor?.id  || null,
+    partnerId:               data.partnerId || partner?.id || null,
+    donorSnapshot:           donor   ? buildDonorSnapshot(donor)   : null,
+    pickupPartnerSnapshot:   partner ? buildPartnerSnapshot(partner) : null,
+    status:                  data.status      || "Pending",
+    type:                    data.type        || inferPickupType(rstItems, sksItems, "RST"),
+    pickupMode:              data.pickupMode  || "Individual",
     rstItems,
     sksItems,
-    totalKgs: toNumber(data.totalKgs ?? data.totalKg),
-    totalKg: toNumber(data.totalKg ?? data.totalKgs),
+    totalKgs:    toNumber(data.totalKgs ?? data.totalKg),
+    totalKg:     toNumber(data.totalKg  ?? data.totalKgs),
     totalValue,
     amountPaid,
     paymentStatus
@@ -111,20 +106,20 @@ function applyCompletedPickupSideEffects(tx, pickup, donorRef, partnerRef, partn
     tx.set(donorRef, cleanUndefined({
       lastPickup: pickup.date || new Date().toISOString().slice(0, 10),
       nextPickup: pickup.nextDate || null,
-      totalRST: increment(toNumber(pickup.totalValue)),
-      totalSKS: increment((pickup.sksItems || []).length ? 1 : 0),
-      status: deriveDonorStatus(pickup.date || new Date().toISOString().slice(0, 10))
+      totalRST:   increment(toNumber(pickup.totalValue)),
+      totalSKS:   increment((pickup.sksItems || []).length ? 1 : 0),
+      status:     deriveDonorStatus(pickup.date || new Date().toISOString().slice(0, 10))
     }), { merge: true });
   }
 
   if (partnerRef) {
     const pending = pickupPendingAmount(pickup);
     tx.set(partnerRef, {
-      totalPickups: increment(1),
-      totalValue: increment(toNumber(pickup.totalValue)),
-      amountReceived: increment(toNumber(pickup.amountPaid)),
-      pendingAmount: increment(pending),
-      transactions: arrayUnion(pickupTransactionSummary({
+      totalPickups:    increment(1),
+      totalValue:      increment(toNumber(pickup.totalValue)),
+      amountReceived:  increment(toNumber(pickup.amountPaid)),
+      pendingAmount:   increment(pending),
+      transactions:    arrayUnion(pickupTransactionSummary({
         ...pickup,
         PickupPartner: partner?.name || pickup.PickupPartner
       }))
@@ -136,64 +131,66 @@ function applyCompletedPickupDelta(tx, oldPickup, newPickup, oldPartnerRef, newP
   const oldCompleted = oldPickup.status === "Completed";
   const newCompleted = newPickup.status === "Completed";
 
-  const oldValue = oldCompleted ? toNumber(oldPickup.totalValue) : 0;
-  const oldPaid = oldCompleted ? toNumber(oldPickup.amountPaid) : 0;
-  const oldPending = oldCompleted ? pickupPendingAmount(oldPickup) : 0;
-  const newValue = newCompleted ? toNumber(newPickup.totalValue) : 0;
-  const newPaid = newCompleted ? toNumber(newPickup.amountPaid) : 0;
-  const newPending = newCompleted ? pickupPendingAmount(newPickup) : 0;
+  const oldValue   = oldCompleted ? toNumber(oldPickup.totalValue)  : 0;
+  const oldPaid    = oldCompleted ? toNumber(oldPickup.amountPaid)   : 0;
+  const oldPending = oldCompleted ? pickupPendingAmount(oldPickup)   : 0;
+  const newValue   = newCompleted ? toNumber(newPickup.totalValue)  : 0;
+  const newPaid    = newCompleted ? toNumber(newPickup.amountPaid)   : 0;
+  const newPending = newCompleted ? pickupPendingAmount(newPickup)   : 0;
 
   if (oldPartnerRef && oldPartnerRef.path !== newPartnerRef?.path) {
     tx.set(oldPartnerRef, {
-      totalPickups: increment(oldCompleted ? -1 : 0),
-      totalValue: increment(-oldValue),
+      totalPickups:   increment(oldCompleted ? -1 : 0),
+      totalValue:     increment(-oldValue),
       amountReceived: increment(-oldPaid),
-      pendingAmount: increment(-oldPending)
+      pendingAmount:  increment(-oldPending)
     }, { merge: true });
   }
 
   if (newPartnerRef) {
     const samePartner = oldPartnerRef?.path === newPartnerRef.path;
     tx.set(newPartnerRef, {
-      totalPickups: increment(samePartner ? (newCompleted && !oldCompleted ? 1 : !newCompleted && oldCompleted ? -1 : 0) : (newCompleted ? 1 : 0)),
-      totalValue: increment(samePartner ? newValue - oldValue : newValue),
-      amountReceived: increment(samePartner ? newPaid - oldPaid : newPaid),
-      pendingAmount: increment(samePartner ? newPending - oldPending : newPending)
+      totalPickups:   increment(samePartner ? (newCompleted && !oldCompleted ? 1 : !newCompleted && oldCompleted ? -1 : 0) : (newCompleted ? 1 : 0)),
+      totalValue:     increment(samePartner ? newValue - oldValue : newValue),
+      amountReceived: increment(samePartner ? newPaid  - oldPaid  : newPaid),
+      pendingAmount:  increment(samePartner ? newPending - oldPending : newPending)
     }, { merge: true });
   }
 }
 
+// ── List pickups — supports comprehensive backend filtering ───────────────────
 async function listPickups(filters = {}) {
   let query = pickupsCollection().orderBy("date", "desc");
-  if (filters.status) query = query.where("status", "==", filters.status);
-  if (filters.donorId) query = query.where("donorId", "==", filters.donorId);
+
+  if (filters.status)    query = query.where("status",    "==", filters.status);
+  if (filters.donorId)   query = query.where("donorId",   "==", filters.donorId);
   if (filters.partnerId) query = query.where("partnerId", "==", filters.partnerId);
-  if (filters.city) query = query.where("city", "==", filters.city);
-  if (filters.sector) query = query.where("sector", "==", filters.sector);
-  if (filters.dateFrom) query = query.where("date", ">=", filters.dateFrom);
-  if (filters.dateTo) query = query.where("date", "<=", filters.dateTo);
+  if (filters.city)      query = query.where("city",      "==", filters.city);
+  if (filters.sector)    query = query.where("sector",    "==", filters.sector);
+  if (filters.dateFrom)  query = query.where("date", ">=", filters.dateFrom);
+  if (filters.dateTo)    query = query.where("date", "<=", filters.dateTo);
+  // paymentStatus filter (for pending-payment queries)
+  if (filters.paymentStatus) query = query.where("paymentStatus", "==", filters.paymentStatus);
+  // pickupMode filter
+  if (filters.pickupMode) query = query.where("pickupMode", "==", filters.pickupMode);
 
   const snapshot = await query.limit(filters.limit || 100).get();
-  let pickups = fromSnapshot(snapshot);
+  let pickups    = fromSnapshot(snapshot);
 
+  // Text search is handled in-process (Firestore has no full-text search)
   if (filters.q) {
     const needle = filters.q.toLowerCase();
-    pickups = pickups.filter((pickup) => [
-      pickup.id,
-      pickup.orderId,
-      pickup.donorName,
-      pickup.mobile,
-      pickup.society,
-      pickup.PickupPartner,
-      pickup.pickupPartnerName
-    ].some((value) => String(value || "").toLowerCase().includes(needle)));
+    pickups = pickups.filter((p) =>
+      [p.id, p.orderId, p.donorName, p.mobile, p.society, p.PickupPartner, p.pickupPartnerName]
+        .some((v) => String(v || "").toLowerCase().includes(needle))
+    );
   }
 
   return pickups;
 }
 
 async function getPickup(id) {
-  const doc = await pickupsCollection().doc(id).get();
+  const doc    = await pickupsCollection().doc(id).get();
   const pickup = fromDoc(doc);
   if (!pickup) throw new AppError("Pickup not found", 404, "PICKUP_NOT_FOUND");
   return pickup;
@@ -202,36 +199,29 @@ async function getPickup(id) {
 async function createPickup(data, actor) {
   return db.runTransaction(async (tx) => {
     const { donorRef, donor, partnerRef, partner } = await resolveDonorAndPartner(tx, data);
-    const id = data.id || data.orderId || await nextId("pickups", tx);
-    const ref = pickupsCollection().doc(id);
-    const payload = {
-      ...buildPickupPayload(data, donor, partner, id),
-      ...auditCreate(actor)
-    };
+    const id      = data.id || data.orderId || await nextId("pickups", tx);
+    const ref     = pickupsCollection().doc(id);
+    const payload = { ...buildPickupPayload(data, donor, partner, id), ...auditCreate(actor) };
 
     tx.set(ref, payload);
     await upsertLocationsFromPayload(payload, actor, tx);
     applyCompletedPickupSideEffects(tx, payload, donorRef, partnerRef, partner);
 
-    return {
-      ...payload,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
+    return { ...payload, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
   });
 }
 
 async function updatePickup(id, data, actor) {
   return db.runTransaction(async (tx) => {
-    const ref = pickupsCollection().doc(id);
+    const ref        = pickupsCollection().doc(id);
     const currentDoc = await tx.get(ref);
     if (!currentDoc.exists) throw new AppError("Pickup not found", 404, "PICKUP_NOT_FOUND");
 
-    const oldPickup = fromDoc(currentDoc);
-    const merged = { ...oldPickup, ...data, id };
+    const oldPickup  = fromDoc(currentDoc);
+    const merged     = { ...oldPickup, ...data, id };
     const { donorRef, donor, partnerRef, partner } = await resolveDonorAndPartner(tx, merged);
     const oldPartnerRef = oldPickup.partnerId ? partnersCollection().doc(oldPickup.partnerId) : null;
-    const newPickup = {
+    const newPickup  = {
       ...buildPickupPayload(merged, donor || oldPickup.donorSnapshot, partner || oldPickup.pickupPartnerSnapshot, id),
       ...auditUpdate(actor)
     };
@@ -244,25 +234,18 @@ async function updatePickup(id, data, actor) {
       tx.set(donorRef, cleanUndefined({
         lastPickup: newPickup.date || new Date().toISOString().slice(0, 10),
         nextPickup: newPickup.nextDate || null,
-        totalRST: increment(toNumber(newPickup.totalValue)),
-        totalSKS: increment((newPickup.sksItems || []).length ? 1 : 0),
-        status: deriveDonorStatus(newPickup.date || new Date().toISOString().slice(0, 10))
+        totalRST:   increment(toNumber(newPickup.totalValue)),
+        totalSKS:   increment((newPickup.sksItems || []).length ? 1 : 0),
+        status:     deriveDonorStatus(newPickup.date || new Date().toISOString().slice(0, 10))
       }), { merge: true });
     }
 
-    return {
-      ...oldPickup,
-      ...newPickup,
-      updatedAt: new Date().toISOString()
-    };
+    return { ...oldPickup, ...newPickup, updatedAt: new Date().toISOString() };
   });
 }
 
 async function recordPickup(id, data, actor) {
-  return updatePickup(id, {
-    ...data,
-    status: "Completed"
-  }, actor);
+  return updatePickup(id, { ...data, status: "Completed" }, actor);
 }
 
 async function deletePickup(id) {
@@ -273,24 +256,62 @@ async function deletePickup(id) {
   return { id, deleted: true };
 }
 
+// ── Raddi records — full backend filtering ────────────────────────────────────
+/**
+ * Filters supported as query params:
+ *   dateFrom, dateTo, city, sector, partnerId, paymentStatus,
+ *   q (text search), limit, page
+ *
+ * paymentStatus values as returned by buildRaddiRecordFromPickup:
+ *   "Received" | "Yet to Receive" | "Write-off"
+ */
 async function listRaddiRecords(filters = {}) {
   try {
+    const { paymentStatus, q, ...pickupFilters } = filters;
+
     const pickups = await listPickups({
-      ...filters,
+      ...pickupFilters,
       status: "Completed",
-      limit: filters.limit || 200
+      limit:  filters.limit || 500
     });
 
-    return pickups.map((pickup) => buildRaddiRecordFromPickup(
-      pickup,
-      pickup.donorSnapshot || pickup,
-      pickup.pickupPartnerSnapshot || pickup
-    ));
+    let records = pickups.map((pickup) =>
+      buildRaddiRecordFromPickup(
+        pickup,
+        pickup.donorSnapshot  || pickup,
+        pickup.pickupPartnerSnapshot || pickup
+      )
+    );
+
+    // Backend-side text search (name / mobile / orderId / society / partner)
+    if (q) {
+      const needle = q.toLowerCase();
+      records = records.filter((r) =>
+        [r.name, r.mobile, r.orderId, r.society, r.PickupPartnerName]
+          .some((v) => String(v || "").toLowerCase().includes(needle))
+      );
+    }
+
+    // Payment status filter on the raddi status label
+    if (paymentStatus) {
+      records = records.filter((r) => r.paymentStatus === paymentStatus);
+    }
+
+    // Pagination
+    const page     = Math.max(1, Number(filters.page) || 1);
+    const pageSize = Math.min(200, Math.max(1, Number(filters.pageSize) || 200));
+    const total    = records.length;
+    const pages    = Math.ceil(total / pageSize);
+    const slice    = records.slice((page - 1) * pageSize, page * pageSize);
+
+    return {
+      records: slice,
+      pagination: { page, pageSize, total, pages }
+    };
   } catch (err) {
-    // Firestore code 9 = FAILED_PRECONDITION (missing composite index)
-    if (err.code === 9 || err.code === 'failed-precondition') {
-      console.warn("Raddi records query needs a Firestore composite index (status + date). Returning empty. Error:", err.message);
-      return [];
+    if (err.code === 9 || err.code === "failed-precondition") {
+      console.warn("Raddi records query needs a Firestore composite index. Returning empty.", err.message);
+      return { records: [], pagination: { page: 1, pageSize: 200, total: 0, pages: 0 } };
     }
     throw err;
   }
