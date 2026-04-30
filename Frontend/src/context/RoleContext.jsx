@@ -8,7 +8,7 @@ export const ROLES = {
 }
 
 export const ROLE_PAGES = {
-  admin:     ['dashboard', 'donors', 'supporters', 'pickups', 'pickuppartners', 'payments', 'pickupscheduler', 'todaypickups', 'pickupoverview', 'raddimaster', 'sksoverview'],
+  admin:     ['dashboard', 'donors', 'supporters', 'pickups', 'pickuppartners', 'payments', 'pickupscheduler', 'todaypickups', 'pickupoverview', 'raddimaster', 'sksoverview', 'usermanagement'],
   manager:   ['dashboard', 'donors', 'supporters', 'pickups', 'pickuppartners', 'payments', 'pickupscheduler', 'todaypickups', 'pickupoverview', 'sksoverview'],
   executive: ['todaypickups', 'pickups', 'pickuppartners', 'sksoverview'],
 }
@@ -107,6 +107,7 @@ export function RoleProvider({ children }) {
     recordPickup:       Boolean(role),
     schedulePickup:     role === 'admin' || role === 'manager',
     manageDonors:       role === 'admin' || role === 'manager',
+    manageUsers:        role === 'admin',
     isExecutive:        role === 'executive',
     canAccessPage: (page) => (ROLE_PAGES[role] || []).includes(page),
   }), [role])

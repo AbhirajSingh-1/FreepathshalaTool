@@ -126,11 +126,59 @@ async function setRole(uid, role, actor) {
   return getProfile(uid);
 }
 
+async function forgotPassword(email) {
+  if (!env.firebaseWebApiKey) {
+    throw new AppError("FIREBASE_WEB_API_KEY is required", 500, "AUTH_CONFIG_MISSING");
+  }
+  // Use Firebase Identity Toolkit to send password reset email
+  const url = `https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${env.firebaseWebApiKey}`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ requestType: "PASSWORD_RESET", email })
+  });
+  const payload = await response.json();
+  if (!response.ok) {
+    const code = payload?.error?.message || "RESET_FAILED";
+    if (code === "EMAIL_NOT_FOUND") {
+      // Don't reveal whether email exists — silently succeed
+      return { sent: true };
+    }
+    throw new AppError("Failed to send reset email", 400, code);
+  }
+  return { sent: true };
+}
+
+async function changePassword(uid, { currentPassword, newPassword }) {
+  // Verify the user exists
+  const userRecord = await auth.getUser(uid);
+  if (!userRecord.email) {
+    throw new AppError("User has no email address", 400, "NO_EMAIL");
+  }
+
+  // Re-authenticate with current password to verify identity
+  try {
+    await firebaseAuthRequest("accounts:signInWithPassword", {
+      email: userRecord.email,
+      password: currentPassword,
+      returnSecureToken: false
+    });
+  } catch {
+    throw new AppError("Current password is incorrect", 401, "WRONG_PASSWORD");
+  }
+
+  // Update password via Admin SDK
+  await auth.updateUser(uid, { password: newPassword });
+  return { uid, passwordChanged: true };
+}
+
 module.exports = {
   login,
   refresh,
   getProfile,
   revokeRefreshTokens,
   createAuthUser,
-  setRole
+  setRole,
+  forgotPassword,
+  changePassword
 };

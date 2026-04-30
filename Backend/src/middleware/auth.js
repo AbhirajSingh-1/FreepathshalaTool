@@ -1,6 +1,18 @@
-const { auth } = require("../config/firebase");
+const { auth, db } = require("../config/firebase");
+const { COLLECTIONS } = require("../config/collections");
 const { AppError } = require("../utils/AppError");
+const { logger } = require("../config/logger");
 
+/**
+ * Middleware that verifies the Firebase ID token from the Authorization header
+ * and attaches user info (uid, email, role, claims) to req.user.
+ *
+ * Role resolution order:
+ *   1. Custom claim `role` from the ID token (fastest, no DB call)
+ *   2. Firestore users/{uid}.role (fallback, covers the window after
+ *      custom claims are set but the token hasn't been refreshed yet)
+ *   3. Default: "executive"
+ */
 async function requireAuth(req, _res, next) {
   try {
     const header = req.headers.authorization || "";
@@ -10,8 +22,27 @@ async function requireAuth(req, _res, next) {
       throw new AppError("Missing Bearer token", 401, "UNAUTHENTICATED");
     }
 
+    // checkRevoked = true → rejects tokens whose refresh tokens have been revoked
     const decoded = await auth.verifyIdToken(token, true);
-    const role = decoded.role || decoded.roles?.[0] || "executive";
+
+    // ── Resolve role ─────────────────────────────────────────
+    let role = decoded.role || decoded.roles?.[0] || "";
+
+    // Fallback: fetch from Firestore when the token doesn't carry a role yet.
+    // This covers the gap right after setup-first-admin or setRole where the
+    // user hasn't re-authenticated to pick up the new custom claims.
+    if (!role) {
+      try {
+        const userDoc = await db.collection(COLLECTIONS.USERS).doc(decoded.uid).get();
+        if (userDoc.exists) {
+          role = userDoc.data()?.role || "executive";
+        }
+      } catch (dbErr) {
+        logger.warn("Failed to fetch user role from Firestore", { uid: decoded.uid, error: dbErr.message });
+      }
+    }
+
+    role = role || "executive";
 
     req.user = {
       uid: decoded.uid,
@@ -29,6 +60,12 @@ async function requireAuth(req, _res, next) {
   }
 }
 
+/**
+ * Factory middleware that restricts access to users whose role is
+ * in the provided allow-list.
+ *
+ * Usage: requireRoles(ROLES.ADMIN, ROLES.MANAGER)
+ */
 function requireRoles(...roles) {
   return (req, _res, next) => {
     if (!req.user) {

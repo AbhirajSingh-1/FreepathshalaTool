@@ -274,17 +274,26 @@ async function deletePickup(id) {
 }
 
 async function listRaddiRecords(filters = {}) {
-  const pickups = await listPickups({
-    ...filters,
-    status: "Completed",
-    limit: filters.limit || 200
-  });
+  try {
+    const pickups = await listPickups({
+      ...filters,
+      status: "Completed",
+      limit: filters.limit || 200
+    });
 
-  return pickups.map((pickup) => buildRaddiRecordFromPickup(
-    pickup,
-    pickup.donorSnapshot || pickup,
-    pickup.pickupPartnerSnapshot || pickup
-  ));
+    return pickups.map((pickup) => buildRaddiRecordFromPickup(
+      pickup,
+      pickup.donorSnapshot || pickup,
+      pickup.pickupPartnerSnapshot || pickup
+    ));
+  } catch (err) {
+    // Firestore code 9 = FAILED_PRECONDITION (missing composite index)
+    if (err.code === 9 || err.code === 'failed-precondition') {
+      console.warn("Raddi records query needs a Firestore composite index (status + date). Returning empty. Error:", err.message);
+      return [];
+    }
+    throw err;
+  }
 }
 
 module.exports = {

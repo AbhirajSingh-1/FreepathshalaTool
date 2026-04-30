@@ -14,18 +14,15 @@ import { useRole } from '../context/RoleContext'
 import { fmtCurrency } from '../utils/helpers'
 import { uploadFileViaSignedUrl } from '../services/api'
 
-const RATE_CHART_ITEMS = [
-  'Glass Bottle', 'Glass Other', 'Plastic Bottle / Box', 'Other Plastic',
-  'Paper', 'Cardboard Box', 'Iron', 'E-Waste', 'Wood',
-]
-
-const DEFAULT_RATE_CHART = Object.fromEntries(
-  RATE_CHART_ITEMS.map(k => [k, ({
-    'Glass Bottle': 2, 'Glass Other': 1, 'Plastic Bottle / Box': 8,
-    'Other Plastic': 5, 'Paper': 12, 'Cardboard Box': 10,
-    'Iron': 25, 'E-Waste': 15, 'Wood': 3,
-  })[k] || 0])
-)
+// Rate chart items and defaults are derived dynamically from backend master data
+function buildRateChartDefaults(rstItemsFull = []) {
+  const items = rstItemsFull.filter(i => i.active !== false && i.name !== 'Others')
+  if (items.length === 0) return { items: [], defaults: {} }
+  return {
+    items: items.map(i => i.name),
+    defaults: Object.fromEntries(items.map(i => [i.name, i.rate || 0]))
+  }
+}
 
 const isPartnerActive = (k) => k.isActive !== false
 
@@ -520,7 +517,8 @@ function DocUpload({ label, icon: Icon, value, accept, onChange, onRemove, previ
 
 // ════════════════════════════════════════════════════════════════════════════
 export default function PickupPartners() {
-  const { PickupPartners: rawPartners, raddiRecords, addPartner, updatePartner, deletePartner, CITIES, CITY_SECTORS, locations } = useApp()
+  const { PickupPartners: rawPartners, raddiRecords, addPartner, updatePartner, deletePartner, CITIES, CITY_SECTORS, locations, masterData } = useApp()
+  const { items: RATE_CHART_ITEMS, defaults: DEFAULT_RATE_CHART } = useMemo(() => buildRateChartDefaults(masterData.rstItemsFull), [masterData.rstItemsFull])
   const { can, role } = useRole()
 
   const partners = useMemo(() => Array.isArray(rawPartners) ? rawPartners : [], [rawPartners])

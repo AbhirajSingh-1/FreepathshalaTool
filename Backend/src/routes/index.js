@@ -10,8 +10,12 @@ const dashboardRoutes = require("./dashboard.routes");
 const uploadRoutes = require("./upload.routes");
 const locationRoutes = require("./location.routes");
 const masterDataRoutes = require("./masterData.routes");
+const setupRoutes = require("./setup.routes");
 
 const router = Router();
+
+// One-time admin setup (unauthenticated, secret-protected)
+router.use("/setup", setupRoutes);
 
 router.use("/auth", authRoutes);
 router.use("/users", userRoutes);
@@ -28,3 +32,4 @@ router.use("/locations", locationRoutes);
 router.use("/master-data", masterDataRoutes);
 
 module.exports = router;
+

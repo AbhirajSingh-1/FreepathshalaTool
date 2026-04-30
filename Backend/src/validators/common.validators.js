@@ -15,7 +15,7 @@ const uidParam = z.object({
 
 const listQuery = z.object({
   query: z.object({
-    limit: z.coerce.number().int().min(1).max(200).optional(),
+    limit: z.coerce.number().int().min(1).max(1000).optional(),
     status: z.string().optional(),
     city: z.string().optional(),
     sector: z.string().optional(),

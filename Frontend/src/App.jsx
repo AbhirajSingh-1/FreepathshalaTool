@@ -14,6 +14,7 @@ import PickupOverview from './pages/PickupOverview'
 import RaddiMaster from './pages/RaddiMaster'
 import SKSOverview from './pages/SKSOverview'
 import TodayPickups from './pages/Todaypickups'
+import UserManagement from './pages/UserManagement'
 
 const PAGES = {
   dashboard: Dashboard,
@@ -27,6 +28,7 @@ const PAGES = {
   pickupoverview: PickupOverview,
   raddimaster: RaddiMaster,
   sksoverview: SKSOverview,
+  usermanagement: UserManagement,
 }
 
 function LoginScreen() {
@@ -35,6 +37,10 @@ function LoginScreen() {
   const [password, setPassword] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [showForgot, setShowForgot] = useState(false)
+  const [forgotEmail, setForgotEmail] = useState('')
+  const [forgotSaving, setForgotSaving] = useState(false)
+  const [forgotMsg, setForgotMsg] = useState('')
 
   const submit = async (event) => {
     event.preventDefault()
@@ -49,26 +55,74 @@ function LoginScreen() {
     }
   }
 
+  const submitForgot = async (e) => {
+    e.preventDefault()
+    if (!forgotEmail.trim()) return
+    setForgotSaving(true)
+    setForgotMsg('')
+    try {
+      const { forgotPassword } = await import('./services/api')
+      await forgotPassword(forgotEmail.trim())
+      setForgotMsg('success')
+    } catch (err) {
+      setForgotMsg(err.message || 'Failed to send reset email')
+    } finally {
+      setForgotSaving(false)
+    }
+  }
+
   return (
     <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', background: 'var(--bg)', padding: 20 }}>
-      <form onSubmit={submit} className="modal" style={{ width: 'min(420px, 94vw)', padding: 28 }}>
+      <div className="modal" style={{ width: 'min(420px, 94vw)', padding: 28 }}>
         <div style={{ marginBottom: 22 }}>
           <div style={{ fontFamily: 'var(--font-display)', fontSize: 26, fontWeight: 800, color: 'var(--primary)' }}>FreePathshala</div>
-          <div style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 4 }}>Sign in with your Firebase account</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 4 }}>
+            {showForgot ? 'Reset your password' : 'Sign in with your account'}
+          </div>
         </div>
-        <div className="form-group">
-          <label>Email</label>
-          <input type="email" value={email} onChange={e => setEmail(e.target.value)} autoFocus required />
-        </div>
-        <div className="form-group">
-          <label>Password</label>
-          <input type="password" value={password} onChange={e => setPassword(e.target.value)} required />
-        </div>
-        {(error || authError) && <div style={{ color: 'var(--danger)', fontSize: 12.5, marginBottom: 12 }}>{error || authError}</div>}
-        <button className="btn btn-primary" style={{ width: '100%' }} disabled={saving}>
-          {saving ? 'Signing in...' : 'Sign In'}
-        </button>
-      </form>
+
+        {showForgot ? (
+          <form onSubmit={submitForgot}>
+            {forgotMsg === 'success' ? (
+              <div style={{ padding: '16px 14px', borderRadius: 10, background: 'var(--secondary-light)', color: 'var(--secondary)', fontSize: 13, fontWeight: 600, marginBottom: 16, border: '1px solid rgba(27,94,53,0.2)' }}>
+                ✓ If that email is registered, a reset link has been sent. Check your inbox.
+              </div>
+            ) : (
+              <>
+                <div className="form-group">
+                  <label>Email Address</label>
+                  <input type="email" value={forgotEmail} onChange={e => setForgotEmail(e.target.value)} placeholder="Enter your registered email" autoFocus required />
+                </div>
+                {forgotMsg && <div style={{ color: 'var(--danger)', fontSize: 12.5, marginBottom: 12 }}>{forgotMsg}</div>}
+                <button className="btn btn-primary" style={{ width: '100%' }} disabled={forgotSaving}>
+                  {forgotSaving ? 'Sending…' : 'Send Reset Link'}
+                </button>
+              </>
+            )}
+            <button type="button" onClick={() => { setShowForgot(false); setForgotMsg('') }} style={{ display: 'block', width: '100%', marginTop: 12, background: 'none', border: 'none', color: 'var(--primary)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+              ← Back to Sign In
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={submit}>
+            <div className="form-group">
+              <label>Email</label>
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} autoFocus required />
+            </div>
+            <div className="form-group">
+              <label>Password</label>
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)} required />
+            </div>
+            {(error || authError) && <div style={{ color: 'var(--danger)', fontSize: 12.5, marginBottom: 12 }}>{error || authError}</div>}
+            <button className="btn btn-primary" style={{ width: '100%' }} disabled={saving}>
+              {saving ? 'Signing in...' : 'Sign In'}
+            </button>
+            <button type="button" onClick={() => { setShowForgot(true); setForgotEmail(email) }} style={{ display: 'block', width: '100%', marginTop: 12, background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 12.5, cursor: 'pointer' }}>
+              Forgot password?
+            </button>
+          </form>
+        )}
+      </div>
     </div>
   )
 }

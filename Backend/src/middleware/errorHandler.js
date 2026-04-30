@@ -16,6 +16,14 @@ function errorHandler(error, _req, res, _next) {
       error.code || (statusCode === 500 ? "INTERNAL_ERROR" : "REQUEST_ERROR")
     );
 
+  // Log original error for debugging (especially Firestore errors)
+  if (statusCode === 500 && !(error instanceof AppError)) {
+    logger.error("Original error: " + (error.message || error), {
+      code: error.code,
+      originalStack: error.stack
+    });
+  }
+
   logger.error(appError.message, {
     code: appError.code,
     statusCode: appError.statusCode,

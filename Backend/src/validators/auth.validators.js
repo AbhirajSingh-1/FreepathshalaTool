@@ -33,9 +33,24 @@ const setRoleSchema = z.object({
   })
 });
 
+const forgotPasswordSchema = z.object({
+  body: z.object({
+    email: z.string().email()
+  })
+});
+
+const changePasswordSchema = z.object({
+  body: z.object({
+    currentPassword: z.string().min(6),
+    newPassword: z.string().min(6)
+  })
+});
+
 module.exports = {
   loginSchema,
   refreshSchema,
   createAuthUserSchema,
-  setRoleSchema
+  setRoleSchema,
+  forgotPasswordSchema,
+  changePasswordSchema
 };

@@ -71,7 +71,13 @@ export function AppProvider({ children }) {
   const [sksInflows, setSksInflows] = useState([])
   const [sksOutflows, setSksOutflows] = useState([])
   const [sksStock, setSksStock] = useState([])
-  const [dashboardPayload, setDashboardPayload] = useState({ stats: EMPTY_DASHBOARD, monthlyData: [], itemBreakdown: [] })
+  const [dashboardPayload, setDashboardPayload] = useState({
+    stats: EMPTY_DASHBOARD, monthlyData: [], itemBreakdown: [],
+    monthlyRSTChart: [], monthlySKSChart: [],
+    rstBreakdown: [], sksBreakdown: [],
+    rstFinancialSummary: { totalRevenue: 0, totalReceived: 0, totalPending: 0, collectionPct: 0, partnerBreakdown: [] },
+    sksDispatchSummary: { totalDispatched: 0, totalReceived: 0, totalValue: 0, dispatches: 0, collectionPct: 0, recipientBreakdown: [] },
+  })
   const [schedulerTabData, setSchedulerTabData] = useState(EMPTY_SCHEDULER)
   const [masterData, setMasterData] = useState(EMPTY_MASTER)
   const [locations, setLocations] = useState(EMPTY_LOCATIONS)
@@ -80,17 +86,9 @@ export function AppProvider({ children }) {
   const [error, setError] = useState('')
 
   const refreshCoreData = useCallback(async () => {
-    const [
-      donorsData,
-      pickupsData,
-      partnersData,
-      raddiData,
-      inflowsData,
-      outflowsData,
-      stockData,
-      master,
-      locationTree,
-    ] = await Promise.all([
+    const safe = (p) => p.status === 'fulfilled' ? p.value : null
+
+    const results = await Promise.allSettled([
       api.fetchDonors({ limit: 500 }),
       api.fetchPickups({ limit: 500 }),
       api.fetchPickupPartners({ limit: 500 }),
@@ -102,13 +100,17 @@ export function AppProvider({ children }) {
       api.fetchLocations(),
     ])
 
+    const [donorsData, pickupsData, partnersData, raddiData, inflowsData, outflowsData, stockData, master, locationTree] = results.map(safe)
+
     const canReadReports = role === 'admin' || role === 'manager'
-    const [dashboardData, schedulerSummary] = canReadReports
-      ? await Promise.all([
+    const dashResults = canReadReports
+      ? await Promise.allSettled([
         api.fetchDashboardStats({ limit: 500 }),
         api.fetchSchedulerSummary(),
       ])
-      : [{ stats: EMPTY_DASHBOARD, monthlyData: [], itemBreakdown: [] }, EMPTY_SCHEDULER]
+      : null
+    const dashboardData = dashResults ? safe(dashResults[0]) : null
+    const schedulerSummary = dashResults ? safe(dashResults[1]) : null
 
     setDonors(donorsData || [])
     setPickups(pickupsData || [])
@@ -203,6 +205,12 @@ export function AppProvider({ children }) {
     dashboardStats: dashboardPayload.stats || EMPTY_DASHBOARD,
     monthlyData: dashboardPayload.monthlyData || [],
     itemBreakdown: dashboardPayload.itemBreakdown || [],
+    monthlyRSTChart: dashboardPayload.monthlyRSTChart || [],
+    monthlySKSChart: dashboardPayload.monthlySKSChart || [],
+    rstBreakdown: dashboardPayload.rstBreakdown || [],
+    sksBreakdown: dashboardPayload.sksBreakdown || [],
+    rstFinancialSummary: dashboardPayload.rstFinancialSummary || {},
+    sksDispatchSummary: dashboardPayload.sksDispatchSummary || {},
     schedulerTabData,
     masterData,
     locations,

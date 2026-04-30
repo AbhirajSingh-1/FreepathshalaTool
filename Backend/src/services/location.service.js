@@ -170,6 +170,18 @@ async function getLocationTree() {
   };
 }
 
+async function deleteCity(id) {
+  await db.collection(COLLECTIONS.CITIES).doc(id).delete();
+}
+
+async function deleteSector(id) {
+  await db.collection(COLLECTIONS.SECTORS).doc(id).delete();
+}
+
+async function deleteSociety(id) {
+  await db.collection(COLLECTIONS.SOCIETIES).doc(id).delete();
+}
+
 module.exports = {
   slugify,
   upsertLocationHierarchy,
@@ -177,5 +189,9 @@ module.exports = {
   listCities,
   listSectors,
   listSocieties,
-  getLocationTree
+  getLocationTree,
+  deleteCity,
+  deleteSector,
+  deleteSociety
 };
+

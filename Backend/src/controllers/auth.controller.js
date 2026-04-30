@@ -32,11 +32,23 @@ const setRole = asyncHandler(async (req, res) => {
   sendSuccess(res, data, "Role updated");
 });
 
+const forgotPassword = asyncHandler(async (req, res) => {
+  const data = await authService.forgotPassword(req.body.email);
+  sendSuccess(res, data, "If that email exists, a reset link has been sent");
+});
+
+const changePassword = asyncHandler(async (req, res) => {
+  const data = await authService.changePassword(req.user.uid, req.body);
+  sendSuccess(res, data, "Password changed successfully");
+});
+
 module.exports = {
   login,
   refresh,
   me,
   logout,
   createAuthUser,
-  setRole
+  setRole,
+  forgotPassword,
+  changePassword
 };

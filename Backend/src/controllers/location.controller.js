@@ -28,10 +28,28 @@ const upsert = asyncHandler(async (req, res) => {
   sendSuccess(res, data, "Location saved", 201);
 });
 
+const deleteCity = asyncHandler(async (req, res) => {
+  await locationService.deleteCity(req.params.id);
+  sendSuccess(res, { id: req.params.id, deleted: true }, "City deleted");
+});
+
+const deleteSector = asyncHandler(async (req, res) => {
+  await locationService.deleteSector(req.params.id);
+  sendSuccess(res, { id: req.params.id, deleted: true }, "Sector deleted");
+});
+
+const deleteSociety = asyncHandler(async (req, res) => {
+  await locationService.deleteSociety(req.params.id);
+  sendSuccess(res, { id: req.params.id, deleted: true }, "Society deleted");
+});
+
 module.exports = {
   listCities,
   listSectors,
   listSocieties,
   tree,
-  upsert
+  upsert,
+  deleteCity,
+  deleteSector,
+  deleteSociety
 };

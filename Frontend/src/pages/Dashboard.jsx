@@ -97,7 +97,7 @@ function buildSKSMonthlyChart(pickups, from, to) {
 }
 
 // ── Compact Filters Bar ────────────────────────────────────────────────────────
-function FiltersPanel({ filters, onChange, pickups }) {
+function FiltersPanel({ filters, onChange, pickups, CITIES = [], CITY_SECTORS = {} }) {
   const { period, customFrom, customTo, city, sector, PickupPartner } = filters
   const PERIOD_OPTIONS = [
     { id: 'current_month', label: 'This Month' },
@@ -471,7 +471,12 @@ function SectionHeader({ emoji, title, subtitle, color = 'var(--primary)' }) {
 
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 export default function Dashboard({ onNav }) {
-  const { donors, pickups, raddiRecords, PickupPartners, partners, sksInflows, sksOutflows, CITIES, CITY_SECTORS } = useApp()
+  const {
+    donors, pickups, PickupPartners, partners, sksOutflows,
+    dashboardStats, monthlyRSTChart, monthlySKSChart,
+    rstBreakdown, sksBreakdown, rstFinancialSummary, sksDispatchSummary,
+    CITIES, CITY_SECTORS
+  } = useApp()
 
   const [filters, setFilters] = useState({
     period: 'current_month', customFrom: '', customTo: '',
@@ -483,6 +488,7 @@ export default function Dashboard({ onNav }) {
     [filters.period, filters.customFrom, filters.customTo]
   )
 
+  // Use backend-computed data directly; apply date/location filter only for display count
   const filteredPickups = useMemo(() => pickups.filter(p => {
     const d = p.date || ''
     const inDate = (!pFrom || d >= pFrom) && (!pTo || d <= pTo)
@@ -492,36 +498,32 @@ export default function Dashboard({ onNav }) {
     return inDate && inCity && inSect && inpickuppartner
   }), [pickups, pFrom, pTo, filters])
 
-  const filteredRaddi = useMemo(() => raddiRecords.filter(r => {
-    const d = r.pickupDate || ''
-    const inDate = (!pFrom || d >= pFrom) && (!pTo || d <= pTo)
-    const inCity = !filters.city || r.city === filters.city
-    const inSect = !filters.sector || r.sector === filters.sector
-    const inpickuppartner = !filters.PickupPartner || r.PickupPartnerName === filters.PickupPartner
-    return inDate && inCity && inSect && inpickuppartner
-  }), [raddiRecords, pFrom, pTo, filters])
-
-  // Date-filter sksOutflows
-  const filteredSKSOutflows = useMemo(() => sksOutflows.filter(r => {
-    const d = r.date || ''
-    return (!pFrom || d >= pFrom) && (!pTo || d <= pTo)
-  }), [sksOutflows, pFrom, pTo])
-
   const stats = useMemo(() => {
     const completed  = filteredPickups.filter(p => p.status === 'Completed')
     const sksPickups = filteredPickups.filter(p => (p.sksItems || []).length > 0)
     const totalSKS   = filteredPickups.reduce((s, p) => s + (p.sksItems || []).length, 0)
-    const totalValue = completed.reduce((s, p) => s + (p.totalValue || 0), 0)
-    const totalKg    = filteredRaddi.reduce((s, r) => s + (r.totalKg || 0), 0)
-    const received   = filteredRaddi.filter(r => r.paymentStatus === 'Received').reduce((s, r) => s + (r.totalAmount || 0), 0)
-    const pending    = filteredRaddi.filter(r => r.paymentStatus === 'Yet to Receive').reduce((s, r) => s + (r.totalAmount || 0), 0)
-    const driveCount = completed.filter(p => p.pickupMode === 'Drive').length
-    const indivCount = completed.filter(p => p.pickupMode === 'Individual').length
-    return { completed: completed.length, totalValue, totalKg, received, pending, totalSKS, sksPickupsCount: sksPickups.length, driveCount, indivCount }
-  }, [filteredPickups, filteredRaddi])
+    return {
+      completed: completed.length,
+      totalValue: dashboardStats.totalRSTValue || 0,
+      totalKg: dashboardStats.totalRaddiKg || 0,
+      received: dashboardStats.amountReceived || 0,
+      pending: dashboardStats.pendingFromPickupPartners || 0,
+      totalSKS,
+      sksPickupsCount: sksPickups.length,
+      driveCount: completed.filter(p => p.pickupMode === 'Drive').length,
+      indivCount: completed.filter(p => p.pickupMode === 'Individual').length,
+    }
+  }, [filteredPickups, dashboardStats])
 
-  const monthlyRSTData = useMemo(() => buildMonthlyChart(filteredPickups, pFrom, pTo), [filteredPickups, pFrom, pTo])
-  const monthlySKSData = useMemo(() => buildSKSMonthlyChart(filteredPickups, pFrom, pTo), [filteredPickups, pFrom, pTo])
+  // Use backend-computed chart data directly
+  const monthlyRSTData = monthlyRSTChart
+  const monthlySKSData = monthlySKSChart
+
+  // Date-filter sksOutflows for dispatch summary display count
+  const filteredSKSOutflows = useMemo(() => sksOutflows.filter(r => {
+    const d = r.date || ''
+    return (!pFrom || d >= pFrom) && (!pTo || d <= pTo)
+  }), [sksOutflows, pFrom, pTo])
 
   const periodLabel = useMemo(() => {
     if (filters.period === 'current_month') return 'This Month'
@@ -560,7 +562,7 @@ export default function Dashboard({ onNav }) {
   return (
     <div className="page-body">
       {/* ── Compact Filters ── */}
-      <FiltersPanel filters={filters} onChange={setFilters} pickups={pickups} />
+      <FiltersPanel filters={filters} onChange={setFilters} pickups={pickups} CITIES={CITIES} CITY_SECTORS={CITY_SECTORS} />
 
       {/* ── Active filter chips ── */}
       {activeFilters.length > 0 && (
@@ -592,7 +594,7 @@ export default function Dashboard({ onNav }) {
         <CalendarDays size={14} color="var(--primary)" />
         <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--primary)' }}>{periodLabel}</span>
         <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 4 }}>
-          · {stats.completed} pickups · {filteredRaddi.length} raddi records
+          · {stats.completed} pickups
         </span>
         {activeFilters.length > 0 && (
           <span style={{ fontSize: 11, background: 'var(--warning-bg)', color: '#92400E', padding: '2px 8px', borderRadius: 20, fontWeight: 600, marginLeft: 'auto' }}>
@@ -664,7 +666,7 @@ export default function Dashboard({ onNav }) {
             <div className="card-title">RST Item Breakdown</div>
           </div>
           <div className="card-body" style={{ paddingTop: 10 }}>
-            <RSTBreakdown raddiRecords={filteredRaddi} pickups={filteredPickups} />
+            <RSTBreakdown rstBreakdown={rstBreakdown} />
           </div>
         </div>
       </div>
@@ -676,7 +678,7 @@ export default function Dashboard({ onNav }) {
           <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>{periodLabel}</span>
         </div>
         <div className="card-body" style={{ paddingTop: 10 }}>
-          <RSTFinancialSummary raddiRecords={filteredRaddi} />
+          <RSTFinancialSummary rstFinancialSummary={rstFinancialSummary} />
         </div>
       </div>
 
@@ -720,7 +722,7 @@ export default function Dashboard({ onNav }) {
             <div className="card-title">SKS Item Breakdown</div>
           </div>
           <div className="card-body" style={{ paddingTop: 10 }}>
-            <SKSBreakdown pickups={filteredPickups} />
+            <SKSBreakdown sksBreakdown={sksBreakdown} />
           </div>
         </div>
       </div>
@@ -732,7 +734,7 @@ export default function Dashboard({ onNav }) {
           <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>{periodLabel}</span>
         </div>
         <div className="card-body" style={{ paddingTop: 10 }}>
-          <SKSDispatchSummary sksOutflows={sksOutflows} filteredSKSOutflows={filteredSKSOutflows} />
+          <SKSDispatchSummary sksDispatchSummary={sksDispatchSummary} filteredSKSOutflows={filteredSKSOutflows} />
         </div>
       </div>
 

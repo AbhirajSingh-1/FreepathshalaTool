@@ -2,7 +2,7 @@
 import {
   LayoutDashboard, Users, Truck, UserCheck, BarChart3,
   IndianRupee, CalendarDays, Table2, Eye, Shirt, ClipboardList,
-  Heart, Database,
+  Heart, Database, Shield,
 } from 'lucide-react'
 
 const getRole = () => localStorage.getItem('fp_role') || 'admin'
@@ -52,6 +52,14 @@ const buildNav = (role) => {
     ),
     ...(isAdmin
       ? [{ id: 'raddimaster', label: 'Raddi Master', icon: Table2 }]
+      : []
+    ),
+
+    ...(isAdmin
+      ? [
+        { section: 'Admin' },
+        { id: 'usermanagement', label: 'User Management', icon: Shield },
+      ]
       : []
     ),
   ]

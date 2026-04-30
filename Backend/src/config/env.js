@@ -26,7 +26,8 @@ const env = {
   firebasePrivateKey: process.env.FIREBASE_PRIVATE_KEY,
   functionRegion: process.env.FUNCTION_REGION || "asia-south1",
   signedUrlTtlMinutes: number(process.env.SIGNED_URL_TTL_MINUTES, 15),
-  maxUploadMb: number(process.env.MAX_UPLOAD_MB, 8)
+  maxUploadMb: number(process.env.MAX_UPLOAD_MB, 8),
+  adminSetupSecret: process.env.ADMIN_SETUP_SECRET || ""
 };
 
 module.exports = { env };

@@ -85,8 +85,40 @@ export async function fetchCurrentUser() {
   return apiFetch('/auth/me')
 }
 
+export async function forgotPassword(email) {
+  return apiFetch('/auth/forgot-password', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  })
+}
+
+export async function changePassword(currentPassword, newPassword) {
+  return apiFetch('/auth/change-password', {
+    method: 'POST',
+    body: JSON.stringify({ currentPassword, newPassword }),
+  })
+}
+
 export const fetchMasterData = () => apiFetch('/master-data')
 export const fetchLocations = () => apiFetch('/locations/tree')
+
+// RST Items CRUD
+export const fetchRstItems = () => apiFetch('/master-data/rst-items')
+export const createRstItem = data => apiFetch('/master-data/rst-items', { method: 'POST', body: JSON.stringify(data) })
+export const updateRstItem = (id, data) => apiFetch(`/master-data/rst-items/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
+export const deleteRstItem = id => apiFetch(`/master-data/rst-items/${id}`, { method: 'DELETE' })
+
+// SKS Items CRUD
+export const fetchSksItems = () => apiFetch('/master-data/sks-items')
+export const createSksItem = data => apiFetch('/master-data/sks-items', { method: 'POST', body: JSON.stringify(data) })
+export const updateSksItem = (id, data) => apiFetch(`/master-data/sks-items/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
+export const deleteSksItem = id => apiFetch(`/master-data/sks-items/${id}`, { method: 'DELETE' })
+
+// Location CRUD
+export const createLocation = data => apiFetch('/locations', { method: 'POST', body: JSON.stringify(data) })
+export const deleteCity = id => apiFetch(`/locations/cities/${id}`, { method: 'DELETE' })
+export const deleteSector = id => apiFetch(`/locations/sectors/${id}`, { method: 'DELETE' })
+export const deleteSociety = id => apiFetch(`/locations/societies/${id}`, { method: 'DELETE' })
 
 export const fetchUsers = params => apiFetch(`/users${toQuery(params)}`)
 export const createUser = data => apiFetch('/users', { method: 'POST', body: JSON.stringify(data) })

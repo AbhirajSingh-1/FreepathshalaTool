@@ -29,6 +29,12 @@ async function listDonors(filters = {}) {
   const snapshot = await query.limit(filters.limit || 100).get();
   let donors = fromSnapshot(snapshot);
 
+  // Re-derive status from lastPickup date on every fetch to keep it current
+  donors = donors.map((donor) => ({
+    ...donor,
+    status: deriveDonorStatus(donor.lastPickup, donor.status)
+  }));
+
   if (filters.q) {
     const needle = filters.q.toLowerCase();
     donors = donors.filter((donor) => [

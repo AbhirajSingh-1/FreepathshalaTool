@@ -10,6 +10,147 @@ function monthKey(dateValue) {
   return date.toLocaleString("en-US", { month: "short" });
 }
 
+function monthSortKey(dateValue) {
+  if (!dateValue) return null;
+  const str = String(dateValue).slice(0, 7);
+  return str.length >= 7 ? str : null;
+}
+
+function buildMonthlyRSTChart(completedPickups) {
+  const map = {};
+  completedPickups.forEach((pickup) => {
+    const key = monthSortKey(pickup.date);
+    if (!key) return;
+    const label = monthKey(pickup.date);
+    if (!map[key]) map[key] = { month: label, value: 0, pickups: 0 };
+    map[key].value += Number(pickup.totalValue) || 0;
+    map[key].pickups += 1;
+  });
+  return Object.entries(map)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([, v]) => v)
+    .slice(-7);
+}
+
+function buildMonthlySKSChart(completedPickups) {
+  const map = {};
+  completedPickups
+    .filter((p) => (p.sksItems || []).length > 0)
+    .forEach((pickup) => {
+      const key = monthSortKey(pickup.date);
+      if (!key) return;
+      const label = monthKey(pickup.date);
+      if (!map[key]) map[key] = { month: label, items: 0, pickups: 0 };
+      map[key].items += (pickup.sksItems || []).length;
+      map[key].pickups += 1;
+    });
+  return Object.entries(map)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([, v]) => v)
+    .slice(-7);
+}
+
+function buildRSTBreakdown(raddiRecords, completedPickups) {
+  const map = {};
+  raddiRecords.forEach((r) => {
+    const itemKgMap = r.itemKgMap || {};
+    Object.entries(itemKgMap).forEach(([item, kg]) => {
+      if (kg > 0) map[item] = (map[item] || 0) + kg;
+    });
+    (r.rstOthers || []).forEach((o) => {
+      if (o.name && o.amount > 0) map["Others"] = (map["Others"] || 0) + (parseFloat(o.weight) || 0);
+    });
+  });
+  // Fallback: count from pickups if no kg data
+  if (Object.keys(map).length === 0) {
+    completedPickups.forEach((p) => {
+      (p.rstItems || []).forEach((item) => { map[item] = (map[item] || 0) + 1; });
+    });
+  }
+  const total = Object.values(map).reduce((s, v) => s + v, 0);
+  return Object.entries(map)
+    .filter(([, v]) => v > 0)
+    .sort(([, a], [, b]) => b - a)
+    .map(([name, value]) => ({
+      name,
+      value: parseFloat(value.toFixed(2)),
+      pct: total > 0 ? parseFloat(((value / total) * 100).toFixed(1)) : 0
+    }));
+}
+
+function buildSKSBreakdown(completedPickups) {
+  const map = {};
+  completedPickups.forEach((p) => {
+    (p.sksItems || []).forEach((item) => {
+      const key = item.startsWith("Others") ? "Others" : item;
+      map[key] = (map[key] || 0) + 1;
+    });
+  });
+  const total = Object.values(map).reduce((s, v) => s + v, 0);
+  return Object.entries(map)
+    .filter(([, v]) => v > 0)
+    .sort(([, a], [, b]) => b - a)
+    .map(([name, value]) => ({
+      name,
+      value,
+      pct: total > 0 ? parseFloat(((value / total) * 100).toFixed(1)) : 0
+    }));
+}
+
+function buildRSTFinancialSummary(raddiRecords) {
+  const totalRevenue = raddiRecords.reduce((s, r) => s + (r.totalAmount || 0), 0);
+  const totalReceived = raddiRecords
+    .filter((r) => r.paymentStatus === "Received")
+    .reduce((s, r) => s + (r.totalAmount || 0), 0);
+  const totalPending = raddiRecords
+    .filter((r) => r.paymentStatus === "Yet to Receive")
+    .reduce((s, r) => s + (r.totalAmount || 0), 0);
+
+  // Partner breakdown
+  const partnerMap = {};
+  raddiRecords.forEach((r) => {
+    const n = r.PickupPartnerName || "Unassigned";
+    if (!partnerMap[n]) partnerMap[n] = { name: n, total: 0, received: 0, pending: 0 };
+    partnerMap[n].total += r.totalAmount || 0;
+    if (r.paymentStatus === "Received") partnerMap[n].received += r.totalAmount || 0;
+    if (r.paymentStatus === "Yet to Receive") partnerMap[n].pending += r.totalAmount || 0;
+  });
+  const partnerBreakdown = Object.values(partnerMap).sort((a, b) => b.pending - a.pending);
+
+  return {
+    totalRevenue,
+    totalReceived,
+    totalPending,
+    collectionPct: totalRevenue > 0 ? Math.round((totalReceived / totalRevenue) * 100) : 0,
+    partnerBreakdown
+  };
+}
+
+function buildSKSDispatchSummary(sksOutflows) {
+  const totalDispatched = sksOutflows.reduce((s, r) => s + (r.items || []).reduce((a, it) => a + (it.qty || 0), 0), 0);
+  const totalReceived = sksOutflows.reduce((s, r) => s + (Number(r.payment?.amount) || 0), 0);
+  const totalValue = sksOutflows.reduce((s, r) => s + (Number(r.payment?.totalValue) || 0), 0);
+  const paidCount = sksOutflows.filter((r) => r.payment?.status === "Paid").length;
+
+  const recipientMap = {};
+  sksOutflows.forEach((r) => {
+    const n = r.partnerName || "Unknown";
+    if (!recipientMap[n]) recipientMap[n] = { name: n, items: 0, received: 0 };
+    recipientMap[n].items += (r.items || []).reduce((a, it) => a + (it.qty || 0), 0);
+    recipientMap[n].received += Number(r.payment?.amount) || 0;
+  });
+
+  return {
+    totalDispatched,
+    totalReceived,
+    totalValue,
+    paidCount,
+    dispatches: sksOutflows.length,
+    collectionPct: totalValue > 0 ? Math.round((totalReceived / totalValue) * 100) : 0,
+    recipientBreakdown: Object.values(recipientMap).sort((a, b) => b.items - a.items).slice(0, 5)
+  };
+}
+
 async function getStats(filters = {}) {
   const [donors, pickups, partners, raddiRecords, sksInflows, sksOutflows, stock] = await Promise.all([
     listDonors({ limit: 500, ...filters }),
@@ -27,29 +168,15 @@ async function getStats(filters = {}) {
   const now = new Date();
   const overduePickups = donors.filter((donor) => donor.nextPickup && new Date(donor.nextPickup) < now && donor.status === "Active");
 
-  const monthlyMap = new Map();
-  completedPickups.forEach((pickup) => {
-    const key = monthKey(pickup.date);
-    if (!key) return;
-    const current = monthlyMap.get(key) || { month: key, value: 0, pickups: 0 };
-    current.value += Number(pickup.totalValue) || 0;
-    current.pickups += 1;
-    monthlyMap.set(key, current);
-  });
-
-  const itemMap = new Map();
-  raddiRecords.forEach((record) => {
-    (record.rstItems || []).forEach((item) => {
-      itemMap.set(item, (itemMap.get(item) || 0) + 1);
-    });
-  });
-
   return {
     stats: {
       totalDonors: donors.length,
       activeDonors: donors.filter((donor) => donor.status === "Active").length,
       postponedDonors: donors.filter((donor) => donor.status === "Postponed").length,
       lostDonors: donors.filter((donor) => donor.status === "Lost").length,
+      pickupDueDonors: donors.filter((donor) => donor.status === "Pickup Due").length,
+      atRiskDonors: donors.filter((donor) => donor.status === "At Risk").length,
+      churnedDonors: donors.filter((donor) => donor.status === "Churned").length,
       totalPickupsCompleted: completedPickups.length,
       totalPickupsThisMonth: completedPickups.length,
       totalRSTValue: pickups.reduce((sum, pickup) => sum + (Number(pickup.totalValue) || 0), 0),
@@ -66,8 +193,16 @@ async function getStats(filters = {}) {
       sksOutflowCount: sksOutflows.length,
       sksStockItems: stock.length
     },
-    monthlyData: Array.from(monthlyMap.values()),
-    itemBreakdown: Array.from(itemMap.entries()).map(([name, value]) => ({ name, value })),
+    // Pre-computed chart data — frontend should use these directly
+    monthlyRSTChart: buildMonthlyRSTChart(completedPickups),
+    monthlySKSChart: buildMonthlySKSChart(completedPickups),
+    rstBreakdown: buildRSTBreakdown(raddiRecords, completedPickups),
+    sksBreakdown: buildSKSBreakdown(completedPickups),
+    rstFinancialSummary: buildRSTFinancialSummary(raddiRecords),
+    sksDispatchSummary: buildSKSDispatchSummary(sksOutflows),
+    // Legacy fields
+    monthlyData: buildMonthlyRSTChart(completedPickups),
+    itemBreakdown: buildRSTBreakdown(raddiRecords, completedPickups),
     stock
   };
 }
