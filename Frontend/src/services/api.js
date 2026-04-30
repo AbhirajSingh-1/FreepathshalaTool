@@ -1,168 +1,169 @@
-// ─── API Service Layer ───────────────────────────────────────────────────────
-// Switch USE_MOCK_DATA to false and set BASE_URL to connect to a real backend.
-// All components import from here — no component needs to change when you go live.
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1'
 
-const USE_MOCK_DATA = true  // ← set to false when backend is ready
-const BASE_URL = 'https://api.freepathshala.org/v1'  // ← update with real URL
+function getAuthToken() {
+  return localStorage.getItem('fp_id_token') || ''
+}
 
-// ── helpers ─────────────────────────────────────────────────────────────────
-const delay = (ms = 200) => new Promise(r => setTimeout(r, ms))
+function setSession(session) {
+  if (session?.idToken) localStorage.setItem('fp_id_token', session.idToken)
+  if (session?.refreshToken) localStorage.setItem('fp_refresh_token', session.refreshToken)
+  if (session?.user?.role) localStorage.setItem('fp_role', session.user.role)
+}
 
-async function apiFetch(path, options = {}) {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
-    ...options,
+function clearSession() {
+  localStorage.removeItem('fp_id_token')
+  localStorage.removeItem('fp_refresh_token')
+  localStorage.removeItem('fp_role')
+}
+
+function toQuery(params = {}) {
+  const search = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') search.set(key, value)
   })
-  if (!res.ok) throw new Error(`API error ${res.status}`)
-  return res.json()
+  const qs = search.toString()
+  return qs ? `?${qs}` : ''
 }
 
-// ── lazy import of mock data (tree-shakeable when USE_MOCK_DATA = false) ─────
-let _mock = null;
+export async function apiFetch(path, options = {}) {
+  const headers = new Headers(options.headers || {})
+  const token = getAuthToken()
 
-async function getMock() {
-  if (!_mock) _mock = await import("../data/mockData.js");
-  return _mock;
+  if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {
+    headers.set('Content-Type', 'application/json')
+  }
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+
+  const response = await fetch(`${BASE_URL}${path}`, {
+    ...options,
+    headers,
+  })
+  const payload = await response.json().catch(() => ({}))
+
+  if (!response.ok || payload.success === false) {
+    const message = payload.error?.message || `API error ${response.status}`
+    const error = new Error(message)
+    error.status = response.status
+    error.code = payload.error?.code
+    error.details = payload.error?.details
+    if (response.status === 401) clearSession()
+    throw error
+  }
+
+  return payload.data ?? payload
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// DONORS
-// ═══════════════════════════════════════════════════════════════════════════
-let _donors = null   // in-memory store while using mock
-
-export async function fetchDonors() {
-  if (!USE_MOCK_DATA) return apiFetch('/donors')
-  await delay()
-  const { donors } = await getMock()
-  if (!_donors) _donors = [...donors]
-  return [..._donors]
+export async function login(email, password) {
+  const session = await apiFetch('/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  })
+  setSession(session)
+  return session
 }
 
-export async function createDonor(data) {
-  if (!USE_MOCK_DATA) return apiFetch('/donors', { method: 'POST', body: JSON.stringify(data) })
-  await delay()
-  const { donors } = await getMock()
-  if (!_donors) _donors = [...donors]
-  const newD = { ...data, id: `D${Date.now()}`, totalRST: 0, totalSKS: 0, createdAt: new Date().toISOString().slice(0,10) }
-  _donors = [newD, ..._donors]
-  return newD
+export async function logout() {
+  try {
+    if (getAuthToken()) await apiFetch('/auth/logout', { method: 'POST' })
+  } finally {
+    clearSession()
+  }
 }
 
-export async function updateDonor(id, data) {
-  if (!USE_MOCK_DATA) return apiFetch(`/donors/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
-  await delay()
-  _donors = _donors.map(d => d.id === id ? { ...d, ...data } : d)
-  return _donors.find(d => d.id === id)
+export async function refreshToken() {
+  const refreshTokenValue = localStorage.getItem('fp_refresh_token')
+  if (!refreshTokenValue) throw new Error('Missing refresh token')
+  const session = await apiFetch('/auth/refresh', {
+    method: 'POST',
+    body: JSON.stringify({ refreshToken: refreshTokenValue }),
+  })
+  setSession(session)
+  return session
 }
 
-export async function deleteDonor(id) {
-  if (!USE_MOCK_DATA) return apiFetch(`/donors/${id}`, { method: 'DELETE' })
-  await delay()
-  _donors = _donors.filter(d => d.id !== id)
-  return { success: true }
+export async function fetchCurrentUser() {
+  return apiFetch('/auth/me')
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// PICKUPS
-// ═══════════════════════════════════════════════════════════════════════════
-let _pickups = null
+export const fetchMasterData = () => apiFetch('/master-data')
+export const fetchLocations = () => apiFetch('/locations/tree')
 
-export async function fetchPickups() {
-  if (!USE_MOCK_DATA) return apiFetch('/pickups')
-  await delay()
-  const { pickups } = await getMock()
-  if (!_pickups) _pickups = [...pickups]
-  return [..._pickups]
-}
+export const fetchUsers = params => apiFetch(`/users${toQuery(params)}`)
+export const createUser = data => apiFetch('/users', { method: 'POST', body: JSON.stringify(data) })
+export const updateUser = (id, data) => apiFetch(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
+export const deleteUser = id => apiFetch(`/users/${id}`, { method: 'DELETE' })
 
-export async function createPickup(data) {
-  if (!USE_MOCK_DATA) return apiFetch('/pickups', { method: 'POST', body: JSON.stringify(data) })
-  await delay()
-  const { pickups } = await getMock()
-  if (!_pickups) _pickups = [...pickups]
-  const id = `FP-${Date.now().toString().slice(-6)}`
-  const newP = { ...data, id }
-  _pickups = [newP, ..._pickups]
-  return newP
-}
+export const fetchDonors = params => apiFetch(`/donors${toQuery(params)}`)
+export const createDonor = data => apiFetch('/donors', { method: 'POST', body: JSON.stringify(data) })
+export const updateDonor = (id, data) => apiFetch(`/donors/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
+export const deleteDonor = id => apiFetch(`/donors/${id}`, { method: 'DELETE' })
 
-export async function updatePickup(id, data) {
-  if (!USE_MOCK_DATA) return apiFetch(`/pickups/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
-  await delay()
-  _pickups = _pickups.map(p => p.id === id ? { ...p, ...data } : p)
-  return _pickups.find(p => p.id === id)
-}
+export const fetchPickups = params => apiFetch(`/pickups${toQuery(params)}`)
+export const createPickup = data => apiFetch('/pickups', { method: 'POST', body: JSON.stringify(data) })
+export const updatePickup = (id, data) => apiFetch(`/pickups/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
+export const recordPickup = (id, data) => apiFetch(`/pickups/${id}/record`, { method: 'POST', body: JSON.stringify(data) })
+export const deletePickup = id => apiFetch(`/pickups/${id}`, { method: 'DELETE' })
+export const fetchRaddiRecords = params => apiFetch(`/pickups/raddi-records${toQuery(params)}`)
 
-export async function deletePickup(id) {
-  if (!USE_MOCK_DATA) return apiFetch(`/pickups/${id}`, { method: 'DELETE' })
-  await delay()
-  _pickups = _pickups.filter(p => p.id !== id)
-  return { success: true }
-}
+export const fetchPickupPartners = params => apiFetch(`/pickup-partners${toQuery(params)}`)
+export const createPickupPartner = data => apiFetch('/pickup-partners', { method: 'POST', body: JSON.stringify(data) })
+export const updatePickupPartner = (id, data) => apiFetch(`/pickup-partners/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
+export const deletePickupPartner = id => apiFetch(`/pickup-partners/${id}`, { method: 'DELETE' })
 
-// ═══════════════════════════════════════════════════════════════════════════
-// PickupPartnerS
-// ═══════════════════════════════════════════════════════════════════════════
-let _pickuppartners = null
+export const fetchPayments = params => apiFetch(`/payments${toQuery(params)}`)
+export const recordPickupPartnerPayment = (partnerId, data) => apiFetch(`/payments/partners/${partnerId}/record`, {
+  method: 'POST',
+  body: JSON.stringify(data),
+})
+export const clearPartnerBalance = (partnerId, data) => apiFetch(`/payments/partners/${partnerId}/clear-balance`, {
+  method: 'POST',
+  body: JSON.stringify(data),
+})
 
-export async function fetchPickupPartners() {
-  if (!USE_MOCK_DATA) return apiFetch('/PickupPartners')
-  await delay()
-  const { PickupPartners } = await getMock()
-  if (!_pickuppartners) _pickuppartners = [...PickupPartners]
-  return [..._pickuppartners]
-}
+export const fetchSksInflows = params => apiFetch(`/sks/inflows${toQuery(params)}`)
+export const createSksInflow = data => apiFetch('/sks/inflows', { method: 'POST', body: JSON.stringify(data) })
+export const deleteSksInflow = id => apiFetch(`/sks/inflows/${id}`, { method: 'DELETE' })
+export const fetchSksOutflows = params => apiFetch(`/sks/outflows${toQuery(params)}`)
+export const createSksOutflow = data => apiFetch('/sks/outflows', { method: 'POST', body: JSON.stringify(data) })
+export const deleteSksOutflow = id => apiFetch(`/sks/outflows/${id}`, { method: 'DELETE' })
+export const fetchSksStock = () => apiFetch('/sks/stock')
 
-export async function createPickupPartner(data) {
-  if (!USE_MOCK_DATA) return apiFetch('/PickupPartners', { method: 'POST', body: JSON.stringify(data) })
-  await delay()
-  const { PickupPartners } = await getMock()
-  if (!_pickuppartners) _pickuppartners = [...PickupPartners]
-  const newK = { ...data, id: `K${Date.now()}`, rating: 4.0, totalPickups: 0, totalValue: 0, amountReceived: 0, pendingAmount: 0, transactions: [] }
-  _pickuppartners = [..._pickuppartners, newK]
-  return newK
-}
+export const fetchDashboardStats = params => apiFetch(`/dashboard/stats${toQuery(params)}`)
+export const fetchSchedulerSummary = () => apiFetch('/dashboard/scheduler')
 
-export async function updatePickupPartner(id, data) {
-  if (!USE_MOCK_DATA) return apiFetch(`/PickupPartners/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
-  await delay()
-  _pickuppartners = _pickuppartners.map(k => k.id === id ? { ...k, ...data } : k)
-  return _pickuppartners.find(k => k.id === id)
-}
+export const createUploadSignedUrl = data => apiFetch('/uploads/signed-url', {
+  method: 'POST',
+  body: JSON.stringify(data),
+})
 
-export async function deletePickupPartner(id) {
-  if (!USE_MOCK_DATA) return apiFetch(`/PickupPartners/${id}`, { method: 'DELETE' })
-  await delay()
-  _pickuppartners = _pickuppartners.filter(k => k.id !== id)
-  return { success: true }
-}
+export const createReadSignedUrl = storagePath => apiFetch('/uploads/read-url', {
+  method: 'POST',
+  body: JSON.stringify({ storagePath }),
+})
 
-// ═══════════════════════════════════════════════════════════════════════════
-// DASHBOARD STATS
-// ═══════════════════════════════════════════════════════════════════════════
-export async function fetchDashboardStats() {
-  if (!USE_MOCK_DATA) return apiFetch('/dashboard/stats')
-  await delay()
-  const { getDashboardStats, monthlyData, itemBreakdown } = await getMock()
-  return { stats: getDashboardStats(), monthlyData, itemBreakdown }
-}
+export async function uploadFileViaSignedUrl(file, { purpose = 'general', entityId = 'general' } = {}) {
+  const upload = await createUploadSignedUrl({
+    fileName: file.name,
+    contentType: file.type || 'application/octet-stream',
+    purpose,
+    entityId,
+  })
 
-// ═══════════════════════════════════════════════════════════════════════════
-// WA TEMPLATES
-// ═══════════════════════════════════════════════════════════════════════════
-let _templates = null
+  const response = await fetch(upload.signedUrl, {
+    method: upload.method || 'PUT',
+    headers: { 'Content-Type': upload.contentType },
+    body: file,
+  })
 
-export async function fetchWATemplates() {
-  if (!USE_MOCK_DATA) return apiFetch('/whatsapp/templates')
-  await delay()
-  const { waTemplates } = await getMock()
-  if (!_templates) _templates = [...waTemplates]
-  return [..._templates]
-}
+  if (!response.ok) {
+    throw new Error(`File upload failed (${response.status})`)
+  }
 
-export async function updateWATemplate(id, data) {
-  if (!USE_MOCK_DATA) return apiFetch(`/whatsapp/templates/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
-  await delay()
-  _templates = _templates.map(t => t.id === id ? { ...t, ...data } : t)
-  return _templates.find(t => t.id === id)
+  const read = await createReadSignedUrl(upload.storagePath)
+  return {
+    storagePath: upload.storagePath,
+    url: read.signedUrl,
+    contentType: upload.contentType,
+    fileName: file.name,
+  }
 }

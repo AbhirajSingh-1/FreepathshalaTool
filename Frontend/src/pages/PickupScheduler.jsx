@@ -8,7 +8,6 @@ import {
 import { useApp }      from '../context/AppContext'
 import DonorModal      from '../components/DonorModal'
 import { fmtDate }     from '../utils/helpers'
-import { PICKUP_MODES } from '../data/mockData'
 
 const ALL_TIME_SLOTS = [
   '9:00 AM – 10:00 AM', '10:00 AM – 11:00 AM',
@@ -93,7 +92,7 @@ function DonorDropdown({ donors, value, onChange, onAddNew }) {
 }
 
 export default function PickupScheduler({ onNav }) {
-  const { donors, addDonor, schedulePickup, dashboardStats } = useApp()
+  const { donors, addDonor, schedulePickup, dashboardStats, PICKUP_MODES } = useApp()
 
   const [selectedDonorId, setSelectedDonorId] = useState('')
   const [date,       setDate]       = useState('')

@@ -13,7 +13,7 @@ import {
 import { useApp }  from '../context/AppContext'
 import { useRole } from '../context/RoleContext'
 import { fmtDate, fmtCurrency, exportToExcel } from '../utils/helpers'
-import { CITIES, CITY_SECTORS } from '../data/mockData'
+import { uploadFileViaSignedUrl } from '../services/api'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const STATUS_PRIORITY = { 'Not Paid': 0, 'Partially Paid': 1, 'Paid': 2, 'Write Off': 3 }
@@ -189,11 +189,22 @@ function RecordPaymentModal({ context, onClose, onSave, saving }) {
   const hasRef = method !== 'cash'
   const REF_LABELS = { upi:'UPI Transaction ID', bank:'Bank Reference No.', cheque:'Cheque Number' }
 
-  const handleScreenshot = (e) => {
+  const handleScreenshot = async (e) => {
     const file = e.target.files?.[0]; if (!file) return
-    const reader = new FileReader()
-    reader.onload = ev => { setScreenshot(ev.target.result); setUploadMsg(`${file.name} attached`) }
-    reader.readAsDataURL(file); e.target.value = ''
+    setUploadMsg('Uploading...')
+    try {
+      const uploaded = await uploadFileViaSignedUrl(file, {
+        purpose: 'payment-proof',
+        entityId: context.pickupId || context.pickuppartnerId || 'partner-payment',
+      })
+      setScreenshot(uploaded.url)
+      setUploadMsg(`${file.name} uploaded`)
+    } catch (err) {
+      setError(err.message || 'Upload failed')
+      setUploadMsg('')
+    } finally {
+      e.target.value = ''
+    }
   }
 
   const handleSave = () => {
@@ -1209,6 +1220,7 @@ function PayBadge({ status }) {
 }
 
 function RSTAnalytics({ raddiRecords, pickups }) {
+  const { CITIES, CITY_SECTORS } = useApp()
   const [datePreset,   setDatePreset]   = useState('all')
   const [customFrom,   setCustomFrom]   = useState('')
   const [customTo,     setCustomTo]     = useState('')

@@ -19,7 +19,6 @@ import {
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { fmtDate, fmtCurrency, exportToExcel } from '../utils/helpers'
-import { RST_ITEMS } from '../data/mockData'
 
 const PAGE_SIZE = 20
 
@@ -188,7 +187,7 @@ function RowDetail({ record }) {
 
 // ════════════════════════════════════════════════════════════════════════════
 export default function RaddiMaster() {
-  const { raddiRecords } = useApp()
+  const { raddiRecords, RST_ITEMS } = useApp()
 
   // ── Filters ───────────────────────────────────────────────────────────────
   const [search,       setSearch]      = useState('')

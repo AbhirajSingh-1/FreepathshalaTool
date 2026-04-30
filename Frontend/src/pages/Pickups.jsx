@@ -14,8 +14,7 @@ import {
 } from 'lucide-react'
 import { useApp }   from '../context/AppContext'
 import DonorModal   from '../components/DonorModal'
-import { RST_ITEMS, SKS_ITEMS, PICKUP_MODES } from '../data/mockData'
-import { fmtDate, fmtCurrency, generateOrderId, pickupStatusColor, paymentStatusColor } from '../utils/helpers'
+import { fmtDate, fmtCurrency, pickupStatusColor, paymentStatusColor } from '../utils/helpers'
 
 const todayStr = () => new Date().toISOString().slice(0, 10)
 const PAYMENT_STATUS_OPTIONS = ['Paid', 'Not Paid', 'Partially Paid']
@@ -29,14 +28,6 @@ const EMPTY_FORM = {
   rstOthers: [],
   sksItems: [], sksOtherText: '',
   totalValue: '', amountPaid: '', paymentStatus: 'Not Paid', notes: '',
-}
-
-function derivePayStatus(total, paid) {
-  const t = Number(total) || 0; const p = Number(paid) || 0
-  if (t === 0) return 'Not Paid'
-  if (p >= t)  return 'Paid'
-  if (p > 0)   return 'Partially Paid'
-  return 'Not Paid'
 }
 
 function toKg(value, unit) {
@@ -502,6 +493,7 @@ export default function Pickups({
   const {
     donors, PickupPartners: partners, pickups,
     addDonor, createPickup, recordPickup,
+    RST_ITEMS, SKS_ITEMS, PICKUP_MODES,
   } = useApp()
 
   const [form,       setForm]       = useState({ ...EMPTY_FORM })
@@ -682,7 +674,6 @@ const rateChart      = selectedpickuppartner?.rateChart || null
       }).filter(Boolean)
       const finalSKS      = form.sksItems.map(i => i === 'Others' && form.sksOtherText?.trim() ? `Others (${form.sksOtherText.trim()})` : i)
       const type          = finalRST.length > 0 && finalSKS.length > 0 ? 'RST+SKS' : finalSKS.length > 0 ? 'SKS' : 'RST'
-      const paymentStatus = form.paymentStatus === 'Write Off' ? 'Write Off' : derivePayStatus(totalValue, amountPaid)
       const combinedKg    = rstTotalWeight + rstOthersWeight
 
       const pickupData = {
@@ -694,7 +685,7 @@ const rateChart      = selectedpickuppartner?.rateChart || null
         rstItemWeights: form.rstItemWeights, rstOthers: form.rstOthers,
         rstTotalWeight: combinedKg > 0 ? combinedKg.toFixed(3) : '',
         rstWeightUnit: 'kg', totalKg: combinedKg,
-        totalValue, amountPaid, paymentStatus,
+        totalValue, amountPaid,
         PickupPartner: form.PickupPartner || '', pickuppartneradiMobile: form.pickuppartneradiMobile || '',
         notes: form.notes,
       }
@@ -708,9 +699,8 @@ const rateChart      = selectedpickuppartner?.rateChart || null
         setTargetPickupId(null)
       } else {
         // ── CREATE new pickup (no existing scheduled entry found) ──
-        const orderId = generateOrderId()
-        const created = await createPickup({ orderId, ...pickupData })
-        savedId = created?.orderId || orderId
+        const created = await createPickup(pickupData)
+        savedId = created?.orderId || created?.id
       }
 
       setForm({ ...EMPTY_FORM })
@@ -722,7 +712,7 @@ const rateChart      = selectedpickuppartner?.rateChart || null
     } finally { setSaving(false) }
   }
 
-  const payStatus = form.paymentStatus === 'Write Off' ? 'Write Off' : derivePayStatus(form.totalValue, form.amountPaid)
+  const payStatus = form.paymentStatus
   const remaining = Math.max(0, (Number(form.totalValue) || 0) - (Number(form.amountPaid) || 0))
   const formDirty = form.donorId || form.rstItems.length > 0 || form.sksItems.length > 0 || form.totalValue
 

@@ -2,15 +2,16 @@
 # Node.js
 # -------------------------
 node_modules/
+**/node_modules/
+
+# -------------------------
+# Logs
+# -------------------------
+logs/
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-
-# -------------------------
-# Vite / React Build
-# -------------------------
-dist/
-.vite/
 
 # -------------------------
 # Environment Variables
@@ -20,10 +21,27 @@ dist/
 !.env.example
 
 # -------------------------
-# Logs
+# Build / Dist
 # -------------------------
-logs/
-*.log
+dist/
+build/
+**/dist/
+**/build/
+
+# Vite
+.vite/
+
+# -------------------------
+# Cache / Temp
+# -------------------------
+.cache/
+.temp/
+tmp/
+
+# -------------------------
+# Coverage
+# -------------------------
+coverage/
 
 # -------------------------
 # OS Files
@@ -40,19 +58,7 @@ Thumbs.db
 *.swo
 
 # -------------------------
-# Cache / Temp
-# -------------------------
-.cache/
-.temp/
-tmp/
-
-# -------------------------
-# Coverage
-# -------------------------
-coverage/
-
-# -------------------------
-# Backend Uploads (if any)
+# Uploads
 # -------------------------
 uploads/
 public/uploads/
@@ -62,10 +68,22 @@ public/uploads/
 # -------------------------
 .firebase/
 firebase-debug.log
+firestore-debug.log
+ui-debug.log
+
+# 🔥 VERY IMPORTANT (SECRET KEYS)
+serviceAccountKey.json
+*serviceAccount*.json
+firebase-service-account*.json
 
 # -------------------------
-# Secrets
+# Certificates / Keys
 # -------------------------
 *.pem
 *.key
 *.crt
+
+# -------------------------
+# Optional (if needed)
+# -------------------------
+# package-lock.json   (only if team policy)

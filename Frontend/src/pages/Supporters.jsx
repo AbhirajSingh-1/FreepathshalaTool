@@ -11,7 +11,6 @@ import {
 import { useApp } from '../context/AppContext'
 import { useRole } from '../context/RoleContext'
 import { fmtDate, exportToExcel } from '../utils/helpers'
-import { CITIES, CITY_SECTORS } from '../data/mockData'
 import { differenceInDays, parseISO } from 'date-fns'
 import SocietyInput from '../components/SocietyInput'
 
@@ -112,7 +111,7 @@ function KpiCard({ tone, icon: Icon, value, label, desc, isActive, onClick }) {
 }
 
 export default function Supporters() {
-  const { donors, addDonor, updateDonor, deleteDonor } = useApp()
+  const { donors, addDonor, updateDonor, deleteDonor, CITIES, CITY_SECTORS } = useApp()
   const { role } = useRole()
   const isAdmin = role === 'admin'
 
@@ -613,16 +612,17 @@ export default function Supporters() {
                 </div>
                 <div className="form-group">
                   <label>City</label>
-                  <select value={form.city} onChange={e => setField('city', e.target.value)}>
-                    {CITIES.map(c => <option key={c}>{c}</option>)}
-                  </select>
+                  <input list="supporter-cities" value={form.city} onChange={e => setField('city', e.target.value)} placeholder="Type or choose city" />
+                  <datalist id="supporter-cities">
+                    {CITIES.map(c => <option key={c} value={c} />)}
+                  </datalist>
                 </div>
                 <div className="form-group">
                   <label>Sector / Area</label>
-                  <select value={form.sector} onChange={e => setField('sector', e.target.value)} disabled={!form.city}>
-                    <option value="">{form.city ? 'Select Sector' : 'Select City First'}</option>
-                    {formSectors.map(s => <option key={s}>{s}</option>)}
-                  </select>
+                  <input list="supporter-sectors" value={form.sector} onChange={e => setField('sector', e.target.value)} disabled={!form.city} placeholder={form.city ? 'Type or choose sector' : 'Select city first'} />
+                  <datalist id="supporter-sectors">
+                    {formSectors.map(s => <option key={s} value={s} />)}
+                  </datalist>
                 </div>
                 <div className="form-group full">
                   <label>Society / Colony</label>

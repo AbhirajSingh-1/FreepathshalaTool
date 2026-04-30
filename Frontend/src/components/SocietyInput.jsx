@@ -2,7 +2,7 @@
 // Reusable society selector: native <select> for known societies +
 // text input fallback for custom names. Works reliably on all devices.
 import { useMemo, useState, useEffect } from 'react'
-import { GURGAON_SOCIETIES } from '../data/mockData'
+import { useApp } from '../context/AppContext'
 
 /**
  * SocietyInput
@@ -16,6 +16,7 @@ import { GURGAON_SOCIETIES } from '../data/mockData'
  */
 export default function SocietyInput({ city, sector, value, onChange, id, style }) {
   const [customMode, setCustomMode] = useState(false)
+  const { locations } = useApp()
 
   // Reset to select mode whenever city or sector changes
   useEffect(() => {
@@ -24,10 +25,10 @@ export default function SocietyInput({ city, sector, value, onChange, id, style 
 
   // Build suggestion list for the current city + sector
   const suggestions = useMemo(() => {
-    if (city !== 'Gurgaon') return []
-    if (sector && GURGAON_SOCIETIES[sector]) return GURGAON_SOCIETIES[sector]
-    return []
-  }, [city, sector])
+    if (!city || !sector) return []
+    const key = `${city}::${sector}`
+    return locations.sectorSocieties?.[key] || []
+  }, [city, sector, locations.sectorSocieties])
 
   // True if the stored value is a custom one not in the known list
   const isCustomValue = Boolean(value && suggestions.length > 0 && !suggestions.includes(value))

@@ -13,8 +13,8 @@ import {
 } from 'lucide-react'
 import { useApp }  from '../context/AppContext'
 import { useRole } from '../context/RoleContext'
-import { CITIES, CITY_SECTORS, GURGAON_SOCIETIES, SKS_ITEMS } from '../data/mockData'
 import { fmtDate, fmtCurrency, exportToExcel } from '../utils/helpers'
+import { uploadFileViaSignedUrl } from '../services/api'
 
 // ── Toast Component ───────────────────────────────────────────────────────────
 function Toast({ toasts, onRemove }) {
@@ -80,9 +80,6 @@ function useToast() {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const todayStr = () => new Date().toISOString().slice(0, 10)
-let _inSeq = 0, _outSeq = 0
-const nextInId  = () => `IN-${String(++_inSeq).padStart(4, '0')}`
-const nextOutId = () => `OUT-${String(++_outSeq).padStart(4, '0')}`
 
 const SKS_ITEM_CONFIG = {
   'Kids Clothes':    { icon: Shirt,           category: 'Clothing' },
@@ -99,17 +96,6 @@ const SKS_ITEM_CONFIG = {
   'Purifier':        { icon: Wind,            category: 'Electronics' },
   'Microwave / OTG': { icon: Microwave,       category: 'Electronics' },
   'Others':          { icon: ShoppingBag,     category: 'Misc' },
-}
-
-function computeStock(inflows, outflows) {
-  const stock = {}
-  inflows.forEach(inf =>
-    (inf.items || []).forEach(({ name, qty }) => { stock[name] = (stock[name] || 0) + (qty || 0) })
-  )
-  outflows.forEach(out =>
-    (out.items || []).forEach(({ name, qty }) => { stock[name] = Math.max(0, (stock[name] || 0) - (qty || 0)) })
-  )
-  return stock
 }
 
 function getDateRange(preset, customFrom, customTo) {
@@ -219,6 +205,7 @@ function ScreenshotThumb({ src, label = 'Payment Proof' }) {
 
 // ── Stock In Form ─────────────────────────────────────────────────────────────
 function StockInForm({ allSKSItems, onAdd, onAddCustomItem, showToast }) {
+  const { CITIES, CITY_SECTORS, locations } = useApp()
   const [date,           setDate]           = useState(todayStr())
   const [city,           setCity]           = useState('Gurgaon')
   const [sector,         setSector]         = useState('')
@@ -233,9 +220,9 @@ function StockInForm({ allSKSItems, onAdd, onAddCustomItem, showToast }) {
 
   const sectorOptions  = CITY_SECTORS[city] || []
   const societyOptions = useMemo(() => {
-    if (city === 'Gurgaon' && sector && GURGAON_SOCIETIES[sector]) return GURGAON_SOCIETIES[sector]
-    return []
-  }, [city, sector])
+    if (!city || !sector) return []
+    return locations.sectorSocieties?.[`${city}::${sector}`] || []
+  }, [city, sector, locations.sectorSocieties])
 
   const totalQty = Object.values(itemQty).reduce((s, v) => s + (Number(v) || 0), 0)
   const filledItems = Object.entries(itemQty).filter(([, q]) => (Number(q) || 0) > 0)
@@ -275,7 +262,7 @@ function StockInForm({ allSKSItems, onAdd, onAddCustomItem, showToast }) {
 
     setTimeout(() => {
       onAdd({
-        id: nextInId(), date, city, sector,
+        date, city, sector,
         society: showNewSociety ? newSocietyVal.trim() : society,
         items, notes: notes.trim(),
       })
@@ -314,16 +301,18 @@ function StockInForm({ allSKSItems, onAdd, onAddCustomItem, showToast }) {
             </div>
             <div className="form-group" style={{ margin: 0 }}>
               <label>City <span className="required">*</span></label>
-              <select value={city} onChange={e => handleCityChange(e.target.value)}>
-                {CITIES.map(c => <option key={c}>{c}</option>)}
-              </select>
+              <input list="sks-cities" value={city} onChange={e => handleCityChange(e.target.value)} placeholder="Type or choose city" />
+              <datalist id="sks-cities">
+                {CITIES.map(c => <option key={c} value={c} />)}
+              </datalist>
             </div>
             <div className="form-group" style={{ margin: 0 }}>
               <label>Sector / Area</label>
-              <select value={sector} onChange={e => handleSectorChange(e.target.value)} disabled={!city}>
+              <input list="sks-sectors" value={sector} onChange={e => handleSectorChange(e.target.value)} disabled={!city} placeholder={city ? 'Type or choose sector' : 'Select city first'} />
+              <datalist id="sks-sectors">
                 <option value="">— Select Sector —</option>
                 {sectorOptions.map(s => <option key={s}>{s}</option>)}
-              </select>
+              </datalist>
             </div>
             <div className="form-group" style={{ margin: 0 }}>
               <label>Society / Colony</label>
@@ -669,12 +658,17 @@ function HistoryView({ inflows, outflows = [], isAdmin, onDeleteInflow, onDelete
 function DispatchPaymentSection({ payState, onChange }) {
   const { method, amount, reference, notes, screenshot } = payState
 
-  const handleScreenshot = (e) => {
+  const handleScreenshot = async (e) => {
     const file = e.target.files?.[0]; if (!file) return
-    const reader = new FileReader()
-    reader.onload = ev => onChange({ ...payState, screenshot: ev.target.result })
-    reader.readAsDataURL(file)
-    e.target.value = ''
+    try {
+      const uploaded = await uploadFileViaSignedUrl(file, {
+        purpose: 'sks-proof',
+        entityId: 'sks-dispatch',
+      })
+      onChange({ ...payState, screenshot: uploaded.url })
+    } finally {
+      e.target.value = ''
+    }
   }
 
   return (
@@ -983,13 +977,12 @@ function StockOutView({ stock, allSKSItems, outflows, isAdmin, onAddOutflow, onD
     const items = filledDispatch.map(([name, qty]) => ({ name, qty: Number(qty) }))
     const paid = Number(payState.amount) || 0
     const total = Number(payState.totalValue) || 0
-    const paymentStatus = total === 0 ? 'Not Recorded' : paid >= total ? 'Paid' : paid > 0 ? 'Partially Paid' : 'Not Paid'
     setTimeout(() => {
       onAddOutflow({
-        id: nextOutId(), date: dispDate,
+        date: dispDate,
         partnerName: partnerName.trim(), partnerPhone: partnerPhone.trim(),
         items, notes: dispNotes.trim(),
-        payment: { method: payState.method, amount: paid, totalValue: total, reference: payState.reference.trim(), notes: payState.notes.trim(), screenshot: payState.screenshot, status: paymentStatus },
+        payment: { method: payState.method, amount: paid, totalValue: total, reference: payState.reference.trim(), notes: payState.notes.trim(), screenshot: payState.screenshot },
       })
       showToast('Items dispatched successfully', 'success',
         `${totalDispatch} item${totalDispatch !== 1 ? 's' : ''} sent to ${partnerName.trim()}${paid > 0 ? ` · ₹${paid.toLocaleString('en-IN')} received` : ''}`)
@@ -1173,6 +1166,7 @@ function StockOutView({ stock, allSKSItems, outflows, isAdmin, onAddOutflow, onD
 export default function SKSOverview() {
   const {
     sksInflows, sksOutflows,
+    sksStock, SKS_ITEMS,
     addSksInflow, addSksOutflow,
     deleteSksInflow, deleteSksOutflow,
   } = useApp()
@@ -1189,7 +1183,7 @@ export default function SKSOverview() {
     return [...SKS_ITEMS, ...customItems.filter(c => !base.has(c))]
   }, [customItems])
 
-  const stock = useMemo(() => computeStock(sksInflows, sksOutflows), [sksInflows, sksOutflows])
+  const stock = useMemo(() => Object.fromEntries((sksStock || []).map(item => [item.name, item.qty])), [sksStock])
 
   const addInflow     = useCallback(async (r) => { await addSksInflow(r) }, [addSksInflow])
   const addOutflow    = useCallback(async (r) => { await addSksOutflow(r) }, [addSksOutflow])

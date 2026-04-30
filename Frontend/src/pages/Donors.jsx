@@ -6,10 +6,6 @@ import {
   AlertCircle, UserX,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import { deriveDonorStatus } from '../context/AppContext'
-import {
-  CITIES, CITY_SECTORS, SOCIETIES, LOST_REASONS, GURGAON_SOCIETIES,
-} from '../data/mockData'
 import { fmtDate, fmtCurrency, donorStatusColor } from '../utils/helpers'
 import { differenceInDays, parseISO } from 'date-fns'
 import SocietyInput from '../components/SocietyInput'
@@ -24,14 +20,7 @@ const SEGMENTS = [
 ]
 
 function getSegment(donor) {
-  if (donor.status === 'Lost')      return 'Lost'
-  if (donor.status === 'Postponed') return 'Postponed'
-  if (!donor.lastPickup)            return 'Active'
-  const days = differenceInDays(new Date(), parseISO(donor.lastPickup))
-  if (days <= 30)  return 'Active'
-  if (days <= 45)  return 'Pickup Due'
-  if (days <= 60)  return 'At Risk'
-  return 'Churned'
+  return donor.status || 'Active'
 }
 
 function daysSince(dateStr) {
@@ -93,7 +82,7 @@ const EMPTY_FORM = {
 }
 
 export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
-  const { donors, pickups, addDonor, updateDonor, deleteDonor } = useApp()
+  const { donors, pickups, addDonor, updateDonor, deleteDonor, CITIES, CITY_SECTORS, locations } = useApp()
 
   const [modal, setModal]       = useState(false)
   const [editing, setEditing]   = useState(null)
@@ -111,9 +100,9 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
   const formSectors   = CITY_SECTORS[form.city] || []
 
   const allSocieties = useMemo(() => [...new Set([
-    ...SOCIETIES,
+    ...(locations.societies || []).map(s => s.name),
     ...donors.map(d => d.society).filter(Boolean),
-  ])].sort(), [donors])
+  ])].sort(), [donors, locations.societies])
 
   // ── Only count non-supporter donors in segment KPIs ──────────────────────
   const actualDonors = useMemo(() =>
@@ -416,16 +405,17 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
                 </div>
                 <div className="form-group">
                   <label>City <span className="required">*</span></label>
-                  <select value={form.city} onChange={e => setField('city', e.target.value)}>
-                    {CITIES.map(c => <option key={c}>{c}</option>)}
-                  </select>
+                  <input list="donor-cities" value={form.city} onChange={e => setField('city', e.target.value)} placeholder="Type or choose city" />
+                  <datalist id="donor-cities">
+                    {CITIES.map(c => <option key={c} value={c} />)}
+                  </datalist>
                 </div>
                 <div className="form-group">
                   <label>Sector / Area</label>
-                  <select value={form.sector} onChange={e => setField('sector', e.target.value)} disabled={!form.city}>
-                    <option value="">{form.city ? 'Select Sector' : 'Select City First'}</option>
-                    {formSectors.map(s => <option key={s}>{s}</option>)}
-                  </select>
+                  <input list="donor-sectors" value={form.sector} onChange={e => setField('sector', e.target.value)} disabled={!form.city} placeholder={form.city ? 'Type or choose sector' : 'Select city first'} />
+                  <datalist id="donor-sectors">
+                    {formSectors.map(s => <option key={s} value={s} />)}
+                  </datalist>
                 </div>
                 <div className="form-group full">
                   <label>Society / Colony</label>

@@ -12,7 +12,7 @@ import {
 import { useApp }  from '../context/AppContext'
 import { useRole } from '../context/RoleContext'
 import { fmtCurrency } from '../utils/helpers'
-import { CITIES, CITY_SECTORS, GURGAON_SOCIETIES } from '../data/mockData'
+import { uploadFileViaSignedUrl } from '../services/api'
 
 const RATE_CHART_ITEMS = [
   'Glass Bottle', 'Glass Other', 'Plastic Bottle / Box', 'Other Plastic',
@@ -116,6 +116,7 @@ function RateChartEditor({ rateChart, onChange }) {
 // ── Coverage Selector ─────────────────────────────────────────────────────────
 // FIX: Added dropdownRef + click-outside handler to close sector dropdown
 function CoverageSelector({ city, sectors, societies, onSectors, onSocieties }) {
+  const { CITY_SECTORS, locations } = useApp()
   const [openSec, setOpenSec] = useState(false)
   const [customSocInput, setCustomSocInput] = useState('')
   const [secSearch, setSecSearch] = useState('')
@@ -140,10 +141,8 @@ function CoverageSelector({ city, sectors, societies, onSectors, onSocieties }) 
   const sectorOptions = useMemo(() => CITY_SECTORS[city || 'Gurgaon'] || [], [city])
   const availableSocieties = useMemo(() => {
     if (!safeSectors.length) return []
-    if ((city || 'Gurgaon') === 'Gurgaon')
-      return safeSectors.flatMap(s => (GURGAON_SOCIETIES || {})[s] || [])
-    return []
-  }, [safeSectors, city])
+    return safeSectors.flatMap(s => locations.sectorSocieties?.[`${city || 'Gurgaon'}::${s}`] || [])
+  }, [safeSectors, city, locations.sectorSocieties])
 
   const filteredSectors = useMemo(() => {
     const q = secSearch.toLowerCase().trim()
@@ -154,10 +153,8 @@ function CoverageSelector({ city, sectors, societies, onSectors, onSocieties }) 
   const toggleSector = (s) => {
     if (safeSectors.includes(s)) {
       onSectors(safeSectors.filter(x => x !== s))
-      if ((city || 'Gurgaon') === 'Gurgaon') {
-        const removedSocs = (GURGAON_SOCIETIES || {})[s] || []
-        onSocieties(safeSocieties.filter(soc => !removedSocs.includes(soc)))
-      }
+      const removedSocs = locations.sectorSocieties?.[`${city || 'Gurgaon'}::${s}`] || []
+      onSocieties(safeSocieties.filter(soc => !removedSocs.includes(soc)))
     } else {
       if (safeSectors.length >= 3) return
       onSectors([...safeSectors, s])
@@ -291,15 +288,16 @@ function CoverageSelector({ city, sectors, societies, onSectors, onSocieties }) 
 
 // ── Executive sector search ───────────────────────────────────────────────────
 function ExecutiveSectorSearch({ partners, onAddNew }) {
+  const { CITIES, CITY_SECTORS, locations } = useApp()
   const [city,    setCity]    = useState('Gurgaon')
   const [sector,  setSector]  = useState('')
   const [society, setSociety] = useState('')
 
   const sectorOptions  = CITY_SECTORS[city] || []
   const societyOptions = useMemo(() => {
-    if (city === 'Gurgaon' && sector && GURGAON_SOCIETIES[sector]) return GURGAON_SOCIETIES[sector]
-    return []
-  }, [city, sector])
+    if (!city || !sector) return []
+    return locations.sectorSocieties?.[`${city}::${sector}`] || []
+  }, [city, sector, locations.sectorSocieties])
 
   const activePartners = useMemo(() => partners.filter(isPartnerActive), [partners])
   const matchingPartners = useMemo(() => {
@@ -522,7 +520,7 @@ function DocUpload({ label, icon: Icon, value, accept, onChange, onRemove, previ
 
 // ════════════════════════════════════════════════════════════════════════════
 export default function PickupPartners() {
-  const { PickupPartners: rawPartners, raddiRecords, addPartner, updatePartner, deletePartner } = useApp()
+  const { PickupPartners: rawPartners, raddiRecords, addPartner, updatePartner, deletePartner, CITIES, CITY_SECTORS, locations } = useApp()
   const { can, role } = useRole()
 
   const partners = useMemo(() => Array.isArray(rawPartners) ? rawPartners : [], [rawPartners])
@@ -567,9 +565,8 @@ export default function PickupPartners() {
   const dirSectorOptions  = useMemo(() => dirFilterCity ? (CITY_SECTORS[dirFilterCity]||[]) : [], [dirFilterCity])
   const dirSocietyOptions = useMemo(() => {
     if (!dirFilterCity || !dirFilterSector) return []
-    if (dirFilterCity === 'Gurgaon' && GURGAON_SOCIETIES[dirFilterSector]) return GURGAON_SOCIETIES[dirFilterSector]
-    return []
-  }, [dirFilterCity, dirFilterSector])
+    return locations.sectorSocieties?.[`${dirFilterCity}::${dirFilterSector}`] || []
+  }, [dirFilterCity, dirFilterSector, locations.sectorSocieties])
 
   const filteredPartners = useMemo(() => {
     const q = dirSearch.toLowerCase().trim()
@@ -586,17 +583,21 @@ export default function PickupPartners() {
   const hasDirFilters = dirSearch || dirFilterCity || dirFilterSector || dirFilterSociety
   const clearDirFilters = () => { setDirSearch(''); setDirFilterCity(''); setDirFilterSector(''); setDirFilterSociety('') }
 
-  const handleFileUpload = (key, label) => (e) => {
+  const handleFileUpload = (key, label) => async (e) => {
     const file = e.target.files?.[0]; if (!file) return
     const hadFile = !!form[key]
-    const reader = new FileReader()
-    reader.onload = ev => {
-      setForm(f => ({ ...f, [key]: ev.target.result }))
+    try {
+      const uploaded = await uploadFileViaSignedUrl(file, {
+        purpose: key === 'aadhaarDoc' ? 'aadhaar' : 'general',
+        entityId: editing?.id || form.mobile || 'pickup-partner',
+      })
+      setForm(f => ({ ...f, [key]: uploaded.url }))
       showToast(`${label} ${hadFile ? 'replaced' : 'uploaded'}`, 'success', `${file.name} attached successfully.`)
+    } catch {
+      showToast(`${label} upload failed`, 'error', 'Please try another file.')
+    } finally {
+      e.target.value = ''
     }
-    reader.onerror = () => showToast(`${label} upload failed`, 'error', 'Please try another file.')
-    reader.readAsDataURL(file)
-    e.target.value = ''
   }
 
   const open = useCallback((k = null) => {
@@ -728,13 +729,16 @@ export default function PickupPartners() {
                 <div className="partner-modal-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr', gap: 10 }}>
                   <div className="form-group" style={{ margin: 0 }}>
                     <label style={{ fontSize: 11.5 }}>City</label>
-                    <select
+                    <input
+                      list="partner-cities"
                       value={form.city || 'Gurgaon'}
                       onChange={e => setForm(f => ({ ...f, city: e.target.value, sectors: [], societies: [] }))}
+                      placeholder="Type or choose city"
                       style={{ padding: '7px 10px', fontSize: 13 }}
-                    >
-                      {CITIES.map(c => <option key={c}>{c}</option>)}
-                    </select>
+                    />
+                    <datalist id="partner-cities">
+                      {CITIES.map(c => <option key={c} value={c} />)}
+                    </datalist>
                   </div>
                   <div className="form-group" style={{ margin: 0 }}>
                     <label style={{ fontSize: 11.5 }}>Email <span style={{ fontSize: 10, fontWeight: 400, color: 'var(--text-muted)' }}>(optional)</span></label>

@@ -1,0 +1,21 @@
+const ROLES = Object.freeze({
+  ADMIN: "admin",
+  MANAGER: "manager",
+  EXECUTIVE: "executive"
+});
+
+const ROLE_VALUES = Object.values(ROLES);
+
+const PERMISSIONS = Object.freeze({
+  WRITE_MASTER_DATA: [ROLES.ADMIN, ROLES.MANAGER],
+  DELETE_MASTER_DATA: [ROLES.ADMIN],
+  MANAGE_USERS: [ROLES.ADMIN],
+  VIEW_REPORTS: [ROLES.ADMIN, ROLES.MANAGER],
+  EXECUTE_PICKUPS: [ROLES.ADMIN, ROLES.MANAGER, ROLES.EXECUTIVE]
+});
+
+module.exports = {
+  ROLES,
+  ROLE_VALUES,
+  PERMISSIONS
+};

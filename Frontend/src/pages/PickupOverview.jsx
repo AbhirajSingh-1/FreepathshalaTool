@@ -10,7 +10,6 @@ import { useApp }   from '../context/AppContext'
 import { useRole }  from '../context/RoleContext'
 import PickupTabs   from '../components/PickupTabs'
 import { fmtDate, fmtCurrency } from '../utils/helpers'
-import { CITIES, CITY_SECTORS } from '../data/mockData'
 
 // ── Period helpers ─────────────────────────────────────────────────────────────
 const padM = (n) => String(n).padStart(2, '0')
@@ -112,7 +111,7 @@ function PeriodBar({ dateFrom, dateTo, onRange, last5 }) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 export default function PickupOverview() {
-  const { pickups, schedulerTabData } = useApp()
+  const { pickups, schedulerTabData, CITIES, CITY_SECTORS } = useApp()
   const { can } = useRole()
 
   const last5 = getLast5Months()

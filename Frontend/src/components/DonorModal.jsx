@@ -1,7 +1,7 @@
 // Frontend/src/components/DonorModal.jsx
 import { useState } from 'react'
 import { X, User, MapPin } from 'lucide-react'
-import { CITIES, CITY_SECTORS, GURGAON_SOCIETIES } from '../data/mockData'
+import { useApp } from '../context/AppContext'
 import SocietyInput from './SocietyInput'
 
 const EMPTY = {
@@ -9,6 +9,7 @@ const EMPTY = {
 }
 
 export default function DonorModal({ onClose, onAdd }) {
+  const { CITIES, CITY_SECTORS } = useApp()
   const [form, setForm] = useState(EMPTY)
   const [saving, setSaving] = useState(false)
   const [errors, setErrors] = useState({})
@@ -37,17 +38,12 @@ export default function DonorModal({ onClose, onAdd }) {
     const e = validate()
     if (Object.keys(e).length) { setErrors(e); return }
     setSaving(true)
-    await new Promise(r => setTimeout(r, 800))
-    const newDonor = {
-      ...form,
-      id: `D${Date.now()}`,
-      status: 'Active',
-      totalRST: 0,
-      totalSKS: 0,
-      createdAt: new Date().toISOString().slice(0, 10),
+    try {
+      await onAdd({ ...form, house: form.address })
+      setSaving(false)
+    } catch {
+      setSaving(false)
     }
-    onAdd(newDonor)
-    setSaving(false)
   }
 
   return (
@@ -93,24 +89,31 @@ export default function DonorModal({ onClose, onAdd }) {
             {/* City */}
             <div className="form-group">
               <label>City <span className="required">*</span></label>
-              <select value={form.city} onChange={e => setField('city', e.target.value)}>
-                <option value="">Select City</option>
-                {CITIES.map(c => <option key={c}>{c}</option>)}
-              </select>
+              <input
+                list="donor-modal-cities"
+                value={form.city}
+                onChange={e => setField('city', e.target.value)}
+                placeholder="Type or choose city"
+              />
+              <datalist id="donor-modal-cities">
+                {CITIES.map(c => <option key={c} value={c} />)}
+              </datalist>
               {errors.city && <div style={{ fontSize: 11.5, color: 'var(--danger)', marginTop: 3 }}>{errors.city}</div>}
             </div>
 
             {/* Sector */}
             <div className="form-group">
               <label>Sector / Area</label>
-              <select
+              <input
+                list="donor-modal-sectors"
                 value={form.sector}
                 onChange={e => setField('sector', e.target.value)}
                 disabled={!form.city}
-              >
-                <option value="">{form.city ? 'Select Sector' : 'Select City First'}</option>
-                {sectors.map(s => <option key={s}>{s}</option>)}
-              </select>
+                placeholder={form.city ? 'Type or choose sector' : 'Select city first'}
+              />
+              <datalist id="donor-modal-sectors">
+                {sectors.map(s => <option key={s} value={s} />)}
+              </datalist>
             </div>
 
             {/* Society — always allows custom via datalist */}

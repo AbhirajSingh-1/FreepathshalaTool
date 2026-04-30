@@ -13,7 +13,6 @@ import {
 } from 'recharts'
 import { useApp }  from '../context/AppContext'
 import { fmtCurrency } from '../utils/helpers'
-import { CITIES, CITY_SECTORS } from '../data/mockData'
 
 const RST_PIE_COLORS  = ['#E8521A','#1B5E35','#F5B942','#3B82F6','#8B5CF6','#EC4899','#14B8A6','#F97316','#84CC16','#EF4444']
 const SKS_PIE_COLORS  = ['#3B82F6','#8B5CF6','#F5B942','#1B5E35','#EC4899','#14B8A6','#F97316','#E8521A','#84CC16','#06B6D4','#A78BFA','#FB923C','#4ADE80','#F472B6']
@@ -472,7 +471,7 @@ function SectionHeader({ emoji, title, subtitle, color = 'var(--primary)' }) {
 
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 export default function Dashboard({ onNav }) {
-  const { donors, pickups, raddiRecords, PickupPartners, partners, sksInflows, sksOutflows } = useApp()
+  const { donors, pickups, raddiRecords, PickupPartners, partners, sksInflows, sksOutflows, CITIES, CITY_SECTORS } = useApp()
 
   const [filters, setFilters] = useState({
     period: 'current_month', customFrom: '', customTo: '',
