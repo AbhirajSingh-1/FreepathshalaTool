@@ -53,6 +53,7 @@ export async function apiFetch(path, options = {}) {
   return payload.data ?? payload
 }
 
+// ── Auth ──────────────────────────────────────────────────────────────────────
 export async function login(email, password) {
   const session = await apiFetch('/auth/login', {
     method: 'POST',
@@ -81,97 +82,98 @@ export async function refreshToken() {
   return session
 }
 
-export async function fetchCurrentUser() {
-  return apiFetch('/auth/me')
-}
+export const fetchCurrentUser = () => apiFetch('/auth/me')
+export const forgotPassword   = email => apiFetch('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) })
+export const changePassword   = (currentPassword, newPassword) =>
+  apiFetch('/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) })
 
-export async function forgotPassword(email) {
-  return apiFetch('/auth/forgot-password', {
-    method: 'POST',
-    body: JSON.stringify({ email }),
-  })
-}
-
-export async function changePassword(currentPassword, newPassword) {
-  return apiFetch('/auth/change-password', {
-    method: 'POST',
-    body: JSON.stringify({ currentPassword, newPassword }),
-  })
-}
-
+// ── Master Data ───────────────────────────────────────────────────────────────
 export const fetchMasterData = () => apiFetch('/master-data')
-export const fetchLocations = () => apiFetch('/locations/tree')
+export const fetchLocations  = () => apiFetch('/locations/tree')
 
-// RST Items CRUD
-export const fetchRstItems = () => apiFetch('/master-data/rst-items')
-export const createRstItem = data => apiFetch('/master-data/rst-items', { method: 'POST', body: JSON.stringify(data) })
-export const updateRstItem = (id, data) => apiFetch(`/master-data/rst-items/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
-export const deleteRstItem = id => apiFetch(`/master-data/rst-items/${id}`, { method: 'DELETE' })
+export const fetchRstItems  = () => apiFetch('/master-data/rst-items')
+export const createRstItem  = data => apiFetch('/master-data/rst-items', { method: 'POST', body: JSON.stringify(data) })
+export const updateRstItem  = (id, data) => apiFetch(`/master-data/rst-items/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
+export const deleteRstItem  = id => apiFetch(`/master-data/rst-items/${id}`, { method: 'DELETE' })
 
-// SKS Items CRUD
-export const fetchSksItems = () => apiFetch('/master-data/sks-items')
-export const createSksItem = data => apiFetch('/master-data/sks-items', { method: 'POST', body: JSON.stringify(data) })
-export const updateSksItem = (id, data) => apiFetch(`/master-data/sks-items/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
-export const deleteSksItem = id => apiFetch(`/master-data/sks-items/${id}`, { method: 'DELETE' })
+export const fetchSksItems  = () => apiFetch('/master-data/sks-items')
+export const createSksItem  = data => apiFetch('/master-data/sks-items', { method: 'POST', body: JSON.stringify(data) })
+export const updateSksItem  = (id, data) => apiFetch(`/master-data/sks-items/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
+export const deleteSksItem  = id => apiFetch(`/master-data/sks-items/${id}`, { method: 'DELETE' })
 
-// Location CRUD
 export const createLocation = data => apiFetch('/locations', { method: 'POST', body: JSON.stringify(data) })
-export const deleteCity = id => apiFetch(`/locations/cities/${id}`, { method: 'DELETE' })
-export const deleteSector = id => apiFetch(`/locations/sectors/${id}`, { method: 'DELETE' })
-export const deleteSociety = id => apiFetch(`/locations/societies/${id}`, { method: 'DELETE' })
+export const deleteCity     = id => apiFetch(`/locations/cities/${id}`, { method: 'DELETE' })
+export const deleteSector   = id => apiFetch(`/locations/sectors/${id}`, { method: 'DELETE' })
+export const deleteSociety  = id => apiFetch(`/locations/societies/${id}`, { method: 'DELETE' })
 
-export const fetchUsers = params => apiFetch(`/users${toQuery(params)}`)
-export const createUser = data => apiFetch('/users', { method: 'POST', body: JSON.stringify(data) })
-export const updateUser = (id, data) => apiFetch(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
-export const deleteUser = id => apiFetch(`/users/${id}`, { method: 'DELETE' })
+// ── Users ─────────────────────────────────────────────────────────────────────
+export const fetchUsers  = params => apiFetch(`/users${toQuery(params)}`)
+export const createUser  = data   => apiFetch('/users', { method: 'POST', body: JSON.stringify(data) })
+export const updateUser  = (id, data) => apiFetch(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
+export const deleteUser  = id => apiFetch(`/users/${id}`, { method: 'DELETE' })
 
-export const fetchDonors = params => apiFetch(`/donors${toQuery(params)}`)
-export const createDonor = data => apiFetch('/donors', { method: 'POST', body: JSON.stringify(data) })
-export const updateDonor = (id, data) => apiFetch(`/donors/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
-export const deleteDonor = id => apiFetch(`/donors/${id}`, { method: 'DELETE' })
+// ── Donors ────────────────────────────────────────────────────────────────────
+export const fetchDonors  = params => apiFetch(`/donors${toQuery(params)}`)
+export const createDonor  = data   => apiFetch('/donors', { method: 'POST', body: JSON.stringify(data) })
+export const updateDonor  = (id, data) => apiFetch(`/donors/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
+export const deleteDonor  = id => apiFetch(`/donors/${id}`, { method: 'DELETE' })
 
-export const fetchPickups = params => apiFetch(`/pickups${toQuery(params)}`)
-export const createPickup = data => apiFetch('/pickups', { method: 'POST', body: JSON.stringify(data) })
-export const updatePickup = (id, data) => apiFetch(`/pickups/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
-export const recordPickup = (id, data) => apiFetch(`/pickups/${id}/record`, { method: 'POST', body: JSON.stringify(data) })
-export const deletePickup = id => apiFetch(`/pickups/${id}`, { method: 'DELETE' })
+// ── Pickups ───────────────────────────────────────────────────────────────────
+export const fetchPickups  = params => apiFetch(`/pickups${toQuery(params)}`)
+export const createPickup  = data   => apiFetch('/pickups', { method: 'POST', body: JSON.stringify(data) })
+export const updatePickup  = (id, data) => apiFetch(`/pickups/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
+export const recordPickup  = (id, data) => apiFetch(`/pickups/${id}/record`, { method: 'POST', body: JSON.stringify(data) })
+export const deletePickup  = id => apiFetch(`/pickups/${id}`, { method: 'DELETE' })
+
+/**
+ * fetchRaddiRecords — backend-filtered raddi records.
+ * Returns { records: [], pagination: { page, pageSize, total, pages } }
+ * Supported params: dateFrom, dateTo, city, sector, partnerId, paymentStatus,
+ *                   q, limit, page, pageSize
+ */
 export const fetchRaddiRecords = params => apiFetch(`/pickups/raddi-records${toQuery(params)}`)
 
-export const fetchPickupPartners = params => apiFetch(`/pickup-partners${toQuery(params)}`)
-export const createPickupPartner = data => apiFetch('/pickup-partners', { method: 'POST', body: JSON.stringify(data) })
-export const updatePickupPartner = (id, data) => apiFetch(`/pickup-partners/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
-export const deletePickupPartner = id => apiFetch(`/pickup-partners/${id}`, { method: 'DELETE' })
+// ── Pickup Partners ───────────────────────────────────────────────────────────
+export const fetchPickupPartners  = params => apiFetch(`/pickup-partners${toQuery(params)}`)
+export const createPickupPartner  = data   => apiFetch('/pickup-partners', { method: 'POST', body: JSON.stringify(data) })
+export const updatePickupPartner  = (id, data) => apiFetch(`/pickup-partners/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
+export const deletePickupPartner  = id => apiFetch(`/pickup-partners/${id}`, { method: 'DELETE' })
 
+// ── Payments ──────────────────────────────────────────────────────────────────
 export const fetchPayments = params => apiFetch(`/payments${toQuery(params)}`)
-export const recordPickupPartnerPayment = (partnerId, data) => apiFetch(`/payments/partners/${partnerId}/record`, {
-  method: 'POST',
-  body: JSON.stringify(data),
-})
-export const clearPartnerBalance = (partnerId, data) => apiFetch(`/payments/partners/${partnerId}/clear-balance`, {
-  method: 'POST',
-  body: JSON.stringify(data),
-})
 
-export const fetchSksInflows = params => apiFetch(`/sks/inflows${toQuery(params)}`)
-export const createSksInflow = data => apiFetch('/sks/inflows', { method: 'POST', body: JSON.stringify(data) })
-export const deleteSksInflow = id => apiFetch(`/sks/inflows/${id}`, { method: 'DELETE' })
-export const fetchSksOutflows = params => apiFetch(`/sks/outflows${toQuery(params)}`)
-export const createSksOutflow = data => apiFetch('/sks/outflows', { method: 'POST', body: JSON.stringify(data) })
-export const deleteSksOutflow = id => apiFetch(`/sks/outflows/${id}`, { method: 'DELETE' })
-export const fetchSksStock = () => apiFetch('/sks/stock')
+/**
+ * fetchPartnerSummary — backend-computed per-partner payment grouping.
+ * Returns { partners: [], summary: {}, filters: {} }
+ * Supported params: dateFrom, dateTo, partnerId, search, status (pending|clear|all)
+ */
+export const fetchPartnerSummary = params => apiFetch(`/payments/partners/summary${toQuery(params)}`)
 
-export const fetchDashboardStats = params => apiFetch(`/dashboard/stats${toQuery(params)}`)
-export const fetchSchedulerSummary = () => apiFetch('/dashboard/scheduler')
+export const recordPickupPartnerPayment = (partnerId, data) =>
+  apiFetch(`/payments/partners/${partnerId}/record`, { method: 'POST', body: JSON.stringify(data) })
 
-export const createUploadSignedUrl = data => apiFetch('/uploads/signed-url', {
-  method: 'POST',
-  body: JSON.stringify(data),
-})
+export const clearPartnerBalance = (partnerId, data) =>
+  apiFetch(`/payments/partners/${partnerId}/clear-balance`, { method: 'POST', body: JSON.stringify(data) })
 
-export const createReadSignedUrl = storagePath => apiFetch('/uploads/read-url', {
-  method: 'POST',
-  body: JSON.stringify({ storagePath }),
-})
+// ── SKS ───────────────────────────────────────────────────────────────────────
+export const fetchSksInflows   = params => apiFetch(`/sks/inflows${toQuery(params)}`)
+export const createSksInflow   = data   => apiFetch('/sks/inflows', { method: 'POST', body: JSON.stringify(data) })
+export const deleteSksInflow   = id     => apiFetch(`/sks/inflows/${id}`, { method: 'DELETE' })
+export const fetchSksOutflows  = params => apiFetch(`/sks/outflows${toQuery(params)}`)
+export const createSksOutflow  = data   => apiFetch('/sks/outflows', { method: 'POST', body: JSON.stringify(data) })
+export const deleteSksOutflow  = id     => apiFetch(`/sks/outflows/${id}`, { method: 'DELETE' })
+export const fetchSksStock     = ()     => apiFetch('/sks/stock')
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+export const fetchDashboardStats  = params => apiFetch(`/dashboard/stats${toQuery(params)}`)
+export const fetchSchedulerSummary = ()   => apiFetch('/dashboard/scheduler')
+
+// ── Uploads ───────────────────────────────────────────────────────────────────
+export const createUploadSignedUrl = data =>
+  apiFetch('/uploads/signed-url', { method: 'POST', body: JSON.stringify(data) })
+
+export const createReadSignedUrl = storagePath =>
+  apiFetch('/uploads/read-url', { method: 'POST', body: JSON.stringify({ storagePath }) })
 
 export async function uploadFileViaSignedUrl(file, { purpose = 'general', entityId = 'general' } = {}) {
   const upload = await createUploadSignedUrl({
@@ -187,9 +189,7 @@ export async function uploadFileViaSignedUrl(file, { purpose = 'general', entity
     body: file,
   })
 
-  if (!response.ok) {
-    throw new Error(`File upload failed (${response.status})`)
-  }
+  if (!response.ok) throw new Error(`File upload failed (${response.status})`)
 
   const read = await createReadSignedUrl(upload.storagePath)
   return {
