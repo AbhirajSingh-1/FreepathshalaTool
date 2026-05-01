@@ -29,20 +29,16 @@ async function requireAuth(req, _res, next) {
     let role = decoded.role || decoded.roles?.[0] || "";
 
     // Fallback: fetch from Firestore when the token doesn't carry a role yet.
-    // This covers the gap right after setup-first-admin or setRole where the
-    // user hasn't re-authenticated to pick up the new custom claims.
     if (!role) {
       try {
         const userDoc = await db.collection(COLLECTIONS.USERS).doc(decoded.uid).get();
         if (userDoc.exists) {
-          role = userDoc.data()?.role || "executive";
+          role = userDoc.data()?.role; // DO NOT DEFAULT TO EXECUTIVE HERE
         }
       } catch (dbErr) {
         logger.warn("Failed to fetch user role from Firestore", { uid: decoded.uid, error: dbErr.message });
       }
     }
-
-    role = role || "executive";
 
     req.user = {
       uid: decoded.uid,

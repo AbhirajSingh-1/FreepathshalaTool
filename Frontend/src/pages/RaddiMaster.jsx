@@ -1,16 +1,9 @@
 /**
- * RaddiMaster.jsx — Admin-only master data sheet (redesigned)
- * ─────────────────────────────────────────────────────────────────────────────
- * • Single clean tabular view — no toggle to alternate layouts
- * • All required columns: Order ID, Mobile, Name, House No, Society, Sector,
- *   City, Pickup Date, Order Date, PickupPartner, pickuppartner Phone, Donor Status,
- *   RST Items (with per-item kg in expandable), SKS Items, Total KG, Total ₹,
- *   Amount Paid, Payment Status, Order Status
- * • Date filter strictly on Pickup Date
- * • Excel export mirrors the UI column structure + per-item kg columns
- * • Donor status uses centralized logic from AppContext
+ * RaddiMaster.jsx — Admin-only master data sheet
+ * Fetches data directly via fetchFilteredRaddiRecords (backend-paginated).
+ * raddiRecords is no longer kept in AppContext; this page owns its data lifecycle.
  */
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import {
   Search, SlidersHorizontal, X, Download,
   ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
@@ -22,7 +15,6 @@ import { fmtDate, fmtCurrency, exportToExcel } from '../utils/helpers'
 
 const PAGE_SIZE = 20
 
-// ── Status badge configs ──────────────────────────────────────────────────────
 const PAYMENT_BADGE = {
   'Received':       { bg: 'var(--secondary-light)', color: 'var(--secondary)', dot: 'var(--secondary)' },
   'Yet to Receive': { bg: 'var(--warning-bg)',       color: '#92400E',          dot: 'var(--warning)' },
@@ -33,11 +25,6 @@ const ORDER_BADGE = {
   'Pending':   { bg: 'var(--info-bg)',          color: 'var(--info)' },
   'Postponed': { bg: 'var(--warning-bg)',       color: '#92400E' },
   'Cancelled': { bg: 'var(--danger-bg)',        color: 'var(--danger)' },
-}
-const TYPE_BADGE = {
-  'RST':     { bg: 'var(--secondary-light)', color: 'var(--secondary)' },
-  'SKS':     { bg: 'var(--info-bg)',          color: 'var(--info)' },
-  'RST+SKS': { bg: 'var(--warning-bg)',       color: '#92400E' },
 }
 const DONOR_STATUS_BADGE = {
   'Active':     { bg: 'var(--secondary-light)', color: 'var(--secondary)' },
@@ -61,7 +48,6 @@ function Badge({ label, cfg }) {
   )
 }
 
-// ── Date preset helper ────────────────────────────────────────────────────────
 function getPresetRange(preset) {
   const t = new Date()
   const fmt = d => d.toISOString().slice(0, 10)
@@ -78,27 +64,22 @@ function getPresetRange(preset) {
   return { from: '', to: '' }
 }
 
-// ── Per-item detail expandable row ────────────────────────────────────────────
 function RowDetail({ record }) {
   const rstItems     = record.rstItems     || []
   const sksItems     = record.sksItems     || []
   const itemKgMap    = record.itemKgMap    || {}
   const pickuppartnerRateChart = record.pickuppartnerRateChart || {}
   const rstOthers    = record.rstOthers    || []
-
   const paid      = record.amountPaid   || 0
   const total     = record.totalAmount  || 0
   const remaining = Math.max(0, total - paid)
   const collPct   = total > 0 ? Math.round((paid / total) * 100) : 0
-
   const fmtKg = n => (n === 0 ? '—' : n % 1 === 0 ? `${n} kg` : `${n.toFixed(3)} kg`)
 
   return (
     <tr>
       <td colSpan={13} style={{ padding: '16px 20px', background: 'var(--bg)', borderBottom: '2px solid var(--border)' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 20 }}>
-
-          {/* RST Item Breakdown */}
           {rstItems.filter(i => i !== 'Others').length > 0 && (
             <div>
               <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -130,13 +111,9 @@ function RowDetail({ record }) {
               </div>
             </div>
           )}
-
-          {/* SKS Items */}
           {sksItems.length > 0 && (
             <div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--info)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
-                SKS Items (Goods Donated)
-              </div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--info)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>SKS Items</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                 {sksItems.map((item, i) => (
                   <span key={i} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11.5, background: 'var(--info-bg)', color: 'var(--info)', fontWeight: 600 }}>{item}</span>
@@ -144,8 +121,6 @@ function RowDetail({ record }) {
               </div>
             </div>
           )}
-
-          {/* Payment Breakdown */}
           <div>
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Payment Detail</div>
             <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 8 }}>
@@ -169,8 +144,6 @@ function RowDetail({ record }) {
               </div>
             )}
           </div>
-
-          {/* Full Address */}
           <div>
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Full Address</div>
             <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
@@ -185,16 +158,20 @@ function RowDetail({ record }) {
   )
 }
 
-// ════════════════════════════════════════════════════════════════════════════
 export default function RaddiMaster() {
-  const { raddiRecords, RST_ITEMS } = useApp()
+  const { RST_ITEMS, fetchFilteredRaddiRecords } = useApp()
+
+  // ── Local data state (self-fetching) ──────────────────────────────────────
+  const [records,    setRecords]    = useState([])
+  const [pagination, setPagination] = useState({ page: 1, pageSize: PAGE_SIZE, total: 0, pages: 0 })
+  const [fetching,   setFetching]   = useState(false)
+  const [fetchError, setFetchError] = useState('')
 
   // ── Filters ───────────────────────────────────────────────────────────────
   const [search,       setSearch]      = useState('')
   const [filterPay,    setFPay]        = useState('')
   const [filterOrder,  setFOrder]      = useState('')
-  const [filterpickuppartner,    setFpickuppartner]        = useState('')
-  const [filterType,   setFType]       = useState('')
+  const [filterpickuppartner, setFpickuppartner] = useState('')
   const [filterSector, setFSector]     = useState('')
   const [filterStatus, setFStatus]     = useState('')
   const [datePreset,   setPreset]      = useState('')
@@ -206,8 +183,11 @@ export default function RaddiMaster() {
   const [sortDir,      setSortDir]     = useState('desc')
   const [expanded,     setExpanded]    = useState({})
 
-  const pickuppartnerNames = useMemo(() => [...new Set(raddiRecords.map(r => r.PickupPartnerName).filter(Boolean))].sort(), [raddiRecords])
-  const sectors  = useMemo(() => [...new Set(raddiRecords.map(r => r.sector).filter(Boolean))].sort(), [raddiRecords])
+  const debounceRef = useRef(null)
+
+  // Collect unique partner names and sectors from loaded records
+  const pickuppartnerNames = useMemo(() => [...new Set(records.map(r => r.PickupPartnerName).filter(Boolean))].sort(), [records])
+  const sectors  = useMemo(() => [...new Set(records.map(r => r.sector).filter(Boolean))].sort(), [records])
 
   const applyPreset = (p) => {
     setPreset(p)
@@ -223,22 +203,48 @@ export default function RaddiMaster() {
 
   const toggleExpand = id => setExpanded(prev => ({ ...prev, [id]: !prev[id] }))
 
-  // Filter + sort
-  const q = search.toLowerCase().trim()
-  const filtered = useMemo(() => {
-    const rows = raddiRecords.filter(r => {
-      const mQ   = !q || r.name?.toLowerCase().includes(q) || r.mobile?.includes(q) || r.society?.toLowerCase().includes(q) || r.PickupPartnerName?.toLowerCase().includes(q) || r.orderId?.toLowerCase().includes(q) || r.houseNo?.toLowerCase().includes(q)
-      const mPay = !filterPay    || r.paymentStatus  === filterPay
-      const mOrd = !filterOrder  || r.orderStatus    === filterOrder
-      const mpickuppartner = !filterpickuppartner    || r.PickupPartnerName === filterpickuppartner
-      const mTyp = !filterType   || r.type           === filterType
-      const mSec = !filterSector || r.sector         === filterSector
-      const mSts = !filterStatus || r.donorStatus    === filterStatus
-      // Date filter strictly on pickupDate
-      const mF   = !dateFrom || (r.pickupDate || '') >= dateFrom
-      const mT   = !dateTo   || (r.pickupDate || '') <= dateTo
-      return mQ && mPay && mOrd && mpickuppartner && mTyp && mSec && mSts && mF && mT
-    })
+  // ── Fetch params ──────────────────────────────────────────────────────────
+  const fetchParams = useMemo(() => ({
+    dateFrom:      dateFrom      || undefined,
+    dateTo:        dateTo        || undefined,
+    sector:        filterSector  || undefined,
+    paymentStatus: filterPay     || undefined,
+    q:             search        || undefined,
+    page,
+    pageSize:      PAGE_SIZE,
+    limit:         500,
+  }), [dateFrom, dateTo, filterSector, filterPay, search, page])
+
+  // ── Auto-fetch on param changes ───────────────────────────────────────────
+  useEffect(() => {
+    clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(async () => {
+      setFetching(true)
+      setFetchError('')
+      try {
+        const result = await fetchFilteredRaddiRecords(fetchParams)
+        const rows = Array.isArray(result) ? result : (result?.records || [])
+        const pag  = result?.pagination || { page: 1, pageSize: PAGE_SIZE, total: rows.length, pages: 1 }
+        setRecords(rows)
+        setPagination(pag)
+      } catch (err) {
+        setFetchError(err.message || 'Failed to load records')
+        setRecords([])
+      } finally {
+        setFetching(false)
+      }
+    }, 350)
+    return () => clearTimeout(debounceRef.current)
+  }, [fetchParams, fetchFilteredRaddiRecords])
+
+  // ── Client-side sort + filter on loaded page ──────────────────────────────
+  const displayed = useMemo(() => {
+    let rows = [...records]
+    // Client-side filters that aren't sent to backend (order status, partner, donor status)
+    if (filterOrder)  rows = rows.filter(r => r.orderStatus    === filterOrder)
+    if (filterpickuppartner) rows = rows.filter(r => r.PickupPartnerName === filterpickuppartner)
+    if (filterStatus) rows = rows.filter(r => r.donorStatus    === filterStatus)
+
     rows.sort((a, b) => {
       let av = a[sortKey] ?? '', bv = b[sortKey] ?? ''
       if (typeof av === 'string') av = av.toLowerCase()
@@ -248,21 +254,19 @@ export default function RaddiMaster() {
       return 0
     })
     return rows
-  }, [raddiRecords, q, filterPay, filterOrder, filterpickuppartner, filterType, filterSector, filterStatus, dateFrom, dateTo, sortKey, sortDir])
+  }, [records, filterOrder, filterpickuppartner, filterStatus, sortKey, sortDir])
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
-  const pageRows   = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const totalPages = pagination.pages || Math.max(1, Math.ceil(pagination.total / PAGE_SIZE))
 
-  // KPI aggregates
   const kpis = useMemo(() => ({
-    orders:   filtered.length,
-    kg:       filtered.reduce((s, r) => s + (r.totalKg     || 0), 0),
-    revenue:  filtered.reduce((s, r) => s + (r.totalAmount || 0), 0),
-    received: filtered.filter(r => r.paymentStatus === 'Received').reduce((s, r) => s + (r.totalAmount || 0), 0),
-    pending:  filtered.filter(r => r.paymentStatus === 'Yet to Receive').reduce((s, r) => s + (r.totalAmount || 0), 0),
-  }), [filtered])
+    orders:   pagination.total,
+    kg:       displayed.reduce((s, r) => s + (r.totalKg     || 0), 0),
+    revenue:  displayed.reduce((s, r) => s + (r.totalAmount || 0), 0),
+    received: displayed.filter(r => r.paymentStatus === 'Received').reduce((s, r) => s + (r.totalAmount || 0), 0),
+    pending:  displayed.filter(r => r.paymentStatus === 'Yet to Receive').reduce((s, r) => s + (r.totalAmount || 0), 0),
+  }), [displayed, pagination.total])
 
-  const hasFilters = filterPay || filterOrder || filterpickuppartner || filterType || filterSector || filterStatus
+  const hasFilters = filterPay || filterOrder || filterpickuppartner || filterSector || filterStatus
 
   const SortTh = ({ k, children, style: s }) => (
     <th onClick={() => toggleSort(k)} style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap', ...s }}>
@@ -273,10 +277,8 @@ export default function RaddiMaster() {
     </th>
   )
 
-  // ── Excel Export ──────────────────────────────────────────────────────────
   const handleExport = () => {
-    const rows = filtered.map(r => {
-      // Base columns
+    const rows = displayed.map(r => {
       const base = {
         'Order ID':          r.orderId || '—',
         'Mobile':            r.mobile  || '—',
@@ -291,32 +293,27 @@ export default function RaddiMaster() {
         'PickupPartner Phone':  r.PickupPartnerPhone || '—',
         'Donor Status':      r.donorStatus || '—',
       }
-      // Per-item KG columns (RST_ITEMS)
-      const itemKgMap = r.itemKgMap || {}
-      RST_ITEMS.forEach(item => {
+      const itemKgMap = r.itemKgMap || {};
+      (RST_ITEMS || []).forEach(item => {
         const kg = itemKgMap[item] || 0
         base[`${item} (KG)`] = kg > 0 ? kg.toFixed(3) : ''
         const rate = (r.pickuppartnerRateChart || {})[item]
         const est  = rate && kg > 0 ? Math.round(kg * rate) : ''
         base[`${item} (₹ Est.)`] = est || ''
       })
-      // Other RST items
-      const rstOthers = r.rstOthers || []
-      rstOthers.forEach((o, i) => {
-        base[`Others Item ${i + 1} Name`]   = o.name || ''
-        base[`Others Item ${i + 1} KG`]    = o.weight ? (o.unit === 'gm' ? (Number(o.weight) / 1000).toFixed(3) : o.weight) : ''
-        base[`Others Item ${i + 1} ₹`]     = o.amount || ''
+      ;(r.rstOthers || []).forEach((o, i) => {
+        base[`Others Item ${i + 1} Name`] = o.name || ''
+        base[`Others Item ${i + 1} KG`]  = o.weight ? (o.unit === 'gm' ? (Number(o.weight) / 1000).toFixed(3) : o.weight) : ''
+        base[`Others Item ${i + 1} ₹`]   = o.amount || ''
       })
-      // Summary columns
-      base['RST Items']          = (r.rstItems || []).join(', ')
-      base['SKS Items']          = (r.sksItems || []).join(', ')
-      base['Total KG']           = r.totalKg     || 0
-      base['Total Value (₹)']   = r.totalAmount  || 0
-      base['Amount Paid (₹)']   = r.amountPaid   || 0
-      base['Pending (₹)']       = Math.max(0, (r.totalAmount || 0) - (r.amountPaid || 0))
-      base['Payment Status']     = r.paymentStatus || '—'
-      base['Order Status']       = r.orderStatus   || '—'
-      base['Type']               = r.type          || '—'
+      base['RST Items']        = (r.rstItems || []).join(', ')
+      base['SKS Items']        = (r.sksItems || []).join(', ')
+      base['Total KG']         = r.totalKg    || 0
+      base['Total Value (₹)'] = r.totalAmount || 0
+      base['Amount Paid (₹)'] = r.amountPaid  || 0
+      base['Pending (₹)']     = Math.max(0, (r.totalAmount || 0) - (r.amountPaid || 0))
+      base['Payment Status']   = r.paymentStatus || '—'
+      base['Order Status']     = r.orderStatus   || '—'
       return base
     })
     exportToExcel(rows, 'RaddiMaster_Export')
@@ -324,26 +321,22 @@ export default function RaddiMaster() {
 
   return (
     <div className="page-body">
-
-      
-
       {/* ── KPI Cards ── */}
       <div className="stat-grid" style={{ marginBottom: 16 }}>
         <div className="stat-card blue">
           <div className="stat-icon"><Hash size={18} /></div>
           <div className="stat-value">{kpis.orders}</div>
           <div className="stat-label">Total Orders</div>
-          {filtered.length < raddiRecords.length && <div style={{ fontSize: 10.5, color: 'var(--info)', marginTop: 4 }}>of {raddiRecords.length} total</div>}
         </div>
         <div className="stat-card green">
           <div className="stat-icon"><Weight size={18} /></div>
-          <div className="stat-value">{kpis.kg.toFixed(1)}</div>
-          <div className="stat-label">Total KG Collected</div>
+          <div className="stat-value">{(kpis.kg).toFixed(1)}</div>
+          <div className="stat-label">Total KG (page)</div>
         </div>
         <div className="stat-card orange">
           <div className="stat-icon"><IndianRupee size={18} /></div>
           <div className="stat-value">{fmtCurrency(kpis.revenue)}</div>
-          <div className="stat-label">Total RST Value</div>
+          <div className="stat-label">Total RST Value (page)</div>
         </div>
         <div className="stat-card green">
           <div className="stat-icon"><CheckCircle size={18} /></div>
@@ -357,19 +350,15 @@ export default function RaddiMaster() {
         </div>
       </div>
 
-      {/* ── Date Filter (pickup date only) ── */}
+      {/* ── Date Filter ── */}
       <div style={{ marginBottom: 12, padding: '10px 14px', background: 'var(--surface)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow)' }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
           <Clock size={11} color="var(--primary)" /> Pickup Date Filter
         </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
           {[
-            ['', 'All Time'],
-            ['today', 'Today'],
-            ['last7', 'Last 7 Days'],
-            ['month', 'This Month'],
-            ['last_month', 'Last Month'],
-            ['custom', 'Custom Range'],
+            ['', 'All Time'], ['today', 'Today'], ['last7', 'Last 7 Days'],
+            ['month', 'This Month'], ['last_month', 'Last Month'], ['custom', 'Custom Range'],
           ].map(([v, label]) => (
             <button key={v} className={`btn btn-sm ${datePreset === v ? 'btn-primary' : 'btn-ghost'}`} onClick={() => applyPreset(v)}>
               {label}
@@ -377,20 +366,10 @@ export default function RaddiMaster() {
           ))}
           {datePreset === 'custom' && (
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <div className="form-group" style={{ margin: 0 }}>
-                <label style={{ fontSize: 10, fontWeight: 600 }}>From (Pickup Date)</label>
-                <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setPage(1) }} style={{ width: 145 }} />
-              </div>
-              <div className="form-group" style={{ margin: 0 }}>
-                <label style={{ fontSize: 10, fontWeight: 600 }}>To (Pickup Date)</label>
-                <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setPage(1) }} style={{ width: 145 }} />
-              </div>
+              <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setPage(1) }} style={{ width: 145 }} />
+              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>—</span>
+              <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setPage(1) }} style={{ width: 145 }} />
             </div>
-          )}
-          {(dateFrom || dateTo) && datePreset !== 'custom' && (
-            <span style={{ fontSize: 11.5, color: 'var(--secondary)', fontWeight: 600 }}>
-              {dateFrom && dateTo ? `${fmtDate(dateFrom)} – ${fmtDate(dateTo)}` : dateFrom ? `From ${fmtDate(dateFrom)}` : `Until ${fmtDate(dateTo)}`}
-            </span>
           )}
         </div>
       </div>
@@ -400,7 +379,7 @@ export default function RaddiMaster() {
         <div className="search-wrap" style={{ flex: '1 1 220px', minWidth: 0 }}>
           <Search className="icon" />
           <input
-            placeholder="Search name, mobile, society, order ID, PickupPartner…"
+            placeholder="Search name, mobile, society, order ID…"
             value={search}
             onChange={e => { setSearch(e.target.value); setPage(1) }}
           />
@@ -413,7 +392,7 @@ export default function RaddiMaster() {
           <SlidersHorizontal size={13} />
           {hasFilters
             ? <span style={{ background: 'var(--primary)', color: '#fff', borderRadius: '50%', width: 16, height: 16, fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                {[filterPay, filterOrder, filterpickuppartner, filterType, filterSector, filterStatus].filter(Boolean).length}
+                {[filterPay, filterOrder, filterpickuppartner, filterSector, filterStatus].filter(Boolean).length}
               </span>
             : 'Filters'}
         </button>
@@ -432,16 +411,9 @@ export default function RaddiMaster() {
             <option value="Completed">Completed</option>
             <option value="Pending">Pending</option>
             <option value="Postponed">Postponed</option>
-            <option value="Cancelled">Cancelled</option>
-          </select>
-          <select value={filterType} onChange={e => { setFType(e.target.value); setPage(1) }} style={{ fontSize: 12.5 }}>
-            <option value="">All Types</option>
-            <option value="RST">RST</option>
-            <option value="SKS">SKS</option>
-            <option value="RST+SKS">RST+SKS</option>
           </select>
           <select value={filterpickuppartner} onChange={e => { setFpickuppartner(e.target.value); setPage(1) }} style={{ fontSize: 12.5 }}>
-            <option value="">All PickupPartners</option>
+            <option value="">All Partners</option>
             {pickuppartnerNames.map(k => <option key={k}>{k}</option>)}
           </select>
           <select value={filterSector} onChange={e => { setFSector(e.target.value); setPage(1) }} style={{ fontSize: 12.5 }}>
@@ -457,27 +429,31 @@ export default function RaddiMaster() {
           </select>
           {hasFilters && (
             <button className="btn btn-ghost btn-sm" style={{ fontSize: 11.5 }}
-              onClick={() => { setFPay(''); setFOrder(''); setFpickuppartner(''); setFType(''); setFSector(''); setFStatus(''); setPage(1) }}>
+              onClick={() => { setFPay(''); setFOrder(''); setFpickuppartner(''); setFSector(''); setFStatus(''); setPage(1) }}>
               <X size={11} /> Clear All
             </button>
           )}
         </div>
       )}
 
-      {/* Record count & pagination info */}
+      {/* Status bar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5, color: 'var(--text-muted)', marginBottom: 10 }}>
-        <span>
-          <strong style={{ color: 'var(--text-primary)' }}>{filtered.length}</strong> records
-          {filtered.length < raddiRecords.length && <span> (of {raddiRecords.length} total)</span>}
-        </span>
+        <span><strong style={{ color: 'var(--text-primary)' }}>{pagination.total}</strong> total records</span>
+        {fetching && (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <span className="spin" style={{ display: 'inline-block', width: 12, height: 12, border: '1.5px solid var(--border)', borderTopColor: 'var(--primary)', borderRadius: '50%' }} />
+            Loading…
+          </span>
+        )}
+        {fetchError && <span style={{ color: 'var(--danger)' }}>⚠ {fetchError}</span>}
         {totalPages > 1 && <span style={{ marginLeft: 'auto' }}>Page {page}/{totalPages}</span>}
         <button className="btn btn-ghost btn-sm" onClick={handleExport} style={{ marginLeft: totalPages > 1 ? 0 : 'auto' }}>
-          <Download size={12} /> Export Filtered
+          <Download size={12} /> Export Page
         </button>
       </div>
 
-      {/* ── Main Table ── */}
-      {filtered.length === 0 ? (
+      {/* ── Table ── */}
+      {displayed.length === 0 && !fetching ? (
         <div className="empty-state" style={{ padding: 60 }}>
           <div className="empty-icon"><Package size={24} /></div>
           <h3>No records found</h3>
@@ -498,73 +474,43 @@ export default function RaddiMaster() {
                   <SortTh k="sector">Sector</SortTh>
                   <SortTh k="city">City</SortTh>
                   <SortTh k="pickupDate">Pickup Date</SortTh>
-                  <SortTh k="orderDate">Order Date</SortTh>
-                  <th>Pickup Partner</th>
-                  <th>pickup partner PhoneNo.</th>
+                  <th>Partner</th>
                   <SortTh k="donorStatus">Donor Status</SortTh>
                   <th>RST Items</th>
                   <th>SKS Items</th>
-                  <SortTh k="totalKg">Total KG</SortTh>
+                  <SortTh k="totalKg">KG</SortTh>
                   <SortTh k="totalAmount">Total ₹</SortTh>
                   <SortTh k="amountPaid">Paid ₹</SortTh>
                   <SortTh k="paymentStatus">Payment</SortTh>
-                  <SortTh k="orderStatus">Order Status</SortTh>
+                  <SortTh k="orderStatus">Order</SortTh>
                 </tr>
               </thead>
               <tbody>
-                {pageRows.map(r => {
-                  const key     = r.orderId || r.pickupId
-                  const isOpen  = !!expanded[key]
-                  const payDue  = Math.max(0, (r.totalAmount || 0) - (r.amountPaid || 0))
+                {displayed.map(r => {
+                  const key    = r.orderId || r.pickupId
+                  const isOpen = !!expanded[key]
+                  const payDue = Math.max(0, (r.totalAmount || 0) - (r.amountPaid || 0))
                   const hasItem = Object.keys(r.itemKgMap || {}).length > 0 || (r.rstOthers || []).length > 0 || (r.sksItems || []).length > 0
 
                   return [
-                    <tr
-                      key={key}
-                      onClick={() => toggleExpand(key)}
-                      style={{ cursor: 'pointer', transition: 'background 0.1s' }}
-                    >
-                      {/* Expand */}
+                    <tr key={key} onClick={() => toggleExpand(key)} style={{ cursor: 'pointer' }}>
                       <td style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '11px 6px' }}>
                         {hasItem ? (isOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />) : null}
                       </td>
-                      {/* Order ID */}
                       <td>
                         <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 700, color: 'var(--primary)', background: 'var(--primary-light)', padding: '2px 7px', borderRadius: 5 }}>
                           {r.orderId || '—'}
                         </span>
                       </td>
-                      {/* Mobile */}
                       <td style={{ fontSize: 12.5, fontFamily: 'monospace' }}>{r.mobile || '—'}</td>
-                      {/* Name */}
-                      <td>
-                        <div style={{ fontWeight: 700, fontSize: 13 }}>{r.name}</div>
-                      </td>
-                      {/* House No */}
+                      <td><div style={{ fontWeight: 700, fontSize: 13 }}>{r.name}</div></td>
                       <td style={{ fontSize: 12.5 }}>{r.houseNo || '—'}</td>
-                      {/* Society */}
-                      <td style={{ fontSize: 12.5, fontWeight: 500, maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {r.society || '—'}
-                      </td>
-                      {/* Sector */}
-                      <td style={{ fontSize: 12, color: 'var(--text-secondary)', maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {r.sector || '—'}
-                      </td>
-                      {/* City */}
+                      <td style={{ fontSize: 12.5, maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.society || '—'}</td>
+                      <td style={{ fontSize: 12, maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.sector || '—'}</td>
                       <td style={{ fontSize: 12.5 }}>{r.city || '—'}</td>
-                      {/* Pickup Date */}
                       <td style={{ whiteSpace: 'nowrap', fontSize: 12.5, fontWeight: 600 }}>{fmtDate(r.pickupDate)}</td>
-                      {/* Order Date */}
-                      <td style={{ whiteSpace: 'nowrap', fontSize: 12 }}>{fmtDate(r.orderDate)}</td>
-                      {/* PickupPartner */}
                       <td style={{ fontSize: 12.5 }}>{r.PickupPartnerName || '—'}</td>
-                      {/* pickuppartner Phone */}
-                      <td style={{ fontSize: 12, fontFamily: 'monospace' }}>{r.PickupPartnerPhone || '—'}</td>
-                      {/* Donor Status */}
-                      <td>
-                        <Badge label={r.donorStatus || 'Active'} cfg={DONOR_STATUS_BADGE[r.donorStatus] || DONOR_STATUS_BADGE['Active']} />
-                      </td>
-                      {/* RST Items */}
+                      <td><Badge label={r.donorStatus || 'Active'} cfg={DONOR_STATUS_BADGE[r.donorStatus] || DONOR_STATUS_BADGE['Active']} /></td>
                       <td>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, maxWidth: 160 }}>
                           {(r.rstItems || []).length > 0
@@ -575,30 +521,22 @@ export default function RaddiMaster() {
                           {(r.rstItems || []).length > 3 && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>+{(r.rstItems || []).length - 3}</span>}
                         </div>
                       </td>
-                      {/* SKS Items */}
                       <td>
                         {(r.sksItems || []).length > 0
                           ? <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20, background: 'var(--info-bg)', color: 'var(--info)', fontWeight: 700 }}>{r.sksItems.length} items</span>
                           : <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>—</span>}
                       </td>
-                      {/* Total KG */}
-                      <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>
-                        {r.totalKg > 0 ? `${r.totalKg} kg` : <span style={{ color: 'var(--text-muted)' }}>—</span>}
-                      </td>
-                      {/* Total ₹ */}
+                      <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{r.totalKg > 0 ? `${r.totalKg} kg` : <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
                       <td>
                         <div style={{ fontWeight: 700 }}>{r.totalAmount > 0 ? fmtCurrency(r.totalAmount) : '—'}</div>
                         {payDue > 0 && <div style={{ fontSize: 10.5, color: 'var(--danger)', fontWeight: 600 }}>Due: {fmtCurrency(payDue)}</div>}
                       </td>
-                      {/* Amount Paid */}
                       <td style={{ color: 'var(--secondary)', fontWeight: 600 }}>
                         {(r.amountPaid || 0) > 0 ? fmtCurrency(r.amountPaid) : <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>—</span>}
                       </td>
-                      {/* Payment */}
                       <td onClick={e => e.stopPropagation()}>
                         <Badge label={r.paymentStatus || 'Yet to Receive'} cfg={PAYMENT_BADGE[r.paymentStatus] || PAYMENT_BADGE['Yet to Receive']} />
                       </td>
-                      {/* Order Status */}
                       <td onClick={e => e.stopPropagation()}>
                         <Badge label={r.orderStatus || 'Completed'} cfg={ORDER_BADGE[r.orderStatus] || ORDER_BADGE['Completed']} />
                       </td>
@@ -612,7 +550,7 @@ export default function RaddiMaster() {
 
           {/* Mobile cards */}
           <div className="mobile-cards">
-            {pageRows.map(r => {
+            {displayed.map(r => {
               const payDue = Math.max(0, (r.totalAmount || 0) - (r.amountPaid || 0))
               return (
                 <div key={r.orderId || r.pickupId} className="card" style={{ marginBottom: 10, padding: 14 }}>
@@ -630,11 +568,10 @@ export default function RaddiMaster() {
                     {[r.houseNo, r.society, r.sector, r.city].filter(Boolean).join(', ')}
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
-                    Pickup: {fmtDate(r.pickupDate)} · PickupPartner: {r.PickupPartnerName || '—'}
+                    Pickup: {fmtDate(r.pickupDate)} · Partner: {r.PickupPartnerName || '—'}
                   </div>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                     <Badge label={r.donorStatus || 'Active'} cfg={DONOR_STATUS_BADGE[r.donorStatus] || DONOR_STATUS_BADGE['Active']} />
-                    <Badge label={r.type || 'RST'} cfg={TYPE_BADGE[r.type] || TYPE_BADGE['RST']} />
                     {r.totalKg > 0 && <span style={{ fontSize: 12, fontWeight: 600 }}>{r.totalKg} kg</span>}
                     {r.totalAmount > 0 && <span style={{ fontWeight: 700, color: 'var(--primary)', fontSize: 13 }}>{fmtCurrency(r.totalAmount)}</span>}
                     {payDue > 0 && <span style={{ color: 'var(--danger)', fontWeight: 600, fontSize: 12 }}>Due: {fmtCurrency(payDue)}</span>}
@@ -647,14 +584,14 @@ export default function RaddiMaster() {
           {/* Pagination */}
           {totalPages > 1 && (
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, marginTop: 16 }}>
-              <button className="btn btn-ghost btn-sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>
+              <button className="btn btn-ghost btn-sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1 || fetching}>
                 <ChevronLeft size={14} />
               </button>
               <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
                 Page <strong>{page}</strong> of <strong>{totalPages}</strong>
-                <span style={{ color: 'var(--text-muted)', marginLeft: 8 }}>({(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length})</span>
+                <span style={{ color: 'var(--text-muted)', marginLeft: 8 }}>({pagination.total} total)</span>
               </span>
-              <button className="btn btn-ghost btn-sm" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>
+              <button className="btn btn-ghost btn-sm" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages || fetching}>
                 <ChevronRight size={14} />
               </button>
             </div>

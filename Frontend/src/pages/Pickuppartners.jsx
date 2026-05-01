@@ -519,7 +519,10 @@ function DocUpload({ label, icon: Icon, value, accept, onChange, onRemove, previ
 export default function PickupPartners() {
   const { PickupPartners: rawPartners, raddiRecords, addPartner, updatePartner, deletePartner, CITIES, CITY_SECTORS, locations, masterData } = useApp()
   const { items: RATE_CHART_ITEMS, defaults: DEFAULT_RATE_CHART } = useMemo(() => buildRateChartDefaults(masterData.rstItemsFull), [masterData.rstItemsFull])
-  const { can, role } = useRole()
+  const { role } = useRole()
+  
+  const canEditPartner = role === 'admin' || role === 'manager'
+  const canDeletePartner = role === 'admin'
 
   const partners = useMemo(() => Array.isArray(rawPartners) ? rawPartners : [], [rawPartners])
 
@@ -634,7 +637,7 @@ export default function PickupPartners() {
 
   // FIX: Delete clears all partner data including photo/aadhaar (they're in state)
   const removeK = useCallback(async (id) => {
-    if (!can.deletePartner) return
+    if (role !== 'admin') return
     if (!window.confirm('Remove this pickup partner? This will delete all their data including documents.')) return
     try {
       await deletePartner(id)
@@ -643,7 +646,7 @@ export default function PickupPartners() {
       console.error(err)
       showToast('Delete failed', 'error', 'The partner was not removed.')
     }
-  }, [can.deletePartner, deletePartner, showToast])
+  }, [canDeletePartner, deletePartner, showToast])
 
   const toggleRate = useCallback((id) => setExpandedRates(prev => ({ ...prev, [id]: !prev[id] })), [])
 
@@ -972,8 +975,8 @@ export default function PickupPartners() {
                     </div>
                   </div>
                   <div style={{ display:'flex', gap:3, flexShrink:0 }}>
-                    {can.editPartner && <button className="btn btn-ghost btn-icon btn-sm" title="Edit" onClick={() => open(k)} style={{ padding:5 }}><Edit2 size={13}/></button>}
-                    {can.deletePartner && <button className="btn btn-danger btn-icon btn-sm" title="Delete" onClick={() => removeK(k.id)} style={{ padding:5 }}><Trash2 size={13}/></button>}
+                    {canEditPartner && <button className="btn btn-ghost btn-icon btn-sm" title="Edit" onClick={() => open(k)} style={{ padding:5 }}><Edit2 size={13}/></button>}
+                    {canDeletePartner && <button className="btn btn-danger btn-icon btn-sm" title="Delete" onClick={() => removeK(k.id)} style={{ padding:5 }}><Trash2 size={13}/></button>}
                   </div>
                 </div>
 

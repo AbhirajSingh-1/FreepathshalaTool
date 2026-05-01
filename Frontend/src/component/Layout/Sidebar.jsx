@@ -4,14 +4,16 @@ import {
   IndianRupee, CalendarDays, Table2, Eye, Shirt, ClipboardList,
   Heart, Database, Shield,
 } from 'lucide-react'
+import { useRole } from '../../context/RoleContext'
 
-const getRole = () => localStorage.getItem('fp_role') || 'admin'
-
+// Build navigation items based on role - defined by backend
+// Note: This is only for UI rendering. Backend enforces all authorization.
 const buildNav = (role) => {
   const isAdmin     = role === 'admin'
   const isManager   = role === 'manager'
   const isExecutive = role === 'executive'
 
+  // Executive sees limited navigation
   if (isExecutive) {
     return [
       { section: 'Today' },
@@ -24,6 +26,7 @@ const buildNav = (role) => {
     ]
   }
 
+  // Admin and Manager see full navigation
   return [
     { section: 'Main' },
     { id: 'dashboard',       label: 'Dashboard',        icon: LayoutDashboard },
@@ -65,9 +68,13 @@ const buildNav = (role) => {
   ]
 }
 
-export default function Sidebar({ active, onNav, open, onClose, overdueCount, onLogoClick, role }) {
-  const _role = role || getRole()
-  const NAV   = buildNav(_role)
+export default function Sidebar({ active, onNav, open, onClose, overdueCount, onLogoClick, role: propRole }) {
+  // Use role from props if provided, otherwise from context
+  // If neither available, default to 'executive' for safety
+  const { role: contextRole } = useRole() || {}
+  const _role = propRole || contextRole || 'executive'
+  
+  const NAV = buildNav(_role)
 
   return (
     <>

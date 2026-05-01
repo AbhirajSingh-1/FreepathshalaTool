@@ -120,11 +120,45 @@ async function listCities() {
   return fromSnapshot(snapshot).sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/**
+ * Natural sorting function for sector names.
+ * Handles both numbered sectors (Sector 1, Sector 2, etc.) and named localities (DLF Phase 1, etc.)
+ * Numbered sectors sort by number: Sector 1, Sector 2, ... Sector 10, Sector 11, ...
+ * Named localities sort alphabetically after numbered sectors.
+ */
+function sortSectorsNatural(a, b) {
+  const nameA = a.name || "";
+  const nameB = b.name || "";
+
+  // Extract numeric suffix using regex for patterns like "Sector 1", "Sector 10A", "DLF Phase 2"
+  const numMatchA = nameA.match(/^.*?(\d+)\s*(.*)$/);
+  const numMatchB = nameB.match(/^.*?(\d+)\s*(.*)$/);
+
+  // If both have numeric suffixes, compare numerically
+  if (numMatchA && numMatchB) {
+    const numA = parseInt(numMatchA[1], 10);
+    const numB = parseInt(numMatchB[1], 10);
+
+    // If base numbers are different, sort by number
+    if (numA !== numB) {
+      return numA - numB;
+    }
+
+    // If base numbers are same, sort by any suffix (e.g., "A" < "B")
+    const suffixA = numMatchA[2] || "";
+    const suffixB = numMatchB[2] || "";
+    return suffixA.localeCompare(suffixB);
+  }
+
+  // Fall back to alphabetical sorting for non-numbered sectors
+  return nameA.localeCompare(nameB);
+}
+
 async function listSectors(city) {
   let query = db.collection(COLLECTIONS.SECTORS);
   if (city) query = query.where("cityId", "==", slugify(city));
   const snapshot = await query.get();
-  return fromSnapshot(snapshot).sort((a, b) => a.name.localeCompare(b.name));
+  return fromSnapshot(snapshot).sort(sortSectorsNatural);
 }
 
 async function listSocieties({ city, sector } = {}) {

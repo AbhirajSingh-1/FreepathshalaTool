@@ -3,6 +3,7 @@ const { COLLECTIONS } = require("../config/collections");
 const { AppError } = require("../utils/AppError");
 const { fromSnapshot, auditCreate, auditUpdate, cleanUndefined } = require("../utils/firestore");
 const defaults = require("../config/masterData");
+const { cache } = require("../utils/cache");
 
 // ── Slugify helper ────────────────────────────────────────────────────────────
 function slugify(value) {
@@ -14,13 +15,15 @@ function slugify(value) {
 
 // ── RST Items ─────────────────────────────────────────────────────────────────
 async function listRstItems() {
-  const snap = await db.collection(COLLECTIONS.RST_ITEMS).orderBy("order").get();
-  const items = fromSnapshot(snap);
-  // Fallback to config defaults if no Firestore items exist
-  if (items.length === 0) {
-    return defaults.RST_ITEMS.map((name, i) => ({ id: slugify(name), name, rate: 0, unit: "kg", order: i, active: true }));
-  }
-  return items;
+  return cache.getOrFetch("masterData:rstItems", async () => {
+    const snap = await db.collection(COLLECTIONS.RST_ITEMS).orderBy("order").get();
+    const items = fromSnapshot(snap);
+    // Fallback to config defaults if no Firestore items exist
+    if (items.length === 0) {
+      return defaults.RST_ITEMS.map((name, i) => ({ id: slugify(name), name, rate: 0, unit: "kg", order: i, active: true }));
+    }
+    return items;
+  }, 300); // 5 minutes
 }
 
 async function getRstItem(id) {
@@ -48,6 +51,7 @@ async function createRstItem(data, actor) {
     ...auditCreate(actor)
   });
   await db.collection(COLLECTIONS.RST_ITEMS).doc(id).set(payload);
+  cache.invalidatePrefix("masterData:");
   return payload;
 }
 
@@ -65,6 +69,7 @@ async function updateRstItem(id, data, actor) {
     ...auditUpdate(actor)
   });
   await ref.set(update, { merge: true });
+  cache.invalidatePrefix("masterData:");
   return { id, ...doc.data(), ...update };
 }
 
@@ -73,17 +78,20 @@ async function deleteRstItem(id) {
   const doc = await ref.get();
   if (!doc.exists) throw new AppError("RST item not found", 404, "RST_ITEM_NOT_FOUND");
   await ref.delete();
+  cache.invalidatePrefix("masterData:");
   return { id, deleted: true };
 }
 
 // ── SKS Items ─────────────────────────────────────────────────────────────────
 async function listSksItems() {
-  const snap = await db.collection(COLLECTIONS.SKS_ITEMS).orderBy("order").get();
-  const items = fromSnapshot(snap);
-  if (items.length === 0) {
-    return defaults.SKS_ITEMS.map((name, i) => ({ id: slugify(name), name, order: i, active: true }));
-  }
-  return items;
+  return cache.getOrFetch("masterData:sksItems", async () => {
+    const snap = await db.collection(COLLECTIONS.SKS_ITEMS).orderBy("order").get();
+    const items = fromSnapshot(snap);
+    if (items.length === 0) {
+      return defaults.SKS_ITEMS.map((name, i) => ({ id: slugify(name), name, order: i, active: true }));
+    }
+    return items;
+  }, 300); // 5 minutes
 }
 
 async function getSksItem(id) {
@@ -108,6 +116,7 @@ async function createSksItem(data, actor) {
     ...auditCreate(actor)
   });
   await db.collection(COLLECTIONS.SKS_ITEMS).doc(id).set(payload);
+  cache.invalidatePrefix("masterData:");
   return payload;
 }
 
@@ -123,6 +132,7 @@ async function updateSksItem(id, data, actor) {
     ...auditUpdate(actor)
   });
   await ref.set(update, { merge: true });
+  cache.invalidatePrefix("masterData:");
   return { id, ...doc.data(), ...update };
 }
 
@@ -131,28 +141,31 @@ async function deleteSksItem(id) {
   const doc = await ref.get();
   if (!doc.exists) throw new AppError("SKS item not found", 404, "SKS_ITEM_NOT_FOUND");
   await ref.delete();
+  cache.invalidatePrefix("masterData:");
   return { id, deleted: true };
 }
 
 // ── Combined master data (for GET /master-data) ──────────────────────────────
 async function getMasterData() {
-  const [rstItems, sksItems] = await Promise.all([
-    listRstItems(),
-    listSksItems()
-  ]);
+  return cache.getOrFetch("masterData:combined", async () => {
+    const [rstItems, sksItems] = await Promise.all([
+      listRstItems(),
+      listSksItems()
+    ]);
 
-  return {
-    RST_ITEMS: rstItems.filter(i => i.active !== false).map(i => i.name),
-    SKS_ITEMS: sksItems.filter(i => i.active !== false).map(i => i.name),
-    rstItemsFull: rstItems,
-    sksItemsFull: sksItems,
-    PICKUP_MODES: defaults.PICKUP_MODES,
-    DONOR_STATUSES: defaults.DONOR_STATUSES,
-    PICKUP_STATUSES: defaults.PICKUP_STATUSES,
-    PAYMENT_STATUSES: defaults.PAYMENT_STATUSES,
-    POSTPONE_REASONS: defaults.POSTPONE_REASONS,
-    LOST_REASONS: defaults.LOST_REASONS
-  };
+    return {
+      RST_ITEMS: rstItems.filter(i => i.active !== false).map(i => i.name),
+      SKS_ITEMS: sksItems.filter(i => i.active !== false).map(i => i.name),
+      rstItemsFull: rstItems,
+      sksItemsFull: sksItems,
+      PICKUP_MODES: defaults.PICKUP_MODES,
+      DONOR_STATUSES: defaults.DONOR_STATUSES,
+      PICKUP_STATUSES: defaults.PICKUP_STATUSES,
+      PAYMENT_STATUSES: defaults.PAYMENT_STATUSES,
+      POSTPONE_REASONS: defaults.POSTPONE_REASONS,
+      LOST_REASONS: defaults.LOST_REASONS
+    };
+  }, 300); // 5 minutes
 }
 
 module.exports = {

@@ -29,7 +29,7 @@ const listQuery = z.object({
 
 const role = z.enum(ROLE_VALUES);
 
-const optionalString = z.string().trim().optional().or(z.literal(""));
+const optionalString = z.string().transform(val => (val && val.trim()) ? val.trim() : undefined).optional();
 const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().or(z.literal(""));
 const stringArray = z.array(z.string()).default([]);
 const amount = z.coerce.number().min(0).default(0);

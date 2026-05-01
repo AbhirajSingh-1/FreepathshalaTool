@@ -368,7 +368,7 @@ function LocationGroupedList({ pickups, onRecord }) {
 // ════════════════════════════════════════════════════════════════════════════
 export default function TodayPickups({ onNav }) {
   const { pickups } = useApp()
-  const { role, ROLE_PAGES } = useRole()
+  const { role } = useRole()
 
   const [activeTab, setActiveTab] = useState('pending')
   const [sortMode,  setSortMode]  = useState('time') // 'time' | 'location'
@@ -419,7 +419,7 @@ export default function TodayPickups({ onNav }) {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
   })
 
-  const canSchedule = (ROLE_PAGES[role] || []).includes('pickupscheduler')
+  const canSchedule = role === 'admin' || role === 'manager'
   const progressPct = todayPickups.length > 0
     ? Math.round((completed.length / todayPickups.length) * 100)
     : 0

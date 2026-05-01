@@ -1,5 +1,5 @@
 const { listDonors } = require("./donor.service");
-const { listPickups, listRaddiRecords } = require("./pickup.service");
+const { listPickups, listPickupPartners: _lpp, listRaddiRecords } = require("./pickup.service");
 const { listPickupPartners } = require("./pickupPartner.service");
 const { listInflows, listOutflows, getStock } = require("./sks.service");
 
@@ -62,7 +62,6 @@ function buildRSTBreakdown(raddiRecords, completedPickups) {
       if (o.name && o.amount > 0) map["Others"] = (map["Others"] || 0) + (parseFloat(o.weight) || 0);
     });
   });
-  // Fallback: count from pickups if no kg data
   if (Object.keys(map).length === 0) {
     completedPickups.forEach((p) => {
       (p.rstItems || []).forEach((item) => { map[item] = (map[item] || 0) + 1; });
@@ -151,20 +150,9 @@ function buildSKSDispatchSummary(sksOutflows) {
   };
 }
 
-/**
- * getStats — fully backend-computed dashboard stats.
- *
- * Accepted filter params (all optional):
- *   dateFrom  — ISO date string (YYYY-MM-DD), filters pickups/raddi/sks by date
- *   dateTo    — ISO date string (YYYY-MM-DD)
- *   city      — string
- *   sector    — string
- *   partnerId — pickup partner document ID
- */
 async function getStats(filters = {}) {
   const { dateFrom, dateTo, city, sector, partnerId } = filters;
 
-  // Build sub-service filter objects
   const pickupFilters = {
     limit:     2000,
     dateFrom:  dateFrom  || undefined,
@@ -186,16 +174,30 @@ async function getStats(filters = {}) {
     sector: sector || undefined,
   };
 
-  const [donors, pickups, partners, raddiRecords, sksInflows, sksOutflows, stock] =
-    await Promise.all([
-      listDonors(donorFilters),
-      listPickups(pickupFilters),
-      listPickupPartners({ limit: 500 }),
-      listRaddiRecords({ ...pickupFilters }),
-      listInflows(sksFilters),
-      listOutflows(sksFilters),
-      getStock(),
-    ]);
+  const safe = (p) => (p.status === "fulfilled" ? p.value : null);
+
+  const results = await Promise.allSettled([
+    listDonors(donorFilters),                    // 0
+    listPickups(pickupFilters),                   // 1
+    listPickupPartners({ limit: 500 }),           // 2
+    listRaddiRecords({ ...pickupFilters }),        // 3 — returns { records, pagination }
+    listInflows(sksFilters),                      // 4
+    listOutflows(sksFilters),                     // 5
+    getStock(),                                   // 6
+  ]);
+
+  const donors      = safe(results[0]) || [];
+  const pickups     = safe(results[1]) || [];
+  const partners    = safe(results[2]) || [];
+  // ── FIX: listRaddiRecords returns { records, pagination } ──────────────────
+  const raddiResult = safe(results[3]);
+  const raddiRecords = Array.isArray(raddiResult)
+    ? raddiResult
+    : (raddiResult?.records || []);
+  // ─────────────────────────────────────────────────────────────────────────
+  const sksInflows  = safe(results[4]) || [];
+  const sksOutflows = safe(results[5]) || [];
+  const stock       = safe(results[6]) || [];
 
   const completedPickups  = pickups.filter((p) => p.status === "Completed");
   const pendingPayments   = pickups.filter((p) => ["Not Paid", "Partially Paid"].includes(p.paymentStatus));
@@ -248,10 +250,9 @@ async function getStats(filters = {}) {
     rstFinancialSummary,
     sksDispatchSummary,
     // Legacy aliases
-    monthlyData:  monthlyRSTChart,
+    monthlyData:   monthlyRSTChart,
     itemBreakdown: rstBreakdown,
     stock,
-    // Applied filters echoed back so frontend can verify
     appliedFilters: { dateFrom, dateTo, city, sector, partnerId },
   };
 }

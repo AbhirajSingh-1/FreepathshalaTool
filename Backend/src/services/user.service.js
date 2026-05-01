@@ -30,30 +30,43 @@ async function createUser(data, actor) {
       throw new AppError("Password is required when creating a Firebase Auth user", 422, "PASSWORD_REQUIRED");
     }
 
-    const userRecord = await auth.createUser({
+    // Clean phone number - only pass if non-empty after trim
+    const cleanPhone = data.phone ? String(data.phone).trim() : '';
+    
+    const createUserData = {
       email: data.email,
       password: data.password,
       displayName: data.name,
-      phoneNumber: data.phone || undefined,
       disabled: data.active === false
-    });
+    };
+    
+    // Only add phone if it's not empty
+    if (cleanPhone) {
+      createUserData.phoneNumber = cleanPhone;
+    }
+
+    const userRecord = await auth.createUser(createUserData);
     uid = userRecord.uid;
   }
 
-  await auth.setCustomUserClaims(uid, { role: data.role });
+  const roleToAssign = data.role || "executive";
+  await auth.setCustomUserClaims(uid, { role: roleToAssign });
+
+  const cleanPhone = data.phone ? String(data.phone).trim() : '';
 
   const payload = {
     id: uid,
     uid,
     email: data.email,
     name: data.name,
-    phone: data.phone || "",
-    role: data.role,
+    phone: cleanPhone,
+    role: roleToAssign,
     active: data.active !== false,
     ...auditCreate(actor)
   };
 
-  await usersCollection().doc(uid).set(payload, { merge: true });
+  // User roles are ONLY assigned at the time of user creation.
+  await usersCollection().doc(uid).set(payload);
   return getUser(uid);
 }
 
@@ -64,23 +77,56 @@ async function updateUser(id, data, actor) {
 
   const authPatch = {};
   if (data.name) authPatch.displayName = data.name;
+  
+  // Clean phone number
+  const cleanPhone = data.phone ? String(data.phone).trim() : '';
+  if (cleanPhone) {
+    authPatch.phoneNumber = cleanPhone;
+  }
+  
   if (typeof data.active === "boolean") authPatch.disabled = !data.active;
   if (Object.keys(authPatch).length) await auth.updateUser(id, authPatch);
-  if (data.role) await auth.setCustomUserClaims(id, { role: data.role });
+  if (data.role) {
+    const { logger } = require("../config/logger");
+    logger.info(`Updating role for user ${id} to ${data.role} via updateUser by actor: ${actor?.email || 'system'}`);
+    await auth.setCustomUserClaims(id, { role: data.role });
+  }
 
-  await ref.set({
+  // Do not overwrite role with default. Role changes only if explicitly passed.
+  const updatePayload = {
     ...data,
+    phone: cleanPhone,
     ...auditUpdate(actor)
-  }, { merge: true });
+  };
+
+  // We use update() instead of set(..., {merge: true}) to avoid overwriting documents accidentally
+  await ref.update(updatePayload);
 
   return getUser(id);
 }
 
 async function deleteUser(id) {
-  await Promise.allSettled([
-    auth.deleteUser(id),
-    usersCollection().doc(id).delete()
-  ]);
+  // 1. Prevent deletion of the last remaining admin
+  const userToDelete = await getUser(id);
+  if (userToDelete.role === "admin") {
+    const adminsSnapshot = await usersCollection().where("role", "==", "admin").where("active", "==", true).get();
+    if (adminsSnapshot.size <= 1) {
+      throw new AppError("Cannot delete the last remaining active admin", 400, "LAST_ADMIN_DELETION");
+    }
+  }
+
+  // 2. Delete Auth & Firestore safely (sync)
+  try {
+    await auth.deleteUser(id);
+  } catch (err) {
+    // If the user is already deleted from Auth, we still want to delete from Firestore
+    if (err.code !== "auth/user-not-found") {
+      throw new AppError("Failed to delete user from Firebase Auth", 500, "AUTH_DELETE_FAILED");
+    }
+  }
+  
+  await usersCollection().doc(id).delete();
+
   return { id, deleted: true };
 }
 

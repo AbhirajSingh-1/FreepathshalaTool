@@ -112,7 +112,7 @@ function PeriodBar({ dateFrom, dateTo, onRange, last5 }) {
 // ─────────────────────────────────────────────────────────────────────────────
 export default function PickupOverview() {
   const { pickups, schedulerTabData, CITIES, CITY_SECTORS } = useApp()
-  const { can } = useRole()
+  const { role } = useRole()
 
   const last5 = getLast5Months()
   const defaultFrom = last5[0] + '-01'
@@ -206,7 +206,8 @@ export default function PickupOverview() {
     return `Until ${fmtDate(dateTo)}`
   }, [dateFrom, dateTo])
 
-  if (!can.viewPickupOverview) {
+  const canViewPickupOverview = role === 'admin' || role === 'manager'
+  if (!canViewPickupOverview) {
     return (
       <div className="page-body">
         <div className="empty-state">

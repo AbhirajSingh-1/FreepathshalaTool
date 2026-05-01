@@ -1,22 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { fetchCurrentUser, login as apiLogin, logout as apiLogout } from '../services/api'
 
+// Role display metadata - only for UI rendering, not for authorization
 export const ROLES = {
   admin:     { label: 'Admin',     color: '#E8521A', bg: '#FDE7DA' },
   manager:   { label: 'Manager',   color: '#1B5E35', bg: '#E8F5EE' },
   executive: { label: 'Executive', color: '#3B82F6', bg: '#DBEAFE' },
-}
-
-export const ROLE_PAGES = {
-  admin:     ['dashboard', 'donors', 'supporters', 'pickups', 'pickuppartners', 'payments', 'pickupscheduler', 'todaypickups', 'pickupoverview', 'raddimaster', 'sksoverview', 'usermanagement'],
-  manager:   ['dashboard', 'donors', 'supporters', 'pickups', 'pickuppartners', 'payments', 'pickupscheduler', 'todaypickups', 'pickupoverview', 'sksoverview'],
-  executive: ['todaypickups', 'pickups', 'pickuppartners', 'sksoverview'],
-}
-
-export const DEFAULT_PAGE = {
-  admin:     'dashboard',
-  manager:   'dashboard',
-  executive: 'todaypickups',
 }
 
 const RoleContext = createContext(null)
@@ -33,6 +22,7 @@ export function RoleProvider({ children }) {
   const [authLoading, setAuthLoading] = useState(true)
   const [authError, setAuthError] = useState('')
 
+  // Fetch user profile from backend - this is the single source of truth for role
   const loadCurrentUser = useCallback(async () => {
     const token = localStorage.getItem('fp_id_token')
     if (!token) {
@@ -45,6 +35,7 @@ export function RoleProvider({ children }) {
     setAuthLoading(true)
     setAuthError('')
     try {
+      // Backend returns user profile with role from Firestore or custom claims
       const profile = await fetchCurrentUser()
       setUser(profile)
       setRole(profile.role || 'executive')
@@ -69,6 +60,7 @@ export function RoleProvider({ children }) {
     setAuthError('')
     try {
       const session = await apiLogin(email, password)
+      // Backend returns user with role - this is the source of truth
       setUser(session.user)
       setRole(session.user?.role || 'executive')
       return session.user
@@ -86,32 +78,8 @@ export function RoleProvider({ children }) {
     setRole('')
   }, [])
 
-  const can = useMemo(() => ({
-    viewDashboard:      role === 'admin' || role === 'manager',
-    viewDonors:         role === 'admin' || role === 'manager',
-    viewSupporters:     role === 'admin' || role === 'manager',
-    viewPayments:       role === 'admin' || role === 'manager',
-    viewRaddiMaster:    role === 'admin',
-    viewScheduler:      role === 'admin' || role === 'manager',
-    viewReports:        role === 'admin' || role === 'manager',
-    viewFinancials:     role === 'admin' || role === 'manager',
-    viewPickupOverview: role === 'admin' || role === 'manager',
-    viewPartnerReports: role === 'admin' || role === 'manager',
-    viewSKSOverview:    Boolean(role),
-    viewTodayPickups:   Boolean(role),
-    deletePartner:      role === 'admin',
-    deletePickup:       role === 'admin',
-    deleteDonor:        role === 'admin' || role === 'manager',
-    addPartner:         role === 'admin' || role === 'manager',
-    editPartner:        role === 'admin' || role === 'manager',
-    recordPickup:       Boolean(role),
-    schedulePickup:     role === 'admin' || role === 'manager',
-    manageDonors:       role === 'admin' || role === 'manager',
-    manageUsers:        role === 'admin',
-    isExecutive:        role === 'executive',
-    canAccessPage: (page) => (ROLE_PAGES[role] || []).includes(page),
-  }), [role])
-
+  // Frontend now only stores role from backend - no permission checks
+  // All authorization is enforced server-side via requireRoles middleware
   const value = useMemo(() => ({
     user,
     role,
@@ -121,12 +89,10 @@ export function RoleProvider({ children }) {
     login,
     logout,
     reloadUser: loadCurrentUser,
-    changeRole: () => {},
-    can,
+    // Removed: changeRole, can, ROLE_PAGES, DEFAULT_PAGE
+    // Role is managed entirely by backend
     ROLES,
-    ROLE_PAGES,
-    DEFAULT_PAGE,
-  }), [user, role, authLoading, authError, login, logout, loadCurrentUser, can])
+  }), [user, role, authLoading, authError, login, logout, loadCurrentUser])
 
   return (
     <RoleContext.Provider value={value}>

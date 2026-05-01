@@ -1,7 +1,7 @@
 // Frontend/src/pages/UserManagement.jsx
 // Admin-only page: create, edit, activate/deactivate users with RBAC
 
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import {
   Users, Plus, Edit2, X, CheckCircle, AlertCircle,
   Shield, Mail, Phone, UserCheck, UserX, Search,
@@ -100,7 +100,7 @@ export default function UserManagement() {
     }
   }, [showToast])
 
-  useState(() => { loadUsers() })
+  useEffect(() => { loadUsers() }, [loadUsers])
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim()

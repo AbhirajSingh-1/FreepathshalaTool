@@ -4,6 +4,10 @@ import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import './index.css'
 
+import { QueryClientProvider } from '@tanstack/react-query';
+import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
+import { queryClient } from './services/queryClient';
+
 //Prevent mouse-wheel from accidentally changing
 //    <input type="number"> values globally — affects SKS qty inputs,
 //    Record-Payment amount, rate-chart inputs, etc.
@@ -15,6 +19,9 @@ document.addEventListener('wheel', () => {
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <App />
+    <QueryClientProvider client={queryClient}>
+      <App />
+      <ReactQueryDevtools initialIsOpen={false} />
+    </QueryClientProvider>
   </React.StrictMode>,
 )
