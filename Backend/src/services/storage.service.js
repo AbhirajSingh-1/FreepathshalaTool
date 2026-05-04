@@ -1,6 +1,7 @@
 const { randomUUID } = require("crypto");
 const { getBucket } = require("../config/firebase");
 const { env } = require("../config/env");
+const { logger } = require("../config/logger");
 const { sanitizeFileName, sanitizePathSegment } = require("../utils/sanitize");
 
 function buildStoragePath({ purpose = "general", entityId = "general", fileName }) {
@@ -60,7 +61,11 @@ async function uploadFile({ file, purpose, entityId, user }) {
   const fileRef = bucket.file(storagePath);
   const downloadToken = randomUUID();
 
-  console.log(`[uploadFile] Attempting to upload ${file.originalname} to bucket ${bucket.name} at path ${storagePath}`);
+  logger.info("Uploading file to Firebase Storage", {
+    fileName: file.originalname,
+    bucket: bucket.name,
+    storagePath
+  });
 
   try {
     await fileRef.save(file.buffer, {
@@ -74,9 +79,12 @@ async function uploadFile({ file, purpose, entityId, user }) {
         }
       }
     });
-    console.log(`[uploadFile] Successfully uploaded ${file.originalname} to ${storagePath}`);
+    logger.info("File uploaded to Firebase Storage", {
+      fileName: file.originalname,
+      storagePath
+    });
   } catch (err) {
-    console.error(`[uploadFile] Firebase Storage save error for ${storagePath}:`, err);
+    logger.error("Firebase Storage upload failed", { storagePath, error: err.message });
     throw err;
   }
 

@@ -4,12 +4,12 @@ const { sendSuccess } = require("../utils/response");
 
 const listInflows = asyncHandler(async (req, res) => {
   const data = await sksService.listInflows(req.query);
-  sendSuccess(res, data, "SKS inflows fetched");
+  sendSuccess(res, data, "SKS inflows fetched", 200, data.pageInfo ? { pageInfo: data.pageInfo } : undefined);
 });
 
 const listOutflows = asyncHandler(async (req, res) => {
   const data = await sksService.listOutflows(req.query);
-  sendSuccess(res, data, "SKS outflows fetched");
+  sendSuccess(res, data, "SKS outflows fetched", 200, data.pageInfo ? { pageInfo: data.pageInfo } : undefined);
 });
 
 const createInflow = asyncHandler(async (req, res) => {

@@ -9,6 +9,8 @@ const {
   cleanUndefined
 } = require("../utils/firestore");
 const { derivePaymentStatus } = require("../utils/businessRules");
+const { fetchCursorPage, listPayload } = require("../utils/query");
+const { cache } = require("../utils/cache");
 
 function inflowsCollection() {
   return db.collection(COLLECTIONS.SKS_INFLOWS);
@@ -25,15 +27,29 @@ function applyListFilters(query, filters = {}) {
 }
 
 async function listInflows(filters = {}) {
-  const query = applyListFilters(inflowsCollection().orderBy("date", "desc"), filters);
-  const snapshot = await query.limit(filters.limit || 100).get();
-  return fromSnapshot(snapshot);
+  const query = applyListFilters(inflowsCollection(), filters);
+  const page = await fetchCursorPage(query, {
+    limit: filters.pageSize || filters.limit,
+    defaultLimit: 100,
+    maxLimit: 1000,
+    cursor: filters.cursor,
+    fields: filters.fields,
+    orderBy: [{ field: "date", direction: "desc" }]
+  });
+  return listPayload(page);
 }
 
 async function listOutflows(filters = {}) {
-  const query = applyListFilters(outflowsCollection().orderBy("date", "desc"), filters);
-  const snapshot = await query.limit(filters.limit || 100).get();
-  return fromSnapshot(snapshot);
+  const query = applyListFilters(outflowsCollection(), filters);
+  const page = await fetchCursorPage(query, {
+    limit: filters.pageSize || filters.limit,
+    defaultLimit: 100,
+    maxLimit: 1000,
+    cursor: filters.cursor,
+    fields: filters.fields,
+    orderBy: [{ field: "date", direction: "desc" }]
+  });
+  return listPayload(page);
 }
 
 async function createInflow(data, actor) {
@@ -48,6 +64,7 @@ async function createInflow(data, actor) {
     });
 
     tx.set(ref, payload);
+    cache.invalidate("sks:stock");
     return { ...payload, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
   });
 }
@@ -71,6 +88,7 @@ async function createOutflow(data, actor) {
     });
 
     tx.set(ref, payload);
+    cache.invalidate("sks:stock");
     return { ...payload, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
   });
 }
@@ -80,6 +98,7 @@ async function deleteInflow(id) {
   const doc = await ref.get();
   if (!doc.exists) throw new AppError("SKS inflow not found", 404, "SKS_INFLOW_NOT_FOUND");
   await ref.delete();
+  cache.invalidate("sks:stock");
   return { id, deleted: true };
 }
 
@@ -88,6 +107,7 @@ async function deleteOutflow(id) {
   const doc = await ref.get();
   if (!doc.exists) throw new AppError("SKS outflow not found", 404, "SKS_OUTFLOW_NOT_FOUND");
   await ref.delete();
+  cache.invalidate("sks:stock");
   return { id, deleted: true };
 }
 
@@ -100,18 +120,20 @@ function addItems(stock, items = [], direction) {
 }
 
 async function getStock() {
-  const [inflows, outflows] = await Promise.all([
-    listInflows({ limit: 500 }),
-    listOutflows({ limit: 500 })
-  ]);
+  return cache.getOrFetch("sks:stock", async () => {
+    const [inflows, outflows] = await Promise.all([
+      listInflows({ limit: 1000 }),
+      listOutflows({ limit: 1000 })
+    ]);
 
-  const stock = {};
-  inflows.forEach((entry) => addItems(stock, entry.items, 1));
-  outflows.forEach((entry) => addItems(stock, entry.items, -1));
+    const stock = {};
+    inflows.forEach((entry) => addItems(stock, entry.items, 1));
+    outflows.forEach((entry) => addItems(stock, entry.items, -1));
 
-  return Object.entries(stock)
-    .map(([name, qty]) => ({ name, qty }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+    return Object.entries(stock)
+      .map(([name, qty]) => ({ name, qty }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, 120);
 }
 
 module.exports = {

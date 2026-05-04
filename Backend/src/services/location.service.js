@@ -1,6 +1,13 @@
 const { db } = require("../config/firebase");
 const { COLLECTIONS } = require("../config/collections");
 const { fromSnapshot, auditCreate, auditUpdate, cleanUndefined } = require("../utils/firestore");
+const { cache } = require("../utils/cache");
+
+const LOCATION_CACHE_TTL_SECONDS = 10 * 60;
+
+function invalidateLocationCache() {
+  cache.invalidatePrefix("locations:");
+}
 
 function normalizeName(value) {
   return String(value || "").trim();
@@ -26,37 +33,70 @@ function societyRef(city, sector, society) {
   return db.collection(COLLECTIONS.SOCIETIES).doc(`${slugify(city)}__${slugify(sector)}__${slugify(society)}`);
 }
 
-function buildCity(city, actor) {
+function locationIds({ city, sector, society, cityId, sectorId, societyId } = {}) {
+  const cleanCity = normalizeName(city);
+  const cleanSector = normalizeName(sector);
+  const cleanSociety = normalizeName(society);
+  const resolvedCityId = cityId || (cleanCity ? slugify(cleanCity) : undefined);
+  const resolvedSectorId = sectorId || (resolvedCityId && cleanSector ? `${resolvedCityId}__${slugify(cleanSector)}` : undefined);
+  const resolvedSocietyId = societyId || (resolvedSectorId && cleanSociety ? `${resolvedSectorId}__${slugify(cleanSociety)}` : undefined);
+
   return cleanUndefined({
-    id: slugify(city),
-    name: normalizeName(city),
-    normalizedName: normalizeName(city).toLowerCase(),
+    city: cleanCity || undefined,
+    sector: cleanSector || undefined,
+    society: cleanSociety || undefined,
+    cityId: resolvedCityId,
+    sectorId: resolvedSectorId,
+    societyId: resolvedSocietyId
+  });
+}
+
+function locationSnapshot(payload = {}) {
+  return locationIds(payload);
+}
+
+function applyLocationFilters(query, filters = {}) {
+  const ids = locationIds(filters);
+  if (ids.cityId) query = query.where("cityId", "==", ids.cityId);
+  if (ids.sectorId) query = query.where("sectorId", "==", ids.sectorId);
+  if (ids.societyId) query = query.where("societyId", "==", ids.societyId);
+  return query;
+}
+
+function buildCity(city, actor) {
+  const ids = locationIds({ city });
+  return cleanUndefined({
+    id: ids.cityId,
+    name: ids.city,
+    normalizedName: ids.city.toLowerCase(),
     ...auditCreate(actor),
     ...auditUpdate(actor)
   });
 }
 
 function buildSector(city, sector, actor) {
+  const ids = locationIds({ city, sector });
   return cleanUndefined({
-    id: `${slugify(city)}__${slugify(sector)}`,
-    name: normalizeName(sector),
-    normalizedName: normalizeName(sector).toLowerCase(),
-    city: normalizeName(city),
-    cityId: slugify(city),
+    id: ids.sectorId,
+    name: ids.sector,
+    normalizedName: ids.sector.toLowerCase(),
+    city: ids.city,
+    cityId: ids.cityId,
     ...auditCreate(actor),
     ...auditUpdate(actor)
   });
 }
 
 function buildSociety(city, sector, society, actor) {
+  const ids = locationIds({ city, sector, society });
   return cleanUndefined({
-    id: `${slugify(city)}__${slugify(sector)}__${slugify(society)}`,
-    name: normalizeName(society),
-    normalizedName: normalizeName(society).toLowerCase(),
-    city: normalizeName(city),
-    cityId: slugify(city),
-    sector: normalizeName(sector),
-    sectorId: `${slugify(city)}__${slugify(sector)}`,
+    id: ids.societyId,
+    name: ids.society,
+    normalizedName: ids.society.toLowerCase(),
+    city: ids.city,
+    cityId: ids.cityId,
+    sector: ids.sector,
+    sectorId: ids.sectorId,
     ...auditCreate(actor),
     ...auditUpdate(actor)
   });
@@ -83,6 +123,7 @@ async function upsertLocationHierarchy(location, actor, tx = null) {
   const batch = db.batch();
   setLocationDocs(batch, location, actor);
   await batch.commit();
+  invalidateLocationCache();
 }
 
 async function upsertLocationsFromPayload(payload, actor, tx = null) {
@@ -112,12 +153,15 @@ async function upsertLocationsFromPayload(payload, actor, tx = null) {
       societies.forEach((society) => setLocationDocs(batch, { city, sector: sectors[0], society }, actor));
     }
     await batch.commit();
+    invalidateLocationCache();
   }
 }
 
 async function listCities() {
-  const snapshot = await db.collection(COLLECTIONS.CITIES).get();
-  return fromSnapshot(snapshot).sort((a, b) => a.name.localeCompare(b.name));
+  return cache.getOrFetch("locations:cities", async () => {
+    const snapshot = await db.collection(COLLECTIONS.CITIES).orderBy("name", "asc").get();
+    return fromSnapshot(snapshot);
+  }, LOCATION_CACHE_TTL_SECONDS);
 }
 
 /**
@@ -155,69 +199,86 @@ function sortSectorsNatural(a, b) {
 }
 
 async function listSectors(city) {
-  let query = db.collection(COLLECTIONS.SECTORS);
-  if (city) query = query.where("cityId", "==", slugify(city));
-  const snapshot = await query.get();
-  return fromSnapshot(snapshot).sort(sortSectorsNatural);
+  const ids = locationIds(typeof city === "object" ? city : { city });
+  const key = `locations:sectors:${ids.cityId || "all"}`;
+  return cache.getOrFetch(key, async () => {
+    let query = db.collection(COLLECTIONS.SECTORS);
+    if (ids.cityId) query = query.where("cityId", "==", ids.cityId);
+    const snapshot = await query.get();
+    return fromSnapshot(snapshot).sort(sortSectorsNatural);
+  }, LOCATION_CACHE_TTL_SECONDS);
 }
 
 async function listSocieties({ city, sector } = {}) {
-  let query = db.collection(COLLECTIONS.SOCIETIES);
-  if (city) query = query.where("cityId", "==", slugify(city));
-  if (city && sector) query = query.where("sectorId", "==", `${slugify(city)}__${slugify(sector)}`);
-  const snapshot = await query.get();
-  return fromSnapshot(snapshot).sort((a, b) => a.name.localeCompare(b.name));
+  const ids = locationIds({ city, sector });
+  const key = `locations:societies:${ids.cityId || "all"}:${ids.sectorId || "all"}`;
+  return cache.getOrFetch(key, async () => {
+    let query = db.collection(COLLECTIONS.SOCIETIES);
+    if (ids.cityId) query = query.where("cityId", "==", ids.cityId);
+    if (ids.sectorId) query = query.where("sectorId", "==", ids.sectorId);
+    const snapshot = await query.get();
+    return fromSnapshot(snapshot).sort((a, b) => a.name.localeCompare(b.name));
+  }, LOCATION_CACHE_TTL_SECONDS);
 }
 
 async function getLocationTree() {
-  const [cities, sectors, societies] = await Promise.all([
-    listCities(),
-    listSectors(),
-    listSocieties()
-  ]);
+  return cache.getOrFetch("locations:tree", async () => {
+    const [cities, sectors, societies] = await Promise.all([
+      listCities(),
+      listSectors(),
+      listSocieties()
+    ]);
 
-  const citySectors = {};
-  const sectorSocieties = {};
+    const citySectors = {};
+    const sectorSocieties = {};
 
-  cities.forEach((city) => {
-    citySectors[city.name] = [];
-  });
+    cities.forEach((city) => {
+      citySectors[city.name] = [];
+    });
 
-  sectors.forEach((sector) => {
-    if (!citySectors[sector.city]) citySectors[sector.city] = [];
-    citySectors[sector.city].push(sector.name);
-    sectorSocieties[`${sector.city}::${sector.name}`] = [];
-  });
+    sectors.forEach((sector) => {
+      if (!citySectors[sector.city]) citySectors[sector.city] = [];
+      citySectors[sector.city].push(sector.name);
+      sectorSocieties[`${sector.city}::${sector.name}`] = [];
+    });
 
-  societies.forEach((society) => {
-    const key = `${society.city}::${society.sector}`;
-    if (!sectorSocieties[key]) sectorSocieties[key] = [];
-    sectorSocieties[key].push(society.name);
-  });
+    societies.forEach((society) => {
+      const key = `${society.city}::${society.sector}`;
+      if (!sectorSocieties[key]) sectorSocieties[key] = [];
+      sectorSocieties[key].push(society.name);
+    });
 
-  return {
-    cities,
-    sectors,
-    societies,
-    citySectors,
-    sectorSocieties
-  };
+    return {
+      cities,
+      sectors,
+      societies,
+      citySectors,
+      sectorSocieties
+    };
+  }, LOCATION_CACHE_TTL_SECONDS);
 }
 
 async function deleteCity(id) {
   await db.collection(COLLECTIONS.CITIES).doc(id).delete();
+  invalidateLocationCache();
 }
 
 async function deleteSector(id) {
   await db.collection(COLLECTIONS.SECTORS).doc(id).delete();
+  invalidateLocationCache();
 }
 
 async function deleteSociety(id) {
   await db.collection(COLLECTIONS.SOCIETIES).doc(id).delete();
+  invalidateLocationCache();
 }
 
 module.exports = {
   slugify,
+  invalidateLocationCache,
+  locationIds,
+  locationSnapshot,
+  applyLocationFilters,
   upsertLocationHierarchy,
   upsertLocationsFromPayload,
   listCities,
@@ -228,4 +289,3 @@ module.exports = {
   deleteSector,
   deleteSociety
 };
-

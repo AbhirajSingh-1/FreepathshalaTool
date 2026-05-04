@@ -1,6 +1,7 @@
 const { auth, db } = require("../config/firebase");
 const { env } = require("../config/env");
 const { COLLECTIONS } = require("../config/collections");
+const { logger } = require("../config/logger");
 const { AppError } = require("../utils/AppError");
 const { fromDoc, auditCreate, auditUpdate } = require("../utils/firestore");
 
@@ -68,7 +69,7 @@ async function getProfile(uid) {
       profile.name = userRecord.displayName || profile.name || "";
       profile.active = !userRecord.disabled;
     } catch (err) {
-      console.error(`Failed to update profile for ${uid}`, err);
+      logger.error("Failed to update auth profile mirror", { uid, error: err.message });
     }
   }
 
@@ -79,13 +80,12 @@ async function getProfile(uid) {
 
   if (firestoreRole && currentAuthRole !== firestoreRole) {
     try {
-      const { logger } = require("../config/logger");
-      logger.info(`Syncing custom claim for user ${uid} to match Firestore role: ${firestoreRole}`);
+      logger.info("Syncing custom claim to match Firestore role", { uid, role: firestoreRole });
       // Merge with existing custom claims to avoid data loss
       const newClaims = { ...(userRecord.customClaims || {}), role: firestoreRole };
       await auth.setCustomUserClaims(uid, newClaims);
     } catch (err) {
-      console.error(`Failed to sync custom claims for ${uid}`, err);
+      logger.error("Failed to sync custom claims", { uid, error: err.message });
     }
   }
 
@@ -169,8 +169,7 @@ async function createAuthUser(data, actor) {
 }
 
 async function setRole(uid, role, actor) {
-  const { logger } = require("../config/logger");
-  logger.info(`Updating role for user ${uid} to ${role} by actor: ${actor?.email || 'system'}`);
+  logger.info("Updating user role", { uid, role, actor: actor?.email || "system" });
   await auth.setCustomUserClaims(uid, { role });
   // Use update instead of set to avoid overwriting other document fields
   await db.collection(COLLECTIONS.USERS).doc(uid).update({

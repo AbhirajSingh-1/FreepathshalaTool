@@ -14,7 +14,7 @@ const router = Router();
 
 router.use(requireAuth);
 
-// Payment list (collectionGroup)
+// Payment list (top-level ledger)
 router.get(
   "/",
   requireRoles(ROLES.ADMIN, ROLES.MANAGER),

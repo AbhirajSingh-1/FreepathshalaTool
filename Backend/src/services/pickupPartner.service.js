@@ -10,8 +10,15 @@ const {
   cleanUndefined
 } = require("../utils/firestore");
 const { toNumber } = require("../utils/businessRules");
-const { upsertLocationsFromPayload } = require("./location.service");
+const { fetchCursorPage, listPayload } = require("../utils/query");
+const {
+  applyLocationFilters,
+  invalidateLocationCache,
+  locationSnapshot,
+  upsertLocationsFromPayload
+} = require("./location.service");
 const { uploadFile, deleteFile } = require("./storage.service");
+const { logger } = require("../config/logger");
 
 function partnersCollection() {
   return db.collection(COLLECTIONS.PICKUP_PARTNERS);
@@ -54,7 +61,7 @@ async function uploadPartnerFiles(files, partnerId, actor) {
       if (!photo.buffer) {
         throw new Error("Photo buffer is missing from Multer req.files");
       }
-      console.log(`[uploadPartnerFiles] Uploading photo for partner ${partnerId}...`);
+      logger.info("Uploading pickup partner photo", { partnerId });
       const file = await uploadFile({
         file: photo,
         purpose: "pickup-partners/photo",
@@ -68,7 +75,7 @@ async function uploadPartnerFiles(files, partnerId, actor) {
       if (!aadhaar.buffer) {
         throw new Error("Aadhaar buffer is missing from Multer req.files");
       }
-      console.log(`[uploadPartnerFiles] Uploading aadhaar for partner ${partnerId}...`);
+      logger.info("Uploading pickup partner aadhaar document", { partnerId });
       const file = await uploadFile({
         file: aadhaar,
         purpose: "pickup-partners/aadhaar",
@@ -80,7 +87,7 @@ async function uploadPartnerFiles(files, partnerId, actor) {
 
     return uploaded;
   } catch (error) {
-    console.error(`[uploadPartnerFiles] Error uploading files for partner ${partnerId}:`, error);
+    logger.error("Pickup partner document upload failed", { partnerId, error: error.message });
     await deleteFilesQuietly(collectUploadedPaths(uploaded));
     throw asPartnerUploadError(error);
   }
@@ -179,6 +186,7 @@ function asPartnerUploadError(error) {
 function createPayload(data, id, actor, uploaded) {
   return cleanUndefined({
     ...data,
+    ...locationSnapshot(data),
     ...documentPatch(data, uploaded),
     id,
     rating: toNumber(data.rating, 4),
@@ -201,6 +209,7 @@ function updatePayload(data, actor, uploaded) {
 
   return cleanUndefined({
     ...data,
+    ...locationSnapshot(data),
     ...numericPatch,
     ...(hasOwn(data, "rateChart") ? { rateChart: normalizeRateChart(data.rateChart) } : {}),
     ...statusPatch(data),
@@ -215,10 +224,17 @@ async function reservePickupPartnerId(id) {
 }
 
 async function listPickupPartners(filters = {}) {
-  let query = partnersCollection().orderBy("createdAt", "desc");
-  if (filters.city) query = query.where("city", "==", filters.city);
-  const snapshot = await query.limit(filters.limit || 100).get();
-  let partners = fromSnapshot(snapshot);
+  let query = partnersCollection();
+  query = applyLocationFilters(query, filters);
+  const page = await fetchCursorPage(query, {
+    limit: filters.pageSize || filters.limit,
+    defaultLimit: 100,
+    maxLimit: 500,
+    cursor: filters.cursor,
+    fields: filters.fields,
+    orderBy: [{ field: "createdAt", direction: "desc" }]
+  });
+  let partners = page.records;
 
   if (filters.q) {
     const needle = filters.q.toLowerCase();
@@ -231,7 +247,7 @@ async function listPickupPartners(filters = {}) {
     ].some((value) => String(value || "").toLowerCase().includes(needle)));
   }
 
-  return partners;
+  return listPayload({ records: partners, pageInfo: page.pageInfo });
 }
 
 async function getPickupPartner(id) {
@@ -268,6 +284,7 @@ async function createPickupPartner(data, actor, files = {}) {
       return { ...payload, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     });
 
+    invalidateLocationCache();
     return created;
   } catch (error) {
     await deleteFilesQuietly(collectUploadedPaths(uploaded));

@@ -5,7 +5,7 @@ const { sendSuccess } = require("../utils/response");
 // GET /api/v1/payments — collectionGroup query across all pickup sub-collections
 const list = asyncHandler(async (req, res) => {
   const data = await paymentService.listPayments(req.query);
-  sendSuccess(res, data, "Payments fetched");
+  sendSuccess(res, data, "Payments fetched", 200, data.pageInfo ? { pageInfo: data.pageInfo } : undefined);
 });
 
 // GET /api/v1/payments/pickups/:pickupId

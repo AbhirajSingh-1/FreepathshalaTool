@@ -4,7 +4,7 @@ const { sendSuccess } = require("../utils/response");
 
 const list = asyncHandler(async (req, res) => {
   const data = await pickupService.listPickups(req.query);
-  sendSuccess(res, data, "Pickups fetched");
+  sendSuccess(res, data, "Pickups fetched", 200, data.pageInfo ? { pageInfo: data.pageInfo } : undefined);
 });
 
 const listRaddiRecords = asyncHandler(async (req, res) => {

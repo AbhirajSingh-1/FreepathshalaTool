@@ -1,620 +1,419 @@
-import { useEffect, useState } from 'react'
-import { AppProvider, useApp } from './context/AppContext'
+/**
+ * App.jsx — Central router for FreePathshala
+ *
+ * Architecture:
+ *  BrowserRouter
+ *   └─ RoleProvider          (auth state: user, role, login, logout)
+ *       └─ AppRoutes         (decides public vs. protected shell)
+ *           ├─ /login        (public)
+ *           ├─ /forgot-password (public)
+ *           └─ AppShell      (authenticated layout: sidebar + header)
+ *               ├─ NavContext.Provider   (onNav + addDonor trigger)
+ *               └─ AppProvider          (data: donors, pickups, etc.)
+ *                   └─ <Outlet />       (page components via routes below)
+ *
+ * Role → default landing:
+ *   admin / manager  →  /dashboard
+ *   executive        →  /today-pickups
+ *
+ * Unauthorized route access → silently redirect to role home (ProtectedRoute).
+ * No signup — user creation is managed via the admin User Management page.
+ */
+
+import { createContext, useCallback, useContext, useState } from 'react'
+import {
+  BrowserRouter,
+  Navigate,
+  Outlet,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from 'react-router-dom'
+
+import { AppProvider } from './context/AppContext'
 import { RoleProvider, useRole } from './context/RoleContext'
+import ProtectedRoute, { ROLE_HOME } from './components/auth/ProtectedRoute'
+
 import Sidebar from './component/Layout/Sidebar'
-import Header from './component/Layout/Header'
-import Dashboard from './pages/Dashboard'
-import Donors from './pages/Donors'
-import Supporters from './pages/Supporters'
-import Pickups from './pages/Pickups'
-import PickupPartners from './pages/Pickuppartners'
-import Payments from './pages/Payments'
+import Header  from './component/Layout/Header'
+
+import Login          from './pages/auth/Login'
+import ForgotPassword from './pages/auth/ForgotPassword'
+
+import Dashboard       from './pages/Dashboard'
+import Donors          from './pages/Donors'
+import Supporters      from './pages/Supporters'
+import Pickups         from './pages/Pickups'
+import PickupPartners  from './pages/Pickuppartners'
+import Payments        from './pages/Payments'
 import PickupScheduler from './pages/PickupScheduler'
-import PickupOverview from './pages/PickupOverview'
-import RaddiMaster from './pages/RaddiMaster'
-import SKSOverview from './pages/SKSOverview'
-import TodayPickups from './pages/Todaypickups'
-import UserManagement from './pages/UserManagement'
+import TodayPickups    from './pages/Todaypickups'
+import PickupOverview  from './pages/PickupOverview'
+import RaddiMaster     from './pages/RaddiMaster'
+import SKSOverview     from './pages/SKSOverview'
+import UserManagement  from './pages/UserManagement'
 
-const PAGES = {
-  dashboard: Dashboard,
-  donors: Donors,
-  supporters: Supporters,
-  pickups: Pickups,
-  pickuppartners: PickupPartners,
-  payments: Payments,
-  pickupscheduler: PickupScheduler,
-  todaypickups: TodayPickups,
-  pickupoverview: PickupOverview,
-  raddimaster: RaddiMaster,
-  sksoverview: SKSOverview,
-  usermanagement: UserManagement,
+// ─────────────────────────────────────────────────────────────────────────────
+// Page-ID ↔ URL path mappings
+// Page IDs are the short keys used by onNav() throughout the app.
+// ─────────────────────────────────────────────────────────────────────────────
+const PAGE_TO_PATH = {
+  dashboard:       '/dashboard',
+  donors:          '/donors',
+  supporters:      '/supporters',
+  pickups:         '/pickups',
+  pickuppartners:  '/pickup-partners',
+  payments:        '/payments',
+  pickupscheduler: '/pickup-scheduler',
+  todaypickups:    '/today-pickups',
+  pickupoverview:  '/pickup-overview',
+  raddimaster:     '/raddi-master',
+  sksoverview:     '/sks-overview',
+  usermanagement:  '/user-management',
 }
 
-function LoginScreen() {
-  const { login, authError } = useRole()
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
-  const [showForgot, setShowForgot] = useState(false)
-  const [forgotEmail, setForgotEmail] = useState('')
-  const [forgotSaving, setForgotSaving] = useState(false)
-  const [forgotMsg, setForgotMsg] = useState('')
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 640)
-  const [showPassword, setShowPassword] = useState(false)
+/** Reverse map: URL path → page ID (used to set the sidebar active item) */
+const PATH_TO_PAGE = Object.fromEntries(
+  Object.entries(PAGE_TO_PATH).map(([id, path]) => [path, id])
+)
 
-  // Handle responsive behavior
-  useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 640)
-    window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
-  }, [])
+// ─────────────────────────────────────────────────────────────────────────────
+// NavContext — provides onNav() + the "add donor" trigger down to all pages
+// without prop-drilling through every route element.
+// ─────────────────────────────────────────────────────────────────────────────
+const NavContext = createContext(null)
+const useNav = () => useContext(NavContext)
 
-  const submit = async (event) => {
-    event.preventDefault()
-    setSaving(true)
-    setError('')
-    try {
-      await login({ email, password })
-    } catch (err) {
-      setError(err.message || 'Unable to sign in')
-    } finally {
-      setSaving(false)
-    }
-  }
+// ─────────────────────────────────────────────────────────────────────────────
+// Role sets for ProtectedRoute
+// ─────────────────────────────────────────────────────────────────────────────
+const ADMIN         = ['admin']
+const ADMIN_MANAGER = ['admin', 'manager']
+const ALL_ROLES     = ['admin', 'manager', 'executive']
 
-  const submitForgot = async (e) => {
-    e.preventDefault()
-    if (!forgotEmail.trim()) return
-    setForgotSaving(true)
-    setForgotMsg('')
-    try {
-      const { forgotPassword } = await import('./services/api')
-      await forgotPassword(forgotEmail.trim())
-      setForgotMsg('success')
-    } catch (err) {
-      setForgotMsg(err.message || 'Failed to send reset email')
-    } finally {
-      setForgotSaving(false)
-    }
-  }
-
-  const inputStyle = {
-    width: '100%',
-    padding: '12px 16px',
-    fontSize: isMobile ? '16px' : '14px',
-    border: '2px solid #e5e7eb',
-    borderRadius: '8px',
-    outline: 'none',
-    boxSizing: 'border-box',
-    transition: 'all 0.3s ease',
-    background: '#f9fafb',
-    fontFamily: 'inherit'
-  }
-
-  return (
-    <div style={{
-      position: 'fixed',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-      padding: isMobile ? '16px' : '20px',
-      fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-      overflow: 'auto'
-    }}>
-      {/* Animated background elements */}
-      <div style={{
-        position: 'fixed',
-        top: '-50%',
-        right: '-10%',
-        width: '500px',
-        height: '500px',
-        background: 'rgba(255,255,255,0.1)',
-        borderRadius: '50%',
-        filter: 'blur(40px)',
-        display: isMobile ? 'none' : 'block',
-        pointerEvents: 'none',
-        zIndex: 0
-      }} />
-      <div style={{
-        position: 'fixed',
-        bottom: '-30%',
-        left: '-5%',
-        width: '400px',
-        height: '400px',
-        background: 'rgba(255,255,255,0.05)',
-        borderRadius: '50%',
-        filter: 'blur(40px)',
-        display: isMobile ? 'none' : 'block',
-        pointerEvents: 'none',
-        zIndex: 0
-      }} />
-
-      {/* Login Card */}
-      <div style={{
-        position: 'relative',
-        zIndex: 10,
-        width: isMobile ? '100%' : 'min(420px, 100%)',
-        maxWidth: '100%',
-        background: 'rgba(255, 255, 255, 0.95)',
-        borderRadius: isMobile ? '12px' : '16px',
-        boxShadow: isMobile ? '0 10px 30px rgba(0, 0, 0, 0.2)' : '0 20px 60px rgba(0, 0, 0, 0.3)',
-        backdropFilter: 'blur(10px)',
-        padding: isMobile ? '32px 20px' : '40px 36px',
-        border: '1px solid rgba(255, 255, 255, 0.2)',
-        maxHeight: 'calc(100vh - 40px)',
-        overflowY: 'auto'
-      }}>
-        
-        {/* Header */}
-        <div style={{ marginBottom: isMobile ? '28px' : '32px', textAlign: 'center', flexShrink: 0 }}>
-          {/* Logo Circle */}
-          <div style={{
-            width: isMobile ? '56px' : '60px',
-            height: isMobile ? '56px' : '60px',
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-            borderRadius: '12px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            margin: '0 auto 12px',
-            boxShadow: '0 8px 24px rgba(102, 126, 234, 0.4)',
-            flexShrink: 0
-          }}>
-            <svg width={isMobile ? '28' : '30'} height={isMobile ? '28' : '30'} viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
-              <path d="M12 2L2 7v10c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-10-5z" />
-            </svg>
-          </div>
-          
-          <h1 style={{
-            fontSize: isMobile ? '28px' : '30px',
-            fontWeight: '700',
-            margin: '0 0 6px',
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
-            backgroundClip: 'text',
-            letterSpacing: '-0.5px'
-          }}>
-            FreePathshala
-          </h1>
-          
-          <p style={{
-            color: '#999',
-            fontSize: isMobile ? '13px' : '13.5px',
-            margin: '0',
-            fontWeight: '500'
-          }}>
-            {showForgot ? 'Recover your account' : 'Charity Management Platform'}
-          </p>
-        </div>
-
-        {showForgot ? (
-          // Forgot Password Form
-          <form onSubmit={submitForgot}>
-            {forgotMsg === 'success' ? (
-              <div style={{
-                padding: '14px 12px',
-                borderRadius: '12px',
-                background: '#ecfdf5',
-                border: '1px solid #d1fae5',
-                color: '#047857',
-                fontSize: '13px',
-                fontWeight: '600',
-                marginBottom: isMobile ? '18px' : '16px',
-                display: 'flex',
-                gap: '8px',
-                alignItems: 'flex-start'
-              }}>
-                <span style={{ fontSize: '18px', flexShrink: 0, marginTop: '2px' }}>✓</span>
-                <span>Reset link sent! Check your email inbox</span>
-              </div>
-            ) : (
-              <>
-                <div style={{ marginBottom: isMobile ? '18px' : '16px' }}>
-                  <label style={{
-                    display: 'block',
-                    fontSize: isMobile ? '13px' : '13.5px',
-                    fontWeight: '600',
-                    color: '#333',
-                    marginBottom: '6px'
-                  }}>
-                    Email Address
-                  </label>
-                  <input
-                    type="email"
-                    value={forgotEmail}
-                    onChange={e => setForgotEmail(e.target.value)}
-                    placeholder="your.email@example.com"
-                    autoFocus
-                    required
-                    style={inputStyle}
-                    onFocus={e => {
-                      e.target.style.borderColor = '#667eea'
-                      e.target.style.background = '#fff'
-                    }}
-                    onBlur={e => {
-                      e.target.style.borderColor = '#e5e7eb'
-                      e.target.style.background = '#f9fafb'
-                    }}
-                  />
-                </div>
-                
-                {forgotMsg && (
-                  <div style={{
-                    color: '#dc2626',
-                    fontSize: '12px',
-                    marginBottom: '14px',
-                    padding: '10px 12px',
-                    background: '#fee2e2',
-                    borderRadius: '6px',
-                    border: '1px solid #fecaca'
-                  }}>
-                    {forgotMsg}
-                  </div>
-                )}
-                
-                <button
-                  type="submit"
-                  disabled={forgotSaving}
-                  style={{
-                    width: '100%',
-                    padding: '11px 16px',
-                    fontSize: isMobile ? '15px' : '14px',
-                    fontWeight: '600',
-                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '8px',
-                    cursor: forgotSaving ? 'not-allowed' : 'pointer',
-                    opacity: forgotSaving ? 0.7 : 1,
-                    transition: 'all 0.3s ease',
-                    boxShadow: '0 4px 15px rgba(102, 126, 234, 0.4)',
-                    marginBottom: '10px',
-                    fontFamily: 'inherit'
-                  }}
-                >
-                  {forgotSaving ? 'Sending…' : 'Send Reset Link'}
-                </button>
-              </>
-            )}
-            
-            <button
-              type="button"
-              onClick={() => { setShowForgot(false); setForgotMsg('') }}
-              style={{
-                display: 'block',
-                width: '100%',
-                background: 'none',
-                border: 'none',
-                color: '#667eea',
-                fontSize: isMobile ? '13px' : '13.5px',
-                fontWeight: '600',
-                cursor: 'pointer',
-                padding: '6px',
-                transition: 'color 0.3s ease',
-                fontFamily: 'inherit'
-              }}
-              onMouseEnter={e => e.target.style.color = '#764ba2'}
-              onMouseLeave={e => e.target.style.color = '#667eea'}
-            >
-              ← Back to Sign In
-            </button>
-          </form>
-        ) : (
-          // Sign In Form
-          <form onSubmit={submit}>
-            <div style={{ marginBottom: isMobile ? '18px' : '16px' }}>
-              <label style={{
-                display: 'block',
-                fontSize: isMobile ? '13px' : '13.5px',
-                fontWeight: '600',
-                color: '#333',
-                marginBottom: '6px'
-              }}>
-                Email Address
-              </label>
-              <input
-                type="email"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                placeholder="your.email@example.com"
-                autoFocus
-                required
-                style={inputStyle}
-                onFocus={e => {
-                  e.target.style.borderColor = '#667eea'
-                  e.target.style.background = '#fff'
-                }}
-                onBlur={e => {
-                  e.target.style.borderColor = '#e5e7eb'
-                  e.target.style.background = '#f9fafb'
-                }}
-              />
-            </div>
-
-            <div style={{ marginBottom: isMobile ? '18px' : '16px', position: 'relative' }}>
-              <label style={{
-                display: 'block',
-                fontSize: isMobile ? '13px' : '13.5px',
-                fontWeight: '600',
-                color: '#333',
-                marginBottom: '6px'
-              }}>
-                Password
-              </label>
-              <div style={{ position: 'relative' }}>
-                <input
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  required
-                  style={{...inputStyle, paddingRight: '40px'}}
-                  onFocus={e => {
-                    e.target.style.borderColor = '#667eea'
-                    e.target.style.background = '#fff'
-                  }}
-                  onBlur={e => {
-                    e.target.style.borderColor = '#e5e7eb'
-                    e.target.style.background = '#f9fafb'
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  style={{
-                    position: 'absolute',
-                    right: '12px',
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    padding: '4px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: '#9ca3af',
-                    outline: 'none'
-                  }}
-                  title={showPassword ? "Hide password" : "Show password"}
-                >
-                  {showPassword ? (
-                    <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24M1 1l22 22"/></svg>
-                  ) : (
-                    <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                  )}
-                </button>
-              </div>
-            </div>
-
-            {(error || authError) && (
-              <div style={{
-                color: '#dc2626',
-                fontSize: '12px',
-                marginBottom: '14px',
-                padding: '11px 12px',
-                background: '#fee2e2',
-                borderRadius: '8px',
-                border: '1px solid #fecaca',
-                display: 'flex',
-                gap: '8px',
-                alignItems: 'flex-start'
-              }}>
-                <span style={{ fontSize: '16px', flexShrink: 0 }}>⚠</span>
-                <span>{error || authError}</span>
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={saving}
-              style={{
-                width: '100%',
-                padding: '11px 16px',
-                fontSize: '14px',
-                fontWeight: '600',
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                color: 'white',
-                border: 'none',
-                borderRadius: '8px',
-                cursor: saving ? 'not-allowed' : 'pointer',
-                opacity: saving ? 0.7 : 1,
-                transition: 'all 0.3s ease',
-                boxShadow: '0 4px 15px rgba(102, 126, 234, 0.4)',
-                marginBottom: '10px',
-                fontFamily: 'inherit'
-              }}
-            >
-              {saving ? (
-                <span>Signing in...</span>
-              ) : (
-                <span>Sign In</span>
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => { setShowForgot(true); setForgotEmail(email) }}
-              style={{
-                display: 'block',
-                width: '100%',
-                background: 'none',
-                border: 'none',
-                color: '#999',
-                fontSize: isMobile ? '13px' : '13.5px',
-                fontWeight: '500',
-                cursor: 'pointer',
-                padding: '6px',
-                transition: 'color 0.3s ease',
-                fontFamily: 'inherit'
-              }}
-              onMouseEnter={e => e.target.style.color = '#667eea'}
-              onMouseLeave={e => e.target.style.color = '#999'}
-            >
-              Forgot your password?
-            </button>
-          </form>
-        )}
-
-        {/* Footer */}
-        <div style={{
-          marginTop: isMobile ? '24px' : '24px',
-          paddingTop: isMobile ? '16px' : '18px',
-          borderTop: '1px solid #e5e7eb',
-          textAlign: 'center',
-          color: '#999',
-          fontSize: isMobile ? '11px' : '11.5px'
-        }}>
-          <p style={{ margin: '0' }}>FreePathshala © 2026 • All rights reserved</p>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function AccessDenied({ onBack }) {
-  return (
-    <div className="page-body" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
-      <div className="empty-state">
-        <div className="empty-icon" style={{ background: 'var(--danger-bg)', color: 'var(--danger)' }}>
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" />
-          </svg>
-        </div>
-        <h3>Access Restricted</h3>
-        <p>You do not have permission to view this page. Contact your admin to request access.</p>
-        <button className="btn btn-outline btn-sm" style={{ marginTop: 16 }} onClick={onBack}>
-          Go Back
-        </button>
-      </div>
-    </div>
-  )
-}
-
-// Default page based on role - used as fallback when no hash in URL
-const DEFAULT_PAGE_BY_ROLE = {
-  admin: 'dashboard',
-  manager: 'dashboard',
-  executive: 'todaypickups',
-}
-
+// ─────────────────────────────────────────────────────────────────────────────
+// AppShell — the authenticated layout wrapper.
+// Renders Sidebar + Header and exposes an <Outlet /> for page content.
+// All authenticated routes are nested inside this component.
+// ─────────────────────────────────────────────────────────────────────────────
 function AppShell() {
   const { role, user, logout } = useRole()
-  const { loading, error, refetchAll } = useApp()
+  const navigate = useNavigate()
+  const { pathname } = useLocation()
 
-  // Default page based on role
-  const defaultPage = DEFAULT_PAGE_BY_ROLE[role] || 'todaypickups'
-
-  // Navigation is now simple - frontend allows navigation to any page
-  // Backend enforces authorization with 403 errors if user lacks permission
-  const [page, setPage] = useState(() => {
-    const hash = window.location.hash.replace('#', '')
-    return PAGES[hash] ? hash : defaultPage
-  })
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [addDonor, setAddDonor] = useState(false)
-  const [pickupInitDonorId, setPickupInitDonorId] = useState(null)
-  const [pickupInitPickupId, setPickupInitPickupId] = useState(null)
+  const [addDonor,    setAddDonor]    = useState(false)
 
-  // Navigate to any page - backend will block unauthorized access
-  const navigate = (target, opts = {}) => {
-    setPage(target)
-    window.location.hash = target
+  // Derive current page ID from the URL so Sidebar can highlight it.
+  const currentPage = PATH_TO_PAGE[pathname] ?? (role === 'executive' ? 'todaypickups' : 'dashboard')
+  const homePath    = ROLE_HOME[role] || '/today-pickups'
+
+  /**
+   * onNav(pageId, opts?)
+   *
+   * Used by all pages to trigger client-side navigation.
+   * opts may carry { donorId, pickupId } which are forwarded as
+   * React Router location state and consumed by PickupsPage below.
+   */
+  const onNav = useCallback((target, opts = {}) => {
+    const path  = PAGE_TO_PATH[target] || `/${target}`
+    const state = (opts.donorId || opts.pickupId) ? opts : undefined
     setSidebarOpen(false)
-    setPickupInitDonorId(target === 'pickups' && opts?.donorId ? opts.donorId : null)
-    setPickupInitPickupId(target === 'pickups' && opts?.pickupId ? opts.pickupId : null)
-  }
-
-  useEffect(() => {
-    const onHashChange = () => {
-      const hash = window.location.hash.replace('#', '')
-      // Allow navigation to any hash - backend will enforce permissions
-      const newPage = PAGES[hash] ? hash : defaultPage
-      setPage(newPage)
-      if (newPage !== hash && PAGES[hash]) {
-        window.location.hash = hash
-      } else if (!PAGES[hash]) {
-        window.location.hash = defaultPage
-      }
-    }
-    window.addEventListener('hashchange', onHashChange)
-    return () => window.removeEventListener('hashchange', onHashChange)
-  }, [role]) // eslint-disable-line
-
-const PageComponent = PAGES[page] || Dashboard
-  // Frontend allows navigation to all pages - backend enforces authorization
-  // We no longer check isAccessible here since backend will return 403 for unauthorized access
+    navigate(path, { state })
+  }, [navigate])
 
   return (
-    <div className="app-layout">
-      <Sidebar
-        active={page}
-        onNav={navigate}
-        open={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-        onLogoClick={() => navigate(defaultPage)}
-        role={role}
+    <NavContext.Provider value={{ onNav, addDonor, setAddDonor }}>
+      {/*
+        AppProvider lives inside AppShell so it is only mounted when the user
+        is authenticated. It uses useRole() internally, which is always
+        available because RoleProvider wraps the entire tree.
+      */}
+      <AppProvider>
+        <div className="app-layout">
+          <Sidebar
+            active={currentPage}
+            onNav={onNav}
+            open={sidebarOpen}
+            onClose={() => setSidebarOpen(false)}
+            onLogoClick={() => navigate(homePath)}
+            role={role}
+          />
+
+          <div className="main-content">
+            <Header
+              page={currentPage}
+              onMenuClick={() => setSidebarOpen(o => !o)}
+              onAddDonor={() => setAddDonor(true)}
+              user={user}
+              role={role}
+              onLogout={logout}
+            />
+
+            {/* Page content rendered here by the nested routes */}
+            <Outlet />
+          </div>
+        </div>
+      </AppProvider>
+    </NavContext.Provider>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Thin page wrapper components
+//
+// Each wrapper reads what it needs from NavContext (and sometimes from
+// React Router location.state) and passes them as named props to the
+// actual page component — keeping page components unchanged.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function DashboardPage() {
+  const { onNav } = useNav()
+  return <Dashboard onNav={onNav} />
+}
+
+function DonorsPage() {
+  const { onNav, addDonor, setAddDonor } = useNav()
+  return (
+    <Donors
+      onNav={onNav}
+      triggerAddDonor={addDonor}
+      onAddDonorDone={() => setAddDonor(false)}
+    />
+  )
+}
+
+function SupportersPage() {
+  const { onNav } = useNav()
+  return <Supporters onNav={onNav} />
+}
+
+/**
+ * PickupsPage handles the special case where TodayPickups navigates here
+ * with { donorId, pickupId } in location.state so the Pickups form can
+ * pre-select a donor or continue an existing scheduled pickup.
+ * After consuming the state the URL is replaced so a browser refresh
+ * doesn't re-apply stale state.
+ */
+function PickupsPage() {
+  const { onNav } = useNav()
+  const { state } = useLocation()
+  const navigate  = useNavigate()
+
+  const clearState = useCallback(
+    () => navigate('/pickups', { replace: true, state: null }),
+    [navigate]
+  )
+
+  return (
+    <Pickups
+      onNav={onNav}
+      initialDonorId={state?.donorId   ?? null}
+      initialPickupId={state?.pickupId ?? null}
+      onDonorApplied={clearState}
+      onPickupApplied={clearState}
+    />
+  )
+}
+
+function PickupPartnersPage() {
+  const { onNav } = useNav()
+  return <PickupPartners onNav={onNav} />
+}
+
+function PaymentsPage() {
+  const { onNav } = useNav()
+  return <Payments onNav={onNav} />
+}
+
+function PickupSchedulerPage() {
+  const { onNav } = useNav()
+  return <PickupScheduler onNav={onNav} />
+}
+
+function TodayPickupsPage() {
+  const { onNav } = useNav()
+  return <TodayPickups onNav={onNav} />
+}
+
+function PickupOverviewPage() {
+  const { onNav } = useNav()
+  return <PickupOverview onNav={onNav} />
+}
+
+function RaddiMasterPage() {
+  const { onNav } = useNav()
+  return <RaddiMaster onNav={onNav} />
+}
+
+function SKSOverviewPage() {
+  const { onNav } = useNav()
+  return <SKSOverview onNav={onNav} />
+}
+
+function UserManagementPage() {
+  const { onNav } = useNav()
+  return <UserManagement onNav={onNav} />
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Guard — slim ProtectedRoute wrapper for readable JSX in the route tree
+// ─────────────────────────────────────────────────────────────────────────────
+function Guard({ roles, children }) {
+  return <ProtectedRoute allowedRoles={roles}>{children}</ProtectedRoute>
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Global loading spinner (shown while RoleContext resolves the session)
+// ─────────────────────────────────────────────────────────────────────────────
+function GlobalLoader() {
+  return (
+    <div
+      style={{
+        minHeight: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 14,
+        fontFamily: 'var(--font-body, sans-serif)',
+        color: 'var(--text-muted, #9b8b7a)',
+        fontSize: 14,
+        background: 'var(--bg, #fff9f5)',
+      }}
+    >
+      <span
+        style={{
+          display: 'inline-block',
+          width: 22,
+          height: 22,
+          border: '2.5px solid var(--border, #edd9ce)',
+          borderTopColor: 'var(--primary, #e8521a)',
+          borderRadius: '50%',
+          animation: 'fp-spin 0.75s linear infinite',
+        }}
       />
-      <div className="main-content">
-        <Header
-          page={page}
-          onMenuClick={() => setSidebarOpen(open => !open)}
-          onAddDonor={() => setAddDonor(true)}
-          user={user}
-          role={role}
-          onLogout={logout}
-        />
-        {loading && (
-          <div style={{ padding: '10px 18px', background: 'var(--info-bg)', color: 'var(--info)', fontSize: 13, fontWeight: 700 }}>
-            Loading latest backend data...
-          </div>
-        )}
-        {error && (
-          <div style={{ padding: '10px 18px', background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-            <span>{error}</span>
-            <button className="btn btn-ghost btn-sm" onClick={() => refetchAll({ force: true })}>Retry</button>
-          </div>
-        )}
-        {/* Always render the page component - backend will return 403 if unauthorized */}
-        <PageComponent
-          onNav={navigate}
-          triggerAddDonor={addDonor}
-          onAddDonorDone={() => setAddDonor(false)}
-          initialDonorId={page === 'pickups' ? pickupInitDonorId : undefined}
-          initialPickupId={page === 'pickups' ? pickupInitPickupId : undefined}
-          onDonorApplied={() => setPickupInitDonorId(null)}
-          onPickupApplied={() => setPickupInitPickupId(null)}
-        />
-      </div>
+      <style>{`@keyframes fp-spin { to { transform: rotate(360deg); } }`}</style>
+      Loading…
     </div>
   )
 }
 
-function AuthenticatedApp() {
-  const { authLoading, isAuthenticated } = useRole()
-  if (authLoading) {
-    return <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>Loading...</div>
-  }
-  if (!isAuthenticated) return <LoginScreen />
+// ─────────────────────────────────────────────────────────────────────────────
+// AppRoutes — reads auth state and renders the correct route tree.
+// Must be a child of both BrowserRouter and RoleProvider.
+// ─────────────────────────────────────────────────────────────────────────────
+function AppRoutes() {
+  const { isAuthenticated, authLoading, role } = useRole()
+  const homePath = ROLE_HOME[role] || '/today-pickups'
+
+  // Block rendering until the session token is verified so we never flash
+  // the login page for an already-authenticated user.
+  if (authLoading) return <GlobalLoader />
+
   return (
-    <AppProvider>
-      <AppShell />
-    </AppProvider>
+    <Routes>
+      {/* ── Public routes ─────────────────────────────────────────────────── */}
+
+      {/* Redirect logged-in users away from /login */}
+      <Route
+        path="/login"
+        element={isAuthenticated ? <Navigate to={homePath} replace /> : <Login />}
+      />
+
+      {/* Forgot-password is always accessible (users may be logged out) */}
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+
+      {/* ── Authenticated shell ────────────────────────────────────────────── */}
+      {/*
+        When not authenticated, every path under here redirects to /login.
+        ProtectedRoute inside each route handles role-based access:
+        an authenticated user without the required role is silently
+        redirected to their own home (ROLE_HOME), never to an error page.
+      */}
+      <Route
+        element={
+          isAuthenticated ? <AppShell /> : <Navigate to="/login" replace />
+        }
+      >
+        {/* Root redirect → role-appropriate home */}
+        <Route index element={<Navigate to={homePath} replace />} />
+
+        {/* ── Admin + Manager ── */}
+        <Route
+          path="/dashboard"
+          element={<Guard roles={ADMIN_MANAGER}><DashboardPage /></Guard>}
+        />
+        <Route
+          path="/donors"
+          element={<Guard roles={ADMIN_MANAGER}><DonorsPage /></Guard>}
+        />
+        <Route
+          path="/supporters"
+          element={<Guard roles={ADMIN_MANAGER}><SupportersPage /></Guard>}
+        />
+        <Route
+          path="/payments"
+          element={<Guard roles={ADMIN_MANAGER}><PaymentsPage /></Guard>}
+        />
+        <Route
+          path="/pickup-scheduler"
+          element={<Guard roles={ADMIN_MANAGER}><PickupSchedulerPage /></Guard>}
+        />
+        <Route
+          path="/pickup-overview"
+          element={<Guard roles={ADMIN_MANAGER}><PickupOverviewPage /></Guard>}
+        />
+
+        {/* ── Admin only ── */}
+        <Route
+          path="/raddi-master"
+          element={<Guard roles={ADMIN}><RaddiMasterPage /></Guard>}
+        />
+        <Route
+          path="/user-management"
+          element={<Guard roles={ADMIN}><UserManagementPage /></Guard>}
+        />
+
+        {/* ── All authenticated roles ── */}
+        <Route
+          path="/pickups"
+          element={<Guard roles={ALL_ROLES}><PickupsPage /></Guard>}
+        />
+        <Route
+          path="/pickup-partners"
+          element={<Guard roles={ALL_ROLES}><PickupPartnersPage /></Guard>}
+        />
+        <Route
+          path="/sks-overview"
+          element={<Guard roles={ALL_ROLES}><SKSOverviewPage /></Guard>}
+        />
+        <Route
+          path="/today-pickups"
+          element={<Guard roles={ALL_ROLES}><TodayPickupsPage /></Guard>}
+        />
+      </Route>
+
+      {/* ── Catch-all: unknown paths go to home or login ─────────────────── */}
+      <Route
+        path="*"
+        element={<Navigate to={isAuthenticated ? homePath : '/login'} replace />}
+      />
+    </Routes>
   )
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// App — root export. BrowserRouter wraps everything so hooks like
+// useNavigate() work anywhere in the tree.
+// ─────────────────────────────────────────────────────────────────────────────
 export default function App() {
   return (
-    <RoleProvider>
-      <AuthenticatedApp />
-    </RoleProvider>
+    <BrowserRouter>
+      <RoleProvider>
+        <AppRoutes />
+      </RoleProvider>
+    </BrowserRouter>
   )
 }

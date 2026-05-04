@@ -1,10 +1,11 @@
 const partnerService = require("../services/pickupPartner.service");
 const { asyncHandler } = require("../utils/asyncHandler");
 const { sendSuccess } = require("../utils/response");
+const { logger } = require("../config/logger");
 
 const list = asyncHandler(async (req, res) => {
   const data = await partnerService.listPickupPartners(req.query);
-  sendSuccess(res, data, "Pickup partners fetched");
+  sendSuccess(res, data, "Pickup partners fetched", 200, data.pageInfo ? { pageInfo: data.pageInfo } : undefined);
 });
 
 const get = asyncHandler(async (req, res) => {
@@ -13,13 +14,20 @@ const get = asyncHandler(async (req, res) => {
 });
 
 const create = asyncHandler(async (req, res) => {
-  console.log("[pickupPartner.controller] POST /create - req.files:", req.files ? Object.keys(req.files) : "None", "Fields:", Object.keys(req.body));
+  logger.info("Creating pickup partner", {
+    fileFields: req.files ? Object.keys(req.files) : [],
+    bodyFields: Object.keys(req.body)
+  });
   const data = await partnerService.createPickupPartner(req.body, req.user, req.files);
   sendSuccess(res, data, "Pickup partner created", 201);
 });
 
 const update = asyncHandler(async (req, res) => {
-  console.log("[pickupPartner.controller] PATCH /update - req.files:", req.files ? Object.keys(req.files) : "None", "Fields:", Object.keys(req.body));
+  logger.info("Updating pickup partner", {
+    id: req.params.id,
+    fileFields: req.files ? Object.keys(req.files) : [],
+    bodyFields: Object.keys(req.body)
+  });
   const data = await partnerService.updatePickupPartner(req.params.id, req.body, req.user, req.files);
   sendSuccess(res, data, "Pickup partner updated");
 });

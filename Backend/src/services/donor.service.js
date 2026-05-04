@@ -10,7 +10,13 @@ const {
   cleanUndefined
 } = require("../utils/firestore");
 const { deriveDonorStatus, toNumber } = require("../utils/businessRules");
-const { upsertLocationsFromPayload } = require("./location.service");
+const { fetchCursorPage, listPayload } = require("../utils/query");
+const {
+  applyLocationFilters,
+  invalidateLocationCache,
+  locationSnapshot,
+  upsertLocationsFromPayload
+} = require("./location.service");
 
 function donorsCollection() {
   return db.collection(COLLECTIONS.DONORS);
@@ -18,16 +24,21 @@ function donorsCollection() {
 
 function applyDonorFilters(query, filters = {}) {
   if (filters.status) query = query.where("status", "==", filters.status);
-  if (filters.city) query = query.where("city", "==", filters.city);
-  if (filters.sector) query = query.where("sector", "==", filters.sector);
-  return query;
+  return applyLocationFilters(query, filters);
 }
 
 async function listDonors(filters = {}) {
-  let query = donorsCollection().orderBy("createdAt", "desc");
+  let query = donorsCollection();
   query = applyDonorFilters(query, filters);
-  const snapshot = await query.limit(filters.limit || 100).get();
-  let donors = fromSnapshot(snapshot);
+  const page = await fetchCursorPage(query, {
+    limit: filters.pageSize || filters.limit,
+    defaultLimit: 100,
+    maxLimit: 1000,
+    cursor: filters.cursor,
+    fields: filters.fields,
+    orderBy: [{ field: "createdAt", direction: "desc" }]
+  });
+  let donors = page.records;
 
   // Re-derive status from lastPickup date on every fetch to keep it current
   donors = donors.map((donor) => ({
@@ -45,7 +56,7 @@ async function listDonors(filters = {}) {
     ].some((value) => String(value || "").toLowerCase().includes(needle)));
   }
 
-  return donors;
+  return listPayload({ records: donors, pageInfo: page.pageInfo });
 }
 
 async function getDonor(id) {
@@ -61,6 +72,7 @@ async function createDonor(data, actor) {
     const ref = donorsCollection().doc(id);
     const payload = cleanUndefined({
       ...data,
+      ...locationSnapshot(data),
       id,
       house: data.house || data.houseNo || "",
       status: data.status || deriveDonorStatus(data.lastPickup),
@@ -77,6 +89,7 @@ async function createDonor(data, actor) {
     return { ...payload, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
   });
 
+  invalidateLocationCache();
   return created;
 }
 
@@ -88,6 +101,7 @@ async function updateDonor(id, data, actor) {
   const current = doc.data();
   const payload = cleanUndefined({
     ...data,
+    ...locationSnapshot({ ...current, ...data }),
     house: data.house || data.houseNo || current.house || "",
     status: data.status || deriveDonorStatus(data.lastPickup || current.lastPickup, current.status),
     ...auditUpdate(actor)

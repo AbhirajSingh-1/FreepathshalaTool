@@ -86,7 +86,9 @@ Errors follow:
 - `donors`
 - `pickupPartners`
 - `pickups`
-- `pickups/{pickupId}/payments`
+- `payments`
+- `pickups/{pickupId}/paymentLinks`
+- `dailyAggregates`
 - `sksInflows`
 - `sksOutflows`
 - `cities`
@@ -95,7 +97,21 @@ Errors follow:
 - `counters`
 
 Pickup documents denormalize donor and pickup partner snapshots for faster dashboard/report reads.
-Location documents are upserted automatically when donor, pickup, or pickup partner payloads include new city, sector, or society values.
+Payments are stored in the top-level `payments` collection for reporting, reconciliation, and partner/date queries. Pickup documents keep only lightweight payment ids and `lastPayment`; `paymentLinks` is a backlink for integrity without duplicating the full payment record.
+Location documents are upserted automatically when donor, pickup, or pickup partner payloads include new city, sector, or society values. Location-bearing records store both display names (`city`, `sector`, `society`) and stable ids (`cityId`, `sectorId`, `societyId`) so filters can use indexed ids instead of repeated plain strings.
+
+## Production Firestore Shape
+
+Run the one-time migration after deploying the new code and indexes:
+
+```bash
+cd Backend
+npm run migrate:production-schema -- --rebuild-aggregates
+```
+
+The migration backfills location ids on donors, pickups, and pickup partners; copies legacy `pickups/{pickupId}/payments` records into top-level `payments`; writes `paymentLinks`; and optionally rebuilds derived `dailyAggregates`.
+
+List endpoints support bounded reads with `limit`/`pageSize`, cursor pagination through `cursor`, and optional field projection through `fields`. Frequently accessed master/location/stock/auth-role data is cached with short TTLs and invalidated on mutations.
 
 ## File Uploads
 

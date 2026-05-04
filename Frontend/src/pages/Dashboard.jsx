@@ -146,14 +146,9 @@ function RSTBreakdown({ rstBreakdown = [] }) {
     </div>
   )
 
-  const total = rstBreakdown.reduce((s, r) => s + r.value, 0)
-  const hasKg = rstBreakdown.some(r => typeof r.value === 'number' && r.value % 1 !== 0)
-  const unit = hasKg ? 'kg' : 'items'
-
   return (
     <div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--secondary)' }}>Total: {total.toFixed(1)} {unit}</span>
         <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>· {rstBreakdown.length} item types</span>
       </div>
       <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
@@ -163,7 +158,7 @@ function RSTBreakdown({ rstBreakdown = [] }) {
               outerRadius={75} innerRadius={28} labelLine={false} label={CustomPieLabel}>
               {rstBreakdown.map((_, i) => <Cell key={i} fill={RST_PIE_COLORS[i % RST_PIE_COLORS.length]} />)}
             </Pie>
-            <Tooltip formatter={(v) => [`${v} ${unit}`, '']} contentStyle={{ borderRadius: 8, fontSize: 12 }} />
+            <Tooltip formatter={(v) => [`${v}`, '']} contentStyle={{ borderRadius: 8, fontSize: 12 }} />
           </PieChart>
         </ResponsiveContainer>
         <div style={{ flex: 1, minWidth: 150 }}>
@@ -171,7 +166,6 @@ function RSTBreakdown({ rstBreakdown = [] }) {
             <div key={item.name} style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5 }}>
               <div style={{ width: 9, height: 9, borderRadius: 2, background: RST_PIE_COLORS[i % RST_PIE_COLORS.length], flexShrink: 0 }} />
               <div style={{ flex: 1, fontSize: 12, color: 'var(--text-secondary)' }} className="truncate">{item.name}</div>
-              <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-primary)' }}>{item.value} {unit}</div>
               <div style={{ fontSize: 10.5, color: 'var(--text-muted)', minWidth: 28, textAlign: 'right' }}>{item.pct}%</div>
             </div>
           ))}
@@ -192,12 +186,9 @@ function SKSBreakdown({ sksBreakdown = [] }) {
     </div>
   )
 
-  const totalItems = sksBreakdown.reduce((s, r) => s + r.value, 0)
-
   return (
     <div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--info)' }}>Total: {totalItems} items collected</span>
         <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>· {sksBreakdown.length} item types</span>
       </div>
       <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
@@ -207,7 +198,7 @@ function SKSBreakdown({ sksBreakdown = [] }) {
               outerRadius={75} innerRadius={28} labelLine={false} label={CustomPieLabel}>
               {sksBreakdown.map((_, i) => <Cell key={i} fill={SKS_PIE_COLORS[i % SKS_PIE_COLORS.length]} />)}
             </Pie>
-            <Tooltip formatter={(v) => [`${v} items`, '']} contentStyle={{ borderRadius: 8, fontSize: 12 }} />
+            <Tooltip formatter={(v) => [`${v}`, '']} contentStyle={{ borderRadius: 8, fontSize: 12 }} />
           </PieChart>
         </ResponsiveContainer>
         <div style={{ flex: 1, minWidth: 150 }}>
@@ -215,7 +206,6 @@ function SKSBreakdown({ sksBreakdown = [] }) {
             <div key={item.name} style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5 }}>
               <div style={{ width: 9, height: 9, borderRadius: 2, background: SKS_PIE_COLORS[i % SKS_PIE_COLORS.length], flexShrink: 0 }} />
               <div style={{ flex: 1, fontSize: 12, color: 'var(--text-secondary)' }} className="truncate">{item.name}</div>
-              <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-primary)' }}>{item.value}</div>
               <div style={{ fontSize: 10.5, color: 'var(--text-muted)', minWidth: 28, textAlign: 'right' }}>{item.pct}%</div>
             </div>
           ))}

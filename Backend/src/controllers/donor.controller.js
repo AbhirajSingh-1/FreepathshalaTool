@@ -4,7 +4,7 @@ const { sendSuccess } = require("../utils/response");
 
 const list = asyncHandler(async (req, res) => {
   const data = await donorService.listDonors(req.query);
-  sendSuccess(res, data, "Donors fetched");
+  sendSuccess(res, data, "Donors fetched", 200, data.pageInfo ? { pageInfo: data.pageInfo } : undefined);
 });
 
 const get = asyncHandler(async (req, res) => {

@@ -15,6 +15,7 @@
     "verify:auth": "node scripts/verify-auth-setup.js",
     "seed:locations": "node scripts/seed-locations.js",
     "seed:master": "node scripts/seed-master-data.js",
+    "migrate:production-schema": "node scripts/migrate-production-schema.js",
     "serve:functions": "firebase emulators:start --only functions,firestore,storage,hosting",
     "deploy:functions": "firebase deploy --only functions",
     "deploy:rules": "firebase deploy --only firestore:rules,storage",

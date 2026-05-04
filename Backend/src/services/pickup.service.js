@@ -11,6 +11,7 @@ const {
   increment,
   arrayUnion
 } = require("../utils/firestore");
+const { fetchCursorPage, listPayload } = require("../utils/query");
 const {
   toNumber,
   derivePaymentStatus,
@@ -22,7 +23,17 @@ const {
 } = require("../utils/businessRules");
 const { donorsCollection } = require("./donor.service");
 const { partnersCollection, findPartnerByName } = require("./pickupPartner.service");
-const { upsertLocationsFromPayload } = require("./location.service");
+const { logger } = require("../config/logger");
+const {
+  applyLocationFilters,
+  invalidateLocationCache,
+  locationSnapshot,
+  upsertLocationsFromPayload
+} = require("./location.service");
+const {
+  applyPickupAggregateDelta,
+  applyPickupAggregateChange
+} = require("./aggregate.service");
 
 function pickupsCollection() {
   return db.collection(COLLECTIONS.PICKUPS);
@@ -39,6 +50,9 @@ function pickupTransactionSummary(pickup) {
     pickupId:  pickup.id,
     donor:     pickup.donorName || "",
     society:   pickup.society || "",
+    cityId:    pickup.cityId || "",
+    sectorId:  pickup.sectorId || "",
+    societyId: pickup.societyId || "",
     value:     toNumber(pickup.totalValue),
     paid:      toNumber(pickup.amountPaid),
     status:    pickup.paymentStatus || derivePaymentStatus(pickup.totalValue, pickup.amountPaid)
@@ -78,6 +92,7 @@ function buildPickupPayload(data, donor, partner, id) {
 
   return cleanUndefined({
     ...data,
+    ...locationSnapshot(data),
     ...donorSnapshot,
     ...partnerSnapshot,
     id,
@@ -101,6 +116,7 @@ function buildPickupPayload(data, donor, partner, id) {
 
 function applyCompletedPickupSideEffects(tx, pickup, donorRef, partnerRef, partner) {
   if (pickup.status !== "Completed") return;
+  applyPickupAggregateDelta(tx, pickup, 1);
 
   if (donorRef) {
     tx.set(donorRef, cleanUndefined({
@@ -128,6 +144,8 @@ function applyCompletedPickupSideEffects(tx, pickup, donorRef, partnerRef, partn
 }
 
 function applyCompletedPickupDelta(tx, oldPickup, newPickup, oldPartnerRef, newPartnerRef) {
+  applyPickupAggregateChange(tx, oldPickup, newPickup);
+
   const oldCompleted = oldPickup.status === "Completed";
   const newCompleted = newPickup.status === "Completed";
 
@@ -160,22 +178,32 @@ function applyCompletedPickupDelta(tx, oldPickup, newPickup, oldPartnerRef, newP
 
 // ── List pickups — supports comprehensive backend filtering ───────────────────
 async function listPickups(filters = {}) {
-  let query = pickupsCollection().orderBy("date", "desc");
+  let query = pickupsCollection();
 
   if (filters.status)    query = query.where("status",    "==", filters.status);
   if (filters.donorId)   query = query.where("donorId",   "==", filters.donorId);
   if (filters.partnerId) query = query.where("partnerId", "==", filters.partnerId);
-  if (filters.city)      query = query.where("city",      "==", filters.city);
-  if (filters.sector)    query = query.where("sector",    "==", filters.sector);
+  query = applyLocationFilters(query, filters);
   if (filters.dateFrom)  query = query.where("date", ">=", filters.dateFrom);
   if (filters.dateTo)    query = query.where("date", "<=", filters.dateTo);
   // paymentStatus filter (for pending-payment queries)
-  if (filters.paymentStatus) query = query.where("paymentStatus", "==", filters.paymentStatus);
+  if (Array.isArray(filters.paymentStatus) && filters.paymentStatus.length) {
+    query = query.where("paymentStatus", "in", filters.paymentStatus.slice(0, 10));
+  } else if (filters.paymentStatus) {
+    query = query.where("paymentStatus", "==", filters.paymentStatus);
+  }
   // pickupMode filter
   if (filters.pickupMode) query = query.where("pickupMode", "==", filters.pickupMode);
 
-  const snapshot = await query.limit(filters.limit || 100).get();
-  let pickups    = fromSnapshot(snapshot);
+  const page = await fetchCursorPage(query, {
+    limit: filters.pageSize || filters.limit,
+    defaultLimit: 100,
+    maxLimit: 1000,
+    cursor: filters.cursor,
+    fields: filters.fields,
+    orderBy: [{ field: "date", direction: "desc" }]
+  });
+  let pickups = page.records;
 
   // Text search is handled in-process (Firestore has no full-text search)
   if (filters.q) {
@@ -186,7 +214,7 @@ async function listPickups(filters = {}) {
     );
   }
 
-  return pickups;
+  return listPayload({ records: pickups, pageInfo: page.pageInfo });
 }
 
 async function getPickup(id) {
@@ -197,7 +225,7 @@ async function getPickup(id) {
 }
 
 async function createPickup(data, actor) {
-  return db.runTransaction(async (tx) => {
+  const created = await db.runTransaction(async (tx) => {
     const { donorRef, donor, partnerRef, partner } = await resolveDonorAndPartner(tx, data);
     const id      = data.id || data.orderId || await nextId("pickups", tx);
     const ref     = pickupsCollection().doc(id);
@@ -209,10 +237,12 @@ async function createPickup(data, actor) {
 
     return { ...payload, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
   });
+  invalidateLocationCache();
+  return created;
 }
 
 async function updatePickup(id, data, actor) {
-  return db.runTransaction(async (tx) => {
+  const updated = await db.runTransaction(async (tx) => {
     const ref        = pickupsCollection().doc(id);
     const currentDoc = await tx.get(ref);
     if (!currentDoc.exists) throw new AppError("Pickup not found", 404, "PICKUP_NOT_FOUND");
@@ -242,6 +272,8 @@ async function updatePickup(id, data, actor) {
 
     return { ...oldPickup, ...newPickup, updatedAt: new Date().toISOString() };
   });
+  invalidateLocationCache();
+  return updated;
 }
 
 async function recordPickup(id, data, actor) {
@@ -310,7 +342,7 @@ async function listRaddiRecords(filters = {}) {
     };
   } catch (err) {
     if (err.code === 9 || err.code === "failed-precondition") {
-      console.warn("Raddi records query needs a Firestore composite index. Returning empty.", err.message);
+      logger.warn("Raddi records query needs a Firestore composite index", { error: err.message });
       return { records: [], pagination: { page: 1, pageSize: 200, total: 0, pages: 0 } };
     }
     throw err;

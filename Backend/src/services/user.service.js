@@ -1,18 +1,28 @@
 const { auth, db } = require("../config/firebase");
 const { COLLECTIONS } = require("../config/collections");
+const { logger } = require("../config/logger");
 const { AppError } = require("../utils/AppError");
 const { fromDoc, fromSnapshot, auditCreate, auditUpdate } = require("../utils/firestore");
+const { fetchCursorPage, listPayload } = require("../utils/query");
+const { cache } = require("../utils/cache");
 
 function usersCollection() {
   return db.collection(COLLECTIONS.USERS);
 }
 
-async function listUsers({ limit = 100, role, active } = {}) {
-  let query = usersCollection().orderBy("createdAt", "desc");
+async function listUsers({ limit = 100, pageSize, cursor, fields, role, active } = {}) {
+  let query = usersCollection();
   if (role) query = query.where("role", "==", role);
   if (active !== undefined) query = query.where("active", "==", active);
-  const snapshot = await query.limit(limit).get();
-  return fromSnapshot(snapshot);
+  const page = await fetchCursorPage(query, {
+    limit: pageSize || limit,
+    defaultLimit: 100,
+    maxLimit: 500,
+    cursor,
+    fields,
+    orderBy: [{ field: "createdAt", direction: "desc" }]
+  });
+  return listPayload(page);
 }
 
 async function getUser(id) {
@@ -67,6 +77,7 @@ async function createUser(data, actor) {
 
   // User roles are ONLY assigned at the time of user creation.
   await usersCollection().doc(uid).set(payload);
+  cache.invalidate(`auth:user:${uid}`);
   return getUser(uid);
 }
 
@@ -87,8 +98,7 @@ async function updateUser(id, data, actor) {
   if (typeof data.active === "boolean") authPatch.disabled = !data.active;
   if (Object.keys(authPatch).length) await auth.updateUser(id, authPatch);
   if (data.role) {
-    const { logger } = require("../config/logger");
-    logger.info(`Updating role for user ${id} to ${data.role} via updateUser by actor: ${actor?.email || 'system'}`);
+    logger.info("Updating user role", { uid: id, role: data.role, actor: actor?.email || "system" });
     await auth.setCustomUserClaims(id, { role: data.role });
   }
 
@@ -101,6 +111,7 @@ async function updateUser(id, data, actor) {
 
   // We use update() instead of set(..., {merge: true}) to avoid overwriting documents accidentally
   await ref.update(updatePayload);
+  cache.invalidate(`auth:user:${id}`);
 
   return getUser(id);
 }
@@ -126,6 +137,7 @@ async function deleteUser(id) {
   }
   
   await usersCollection().doc(id).delete();
+  cache.invalidate(`auth:user:${id}`);
 
   return { id, deleted: true };
 }

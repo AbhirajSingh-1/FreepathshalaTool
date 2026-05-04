@@ -39,6 +39,11 @@ const paymentListSchema = z.object({
     partnerId: optionalString,
     dateFrom:  optionalString,
     dateTo:    optionalString,
+    refMode:   optionalString,
+    writeOff:  z.preprocess((value) => value === "true" ? true : value === "false" ? false : value, z.boolean().optional()),
+    cursor:    optionalString,
+    fields:    optionalString,
+    pageSize:  z.coerce.number().int().min(1).max(500).optional(),
     limit:     z.coerce.number().int().min(1).max(500).optional()
   }).default({})
 });
@@ -50,7 +55,8 @@ const partnerSummarySchema = z.object({
     dateTo:    optionalString,
     partnerId: optionalString,
     search:    optionalString,
-    status:    z.enum(["pending", "clear", "all"]).optional()
+    status:    z.enum(["pending", "clear", "all"]).optional(),
+    recordLimit: z.coerce.number().int().min(50).max(1000).optional()
   }).default({})
 });
 

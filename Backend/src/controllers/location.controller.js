@@ -8,7 +8,7 @@ const listCities = asyncHandler(async (_req, res) => {
 });
 
 const listSectors = asyncHandler(async (req, res) => {
-  const data = await locationService.listSectors(req.query.city);
+  const data = await locationService.listSectors(req.query);
   sendSuccess(res, data, "Sectors fetched");
 });
 

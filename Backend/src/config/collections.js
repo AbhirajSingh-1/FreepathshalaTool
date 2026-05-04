@@ -4,6 +4,8 @@ const COLLECTIONS = {
   PICKUP_PARTNERS: "pickupPartners",
   PICKUPS: "pickups",
   PAYMENTS: "payments",
+  PAYMENT_LINKS: "paymentLinks",
+  DAILY_AGGREGATES: "dailyAggregates",
   SKS_INFLOWS: "sksInflows",
   SKS_OUTFLOWS: "sksOutflows",
   RST_ITEMS: "rstItems",

@@ -4,7 +4,7 @@ const { sendSuccess } = require("../utils/response");
 
 const list = asyncHandler(async (req, res) => {
   const data = await userService.listUsers(req.query);
-  sendSuccess(res, data, "Users fetched");
+  sendSuccess(res, data, "Users fetched", 200, data.pageInfo ? { pageInfo: data.pageInfo } : undefined);
 });
 
 const get = asyncHandler(async (req, res) => {

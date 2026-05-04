@@ -19,10 +19,17 @@ const listQuery = z.object({
     status: z.string().optional(),
     city: z.string().optional(),
     sector: z.string().optional(),
+    society: z.string().optional(),
+    cityId: z.string().optional(),
+    sectorId: z.string().optional(),
+    societyId: z.string().optional(),
     donorId: z.string().optional(),
     partnerId: z.string().optional(),
     dateFrom: z.string().optional(),
     dateTo: z.string().optional(),
+    cursor: z.string().optional(),
+    pageSize: z.coerce.number().int().min(1).max(1000).optional(),
+    fields: z.string().optional(),
     q: z.string().optional()
   }).passthrough().default({})
 });

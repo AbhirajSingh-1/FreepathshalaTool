@@ -27,6 +27,17 @@ service cloud.firestore {
       allow write: if false; // Admin SDK bypasses rules
     }
 
+    // Derived analytics and payment ledgers are served through the backend.
+    // Direct client access stays closed so role checks, validation, and
+    // reporting query limits are enforced consistently in Express.
+    match /payments/{paymentId} {
+      allow read, write: if false;
+    }
+
+    match /dailyAggregates/{aggregateId} {
+      allow read, write: if false;
+    }
+
     // ── Users collection ─────────────────────────────────────
     match /users/{userId} {
       // A user can read their own document; admins & managers can read all.

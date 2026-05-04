@@ -1,7 +1,9 @@
 const { listDonors } = require("./donor.service");
-const { listPickups, listPickupPartners: _lpp, listRaddiRecords } = require("./pickup.service");
+const { listPickups } = require("./pickup.service");
 const { listPickupPartners } = require("./pickupPartner.service");
 const { listInflows, listOutflows, getStock } = require("./sks.service");
+const { buildRaddiRecordFromPickup } = require("../utils/businessRules");
+const { listDailyAggregates, sumAggregates } = require("./aggregate.service");
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function monthKey(dateValue) {
@@ -48,6 +50,22 @@ function buildMonthlySKSChart(completedPickups) {
   return Object.entries(map)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([, v]) => v)
+    .slice(-7);
+}
+
+function buildMonthlyChartFromAggregates(rows = [], valueField, outputField) {
+  const map = {};
+  rows.forEach((row) => {
+    const key = monthSortKey(row.date || row.id);
+    if (!key) return;
+    const label = monthKey(row.date || row.id);
+    if (!map[key]) map[key] = { month: label, [outputField]: 0, pickups: 0 };
+    map[key][outputField] += Number(row[valueField]) || 0;
+    map[key].pickups += Number(row.totalPickupsCompleted) || 0;
+  });
+  return Object.entries(map)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([, value]) => value)
     .slice(-7);
 }
 
@@ -152,6 +170,12 @@ function buildSKSDispatchSummary(sksOutflows) {
 
 async function getStats(filters = {}) {
   const { dateFrom, dateTo, city, sector, partnerId } = filters;
+  const canUseDailyAggregates = !(city || sector || partnerId);
+  const aggregateRows = canUseDailyAggregates
+    ? await listDailyAggregates({ dateFrom, dateTo, limit: 370 })
+    : [];
+  const aggregateTotals = sumAggregates(aggregateRows);
+  const hasAggregates = aggregateRows.length > 0 && Object.keys(aggregateTotals).length > 0;
 
   const pickupFilters = {
     limit:     2000,
@@ -180,26 +204,26 @@ async function getStats(filters = {}) {
     listDonors(donorFilters),                    // 0
     listPickups(pickupFilters),                   // 1
     listPickupPartners({ limit: 500 }),           // 2
-    listRaddiRecords({ ...pickupFilters }),        // 3 — returns { records, pagination }
-    listInflows(sksFilters),                      // 4
-    listOutflows(sksFilters),                     // 5
-    getStock(),                                   // 6
+    listInflows(sksFilters),                      // 3
+    listOutflows(sksFilters),                     // 4
+    getStock(),                                   // 5
   ]);
 
   const donors      = safe(results[0]) || [];
   const pickups     = safe(results[1]) || [];
   const partners    = safe(results[2]) || [];
-  // ── FIX: listRaddiRecords returns { records, pagination } ──────────────────
-  const raddiResult = safe(results[3]);
-  const raddiRecords = Array.isArray(raddiResult)
-    ? raddiResult
-    : (raddiResult?.records || []);
-  // ─────────────────────────────────────────────────────────────────────────
-  const sksInflows  = safe(results[4]) || [];
-  const sksOutflows = safe(results[5]) || [];
-  const stock       = safe(results[6]) || [];
+  const sksInflows  = safe(results[3]) || [];
+  const sksOutflows = safe(results[4]) || [];
+  const stock       = safe(results[5]) || [];
 
   const completedPickups  = pickups.filter((p) => p.status === "Completed");
+  const raddiRecords      = completedPickups.map((pickup) =>
+    buildRaddiRecordFromPickup(
+      pickup,
+      pickup.donorSnapshot || pickup,
+      pickup.pickupPartnerSnapshot || pickup
+    )
+  );
   const pendingPayments   = pickups.filter((p) => ["Not Paid", "Partially Paid"].includes(p.paymentStatus));
   const upcomingPickups   = pickups.filter((p) => p.status === "Pending");
   const now               = new Date();
@@ -211,8 +235,12 @@ async function getStats(filters = {}) {
   const sksBreakdown         = buildSKSBreakdown(completedPickups);
   const rstFinancialSummary  = buildRSTFinancialSummary(raddiRecords);
   const sksDispatchSummary   = buildSKSDispatchSummary(sksOutflows);
-  const monthlyRSTChart      = buildMonthlyRSTChart(completedPickups);
-  const monthlySKSChart      = buildMonthlySKSChart(completedPickups);
+  const monthlyRSTChart      = hasAggregates
+    ? buildMonthlyChartFromAggregates(aggregateRows, "totalRevenue", "value")
+    : buildMonthlyRSTChart(completedPickups);
+  const monthlySKSChart      = hasAggregates
+    ? buildMonthlyChartFromAggregates(aggregateRows, "totalSKSPickups", "items")
+    : buildMonthlySKSChart(completedPickups);
 
   const stats = {
     totalDonors:              donors.length,
@@ -222,23 +250,23 @@ async function getStats(filters = {}) {
     pickupDueDonors:          donors.filter((d) => d.status === "Pickup Due").length,
     atRiskDonors:             donors.filter((d) => d.status === "At Risk").length,
     churnedDonors:            donors.filter((d) => d.status === "Churned").length,
-    totalPickupsCompleted:    completedPickups.length,
-    totalPickupsThisMonth:    completedPickups.length,
-    totalRSTValue:            pickups.reduce((sum, p) => sum + (Number(p.totalValue) || 0), 0),
+    totalPickupsCompleted:    hasAggregates ? Number(aggregateTotals.totalPickupsCompleted) || 0 : completedPickups.length,
+    totalPickupsThisMonth:    hasAggregates ? Number(aggregateTotals.totalPickupsCompleted) || 0 : completedPickups.length,
+    totalRSTValue:            hasAggregates ? Number(aggregateTotals.totalRSTValue) || 0 : pickups.reduce((sum, p) => sum + (Number(p.totalValue) || 0), 0),
     pendingPayments:          pendingPayments.length,
     upcomingPickups:          upcomingPickups.length,
     overduePickups:           overduePickups.length,
-    drivePickups:             pickups.filter((p) => p.pickupMode === "Drive").length,
-    individualPickups:        pickups.filter((p) => p.pickupMode === "Individual").length,
-    totalRaddiKg:             raddiRecords.reduce((sum, r) => sum + (Number(r.totalKg) || 0), 0),
-    totalRevenue:             raddiRecords.reduce((sum, r) => sum + (Number(r.totalAmount) || 0), 0),
+    drivePickups:             hasAggregates ? Number(aggregateTotals.drivePickups) || 0 : pickups.filter((p) => p.pickupMode === "Drive").length,
+    individualPickups:        hasAggregates ? Number(aggregateTotals.individualPickups) || 0 : pickups.filter((p) => p.pickupMode === "Individual").length,
+    totalRaddiKg:             hasAggregates ? Number(aggregateTotals.totalRaddiKg) || 0 : raddiRecords.reduce((sum, r) => sum + (Number(r.totalKg) || 0), 0),
+    totalRevenue:             hasAggregates ? Number(aggregateTotals.totalRevenue) || 0 : raddiRecords.reduce((sum, r) => sum + (Number(r.totalAmount) || 0), 0),
     amountReceived:           partners.reduce((sum, k) => sum + (Number(k.amountReceived) || 0), 0),
     pendingFromPickupPartners: partners.reduce((sum, k) => sum + (Number(k.pendingAmount) || 0), 0),
     sksInflowCount:           sksInflows.length,
     sksOutflowCount:          sksOutflows.length,
     sksStockItems:            stock.length,
     totalSKSItems:            sksInflows.reduce((s, r) => s + (r.items || []).reduce((a, it) => a + (it.qty || 0), 0), 0),
-    totalSKSPickups:          completedPickups.filter((p) => (p.sksItems || []).length > 0).length,
+    totalSKSPickups:          hasAggregates ? Number(aggregateTotals.totalSKSPickups) || 0 : completedPickups.filter((p) => (p.sksItems || []).length > 0).length,
   };
 
   return {
@@ -254,6 +282,7 @@ async function getStats(filters = {}) {
     itemBreakdown: rstBreakdown,
     stock,
     appliedFilters: { dateFrom, dateTo, city, sector, partnerId },
+    aggregation: { dailyAggregatesUsed: hasAggregates, rows: aggregateRows.length },
   };
 }
 

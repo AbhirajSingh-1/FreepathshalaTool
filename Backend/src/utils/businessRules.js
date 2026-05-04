@@ -51,8 +51,11 @@ function buildDonorSnapshot(donor = {}) {
     house: donor.house || "",
     houseNo: donor.houseNo || donor.house || "",
     society: donor.society || "",
+    societyId: donor.societyId || "",
     sector: donor.sector || "",
-    city: donor.city || ""
+    sectorId: donor.sectorId || "",
+    city: donor.city || "",
+    cityId: donor.cityId || ""
   };
 }
 
@@ -85,8 +88,11 @@ function buildRaddiRecordFromPickup(pickup, donor = {}, partner = {}) {
     name: donor.name || pickup.donorName || "",
     houseNo: donor.house || pickup.houseNo || "",
     society: donor.society || pickup.society || "",
+    societyId: donor.societyId || pickup.societyId || "",
     sector: donor.sector || pickup.sector || "",
+    sectorId: donor.sectorId || pickup.sectorId || "",
     city: donor.city || pickup.city || "",
+    cityId: donor.cityId || pickup.cityId || "",
     pickupDate: pickup.date || "",
     orderDate: pickup.createdAt || "",
     PickupPartnerName: partner.name || pickup.PickupPartner || pickup.pickupPartnerName || "",

@@ -2,6 +2,9 @@ const { auth, db } = require("../config/firebase");
 const { COLLECTIONS } = require("../config/collections");
 const { AppError } = require("../utils/AppError");
 const { logger } = require("../config/logger");
+const { cache } = require("../utils/cache");
+
+const AUTH_PROFILE_TTL_SECONDS = 60;
 
 /**
  * Middleware that verifies the Firebase ID token from the Authorization header
@@ -28,9 +31,11 @@ async function requireAuth(req, _res, next) {
     let role = tokenRole;
 
     try {
-      const userDoc = await db.collection(COLLECTIONS.USERS).doc(decoded.uid).get();
-      if (userDoc.exists) {
-        const profile = userDoc.data();
+      const profile = await cache.getOrFetch(`auth:user:${decoded.uid}`, async () => {
+        const userDoc = await db.collection(COLLECTIONS.USERS).doc(decoded.uid).get();
+        return userDoc.exists ? userDoc.data() : null;
+      }, AUTH_PROFILE_TTL_SECONDS);
+      if (profile) {
         if (profile.active === false) {
           throw new AppError("This user account is disabled", 403, "USER_DISABLED");
         }
@@ -84,7 +89,13 @@ function requireRoles(...roles) {
   };
 }
 
+function requirePermissions(...permissions) {
+  const allowedRoles = [...new Set(permissions.flat())];
+  return requireRoles(...allowedRoles);
+}
+
 module.exports = {
   requireAuth,
-  requireRoles
+  requireRoles,
+  requirePermissions
 };
