@@ -60,17 +60,25 @@ async function uploadFile({ file, purpose, entityId, user }) {
   const fileRef = bucket.file(storagePath);
   const downloadToken = randomUUID();
 
-  await fileRef.save(file.buffer, {
-    resumable: false,
-    metadata: {
-      contentType: file.mimetype,
+  console.log(`[uploadFile] Attempting to upload ${file.originalname} to bucket ${bucket.name} at path ${storagePath}`);
+
+  try {
+    await fileRef.save(file.buffer, {
+      resumable: false,
       metadata: {
-        firebaseStorageDownloadTokens: downloadToken,
-        originalName: file.originalname,
-        uploadedBy: user?.uid || "system"
+        contentType: file.mimetype,
+        metadata: {
+          firebaseStorageDownloadTokens: downloadToken,
+          originalName: file.originalname,
+          uploadedBy: user?.uid || "system"
+        }
       }
-    }
-  });
+    });
+    console.log(`[uploadFile] Successfully uploaded ${file.originalname} to ${storagePath}`);
+  } catch (err) {
+    console.error(`[uploadFile] Firebase Storage save error for ${storagePath}:`, err);
+    throw err;
+  }
 
   const downloadUrl = createFirebaseDownloadUrl(bucket.name, storagePath, downloadToken);
 

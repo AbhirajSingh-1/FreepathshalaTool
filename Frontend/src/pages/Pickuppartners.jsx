@@ -2,7 +2,7 @@
  
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import {
-  Phone, Plus, Edit2, Trash2, X, Star, Mail,
+  Phone, Plus, Edit2, Trash2, X, Mail,
   IndianRupee, AlertCircle, CheckCircle,
   ChevronDown, ChevronUp, Package,
   MapPin, Search, Users, Building2, Layers,
@@ -398,8 +398,7 @@ function ExecutiveSectorSearch({ partners, onAddNew, canAddPartner = false }) {
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ fontWeight:700, fontSize:15, marginBottom:3 }}>{k.name}</div>
                     <div style={{ fontSize:12.5, color:'var(--text-muted)', display:'flex', alignItems:'center', gap:4 }}><Phone size={11}/> {k.mobile||'—'}</div>
-                    <div style={{ display:'flex', alignItems:'center', gap:4, marginTop:4 }}><Star size={11} fill="var(--accent)" color="var(--accent)"/><span style={{ fontSize:12, fontWeight:600 }}>{k.rating??4.0}</span></div>
-                  </div>
+                   </div>
                 </div>
                 <div style={{ background:'var(--secondary-light)', borderRadius:10, padding:'12px 14px' }}>
                   <div style={{ fontSize:11, fontWeight:700, color:'var(--secondary)', textTransform:'uppercase', marginBottom:4 }}>Call for Pickup</div>
@@ -855,7 +854,7 @@ export default function PickupPartners() {
                 {/* Documents */}
                 <div style={{ background: 'rgba(59,130,246,0.04)', borderRadius: 8, padding: '10px 12px', border: '1px solid rgba(59,130,246,0.12)' }}>
                   <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--info)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <FileText size={11} /> Documents <span style={{ fontSize: 9.5, fontWeight: 400, color: 'var(--text-muted)', textTransform: 'none', letterSpacing: 0 }}>(optional)</span>
+                    <FileText size={11} /> Documents <span sty le={{ fontSize: 9.5, fontWeight: 400, color: 'var(--text-muted)', textTransform: 'none', letterSpacing: 0 }}>(optional)</span>
                   </div>
                   <div className="partner-modal-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                     <DocUpload
@@ -1019,8 +1018,7 @@ export default function PickupPartners() {
                     </div>
                     <div style={{ display:'flex', alignItems:'center', gap:10, fontSize:12, color:'var(--text-muted)' }}>
                       <span style={{ display:'flex', alignItems:'center', gap:3 }}><Phone size={10}/> {k.mobile||'—'}</span>
-                      <span style={{ display:'flex', alignItems:'center', gap:3 }}><Star size={10} fill="var(--accent)" color="var(--accent)"/> {k.rating??4.0}</span>
-                      {k.aadhaarDoc && <span style={{ fontSize:9, padding:'1px 5px', borderRadius:10, background:'var(--secondary-light)', color:'var(--secondary)', fontWeight:700 }}>✓ Verified</span>}
+                       {k.aadhaarDoc && <span style={{ fontSize:9, padding:'1px 5px', borderRadius:10, background:'var(--secondary-light)', color:'var(--secondary)', fontWeight:700 }}>✓ Verified</span>}
                     </div>
                   </div>
                   <div style={{ display:'flex', gap:3, flexShrink:0 }}>

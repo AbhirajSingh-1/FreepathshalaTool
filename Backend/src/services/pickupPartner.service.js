@@ -51,6 +51,10 @@ async function uploadPartnerFiles(files, partnerId, actor) {
 
   try {
     if (photo) {
+      if (!photo.buffer) {
+        throw new Error("Photo buffer is missing from Multer req.files");
+      }
+      console.log(`[uploadPartnerFiles] Uploading photo for partner ${partnerId}...`);
       const file = await uploadFile({
         file: photo,
         purpose: "pickup-partners/photo",
@@ -61,6 +65,10 @@ async function uploadPartnerFiles(files, partnerId, actor) {
     }
 
     if (aadhaar) {
+      if (!aadhaar.buffer) {
+        throw new Error("Aadhaar buffer is missing from Multer req.files");
+      }
+      console.log(`[uploadPartnerFiles] Uploading aadhaar for partner ${partnerId}...`);
       const file = await uploadFile({
         file: aadhaar,
         purpose: "pickup-partners/aadhaar",
@@ -72,6 +80,7 @@ async function uploadPartnerFiles(files, partnerId, actor) {
 
     return uploaded;
   } catch (error) {
+    console.error(`[uploadPartnerFiles] Error uploading files for partner ${partnerId}:`, error);
     await deleteFilesQuietly(collectUploadedPaths(uploaded));
     throw asPartnerUploadError(error);
   }
@@ -160,10 +169,10 @@ function asPartnerSaveError(error) {
 function asPartnerUploadError(error) {
   if (error instanceof AppError) return error;
   return new AppError(
-    "Document upload failed. Check Firebase Storage configuration and try again.",
+    `Document upload failed: ${error.message || "Check Firebase Storage configuration"}.`,
     502,
     "PICKUP_PARTNER_UPLOAD_FAILED",
-    { reason: error.message }
+    { reason: error.message, stack: error.stack }
   );
 }
 
