@@ -12,7 +12,6 @@ import {
 import { useApp }  from '../context/AppContext'
 import { useRole } from '../context/RoleContext'
 import { fmtCurrency } from '../utils/helpers'
-import { uploadFileViaSignedUrl } from '../services/api'
 
 // Rate chart items and defaults are derived dynamically from backend master data
 function buildRateChartDefaults(rstItemsFull = []) {
@@ -24,7 +23,32 @@ function buildRateChartDefaults(rstItemsFull = []) {
   }
 }
 
-const isPartnerActive = (k) => k.isActive !== false
+const isPartnerActive = (k) => k?.isActive !== false && k?.active !== false
+const MAX_PARTNER_FILE_MB = Number(import.meta.env.VITE_MAX_UPLOAD_MB || 8)
+const MAX_PARTNER_FILE_BYTES = MAX_PARTNER_FILE_MB * 1024 * 1024
+const PHOTO_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
+const DOCUMENT_TYPES = new Set([...PHOTO_TYPES, 'application/pdf'])
+
+function isFileValue(value) {
+  return typeof File !== 'undefined' && value instanceof File
+}
+
+function validatePartnerFile(file, key) {
+  const allowed = key === 'photo' ? PHOTO_TYPES : DOCUMENT_TYPES
+  const label = key === 'photo' ? 'Photo' : 'Aadhaar document'
+
+  if (!allowed.has(file.type)) {
+    return key === 'photo'
+      ? `${label} must be a JPEG, PNG, or WebP image.`
+      : `${label} must be a JPEG, PNG, WebP, or PDF file.`
+  }
+
+  if (file.size > MAX_PARTNER_FILE_BYTES) {
+    return `${label} must be ${MAX_PARTNER_FILE_MB} MB or smaller.`
+  }
+
+  return ''
+}
 
 function ToastStack({ toasts, onRemove }) {
   return (
@@ -284,7 +308,7 @@ function CoverageSelector({ city, sectors, societies, onSectors, onSocieties }) 
 }
 
 // ── Executive sector search ───────────────────────────────────────────────────
-function ExecutiveSectorSearch({ partners, onAddNew }) {
+function ExecutiveSectorSearch({ partners, onAddNew, canAddPartner = false }) {
   const { CITIES, CITY_SECTORS, locations } = useApp()
   const [city,    setCity]    = useState('Gurgaon')
   const [sector,  setSector]  = useState('')
@@ -313,7 +337,9 @@ function ExecutiveSectorSearch({ partners, onAddNew }) {
           <div style={{ fontFamily:'var(--font-display)', fontSize:16, fontWeight:600 }}>Find Your Pickup Partner</div>
           <div style={{ fontSize:12, color:'var(--text-muted)', marginTop:2 }}>Select your area to find the assigned pickup partner</div>
         </div>
-        <button className="btn btn-primary btn-sm" onClick={onAddNew}><Plus size={14}/> Add Partner</button>
+        {canAddPartner && (
+          <button className="btn btn-primary btn-sm" onClick={onAddNew}><Plus size={14}/> Add Partner</button>
+        )}
       </div>
       <div className="card" style={{ marginBottom:20 }}>
         <div className="card-header" style={{ background:'var(--primary-light)' }}>
@@ -429,18 +455,33 @@ function PartnerPaymentSummaryCards({ partner, raddiRecords }) {
 // ── Document upload + view field ──────────────────────────────────────────────
 // FIX: Aadhaar and Photo view now correctly handles data URIs
 function DocUpload({ label, icon: Icon, value, accept, onChange, onRemove, preview = false }) {
+  const fileSelected = isFileValue(value)
+  const [objectUrl, setObjectUrl] = useState('')
+  const viewUrl = fileSelected ? objectUrl : value
+
+  useEffect(() => {
+    if (!fileSelected) {
+      setObjectUrl('')
+      return undefined
+    }
+
+    const url = URL.createObjectURL(value)
+    setObjectUrl(url)
+    return () => URL.revokeObjectURL(url)
+  }, [fileSelected, value])
+
   const handleView = () => {
-    if (!value) return
+    if (!viewUrl) return
     // Handle data URI (base64)
-    if (value.startsWith('data:')) {
-      if (value.startsWith('data:image/') || preview) {
+    if (typeof viewUrl === 'string' && viewUrl.startsWith('data:')) {
+      if (viewUrl.startsWith('data:image/') || preview) {
         // Open image in new window
         const win = window.open('', '_blank')
-        win.document.write(`<!DOCTYPE html><html><head><title>${label}</title><style>body{margin:0;background:#111;display:flex;align-items:center;justify-content:center;min-height:100vh;}</style></head><body><img src="${value}" style="max-width:100vw;max-height:100vh;object-fit:contain;" /></body></html>`)
+        win.document.write(`<!DOCTYPE html><html><head><title>${label}</title><style>body{margin:0;background:#111;display:flex;align-items:center;justify-content:center;min-height:100vh;}</style></head><body><img src="${viewUrl}" style="max-width:100vw;max-height:100vh;object-fit:contain;" /></body></html>`)
         win.document.close()
-      } else if (value.startsWith('data:application/pdf')) {
+      } else if (viewUrl.startsWith('data:application/pdf')) {
         // Decode and open PDF
-        const byteString = atob(value.split(',')[1])
+        const byteString = atob(viewUrl.split(',')[1])
         const mimeString = 'application/pdf'
         const ab = new ArrayBuffer(byteString.length)
         const ia = new Uint8Array(ab)
@@ -451,11 +492,11 @@ function DocUpload({ label, icon: Icon, value, accept, onChange, onRemove, previ
       } else {
         // Generic: open in new tab directly
         const win = window.open('', '_blank')
-        win.document.write(`<!DOCTYPE html><html><head><title>${label}</title></head><body><img src="${value}" style="max-width:100%;"/></body></html>`)
+        win.document.write(`<!DOCTYPE html><html><head><title>${label}</title></head><body><img src="${viewUrl}" style="max-width:100%;"/></body></html>`)
         win.document.close()
       }
     } else {
-      window.open(value, '_blank')
+      window.open(viewUrl, '_blank')
     }
   }
 
@@ -464,16 +505,16 @@ function DocUpload({ label, icon: Icon, value, accept, onChange, onRemove, previ
       <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5 }}>
         <Icon size={12} color="var(--info)" />{label}
         {value && (
-          <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10.5, fontWeight: 700, color: 'var(--secondary)', background: 'var(--secondary-light)', padding: '1px 8px', borderRadius: 20, border: '1px solid rgba(27,94,53,0.2)' }}>
-            <ShieldCheck size={9} /> Verified
+          <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10.5, fontWeight: 700, color: fileSelected ? 'var(--info)' : 'var(--secondary)', background: fileSelected ? 'var(--info-bg)' : 'var(--secondary-light)', padding: '1px 8px', borderRadius: 20, border: fileSelected ? '1px solid rgba(59,130,246,0.2)' : '1px solid rgba(27,94,53,0.2)' }}>
+            <ShieldCheck size={9} /> {fileSelected ? 'Selected' : 'Uploaded'}
           </span>
         )}
       </label>
       {value ? (
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-          {preview && (
+          {preview && viewUrl && (
             <img
-              src={value}
+              src={viewUrl}
               alt={label}
               onClick={handleView}
               style={{ width: 64, height: 64, borderRadius: 8, objectFit: 'cover', border: '1.5px solid var(--secondary)', display: 'block', flexShrink: 0, cursor: 'pointer' }}
@@ -481,6 +522,11 @@ function DocUpload({ label, icon: Icon, value, accept, onChange, onRemove, previ
             />
           )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {fileSelected && (
+              <div style={{ maxWidth: 150, fontSize: 10.5, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {value.name}
+              </div>
+            )}
             <button
               type="button"
               onClick={handleView}
@@ -541,7 +587,7 @@ export default function PickupPartners() {
       showToast(nextActive ? 'Partner reactivated' : 'Partner marked inactive', 'success', k.name || '')
     } catch (e) {
       console.error('Status toggle error:', e)
-      showToast('Status update failed', 'error', 'Please try again.')
+      showToast('Status update failed', 'error', e?.message || 'Please try again.')
     }
   }, [updatePartner, showToast])
 
@@ -550,7 +596,7 @@ export default function PickupPartners() {
     name:'', mobile:'', email:'', city:'Gurgaon',
     sectors:[], societies:[], area:'',
     rateChart:{ ...DEFAULT_RATE_CHART },
-    photo: null, aadhaarDoc: null,
+    photo: null, photoPath: null, aadhaarDoc: null, aadhaarPath: null,
   })
   const [editing,        setEditing]        = useState(null)
   const [saving,         setSaving]         = useState(false)
@@ -584,21 +630,20 @@ export default function PickupPartners() {
   const hasDirFilters = dirSearch || dirFilterCity || dirFilterSector || dirFilterSociety
   const clearDirFilters = () => { setDirSearch(''); setDirFilterCity(''); setDirFilterSector(''); setDirFilterSociety('') }
 
-  const handleFileUpload = (key, label) => async (e) => {
+  const handleFileSelect = (key, label) => (e) => {
     const file = e.target.files?.[0]; if (!file) return
     const hadFile = !!form[key]
-    try {
-      const uploaded = await uploadFileViaSignedUrl(file, {
-        purpose: key === 'aadhaarDoc' ? 'aadhaar' : 'general',
-        entityId: editing?.id || form.mobile || 'pickup-partner',
-      })
-      setForm(f => ({ ...f, [key]: uploaded.url }))
-      showToast(`${label} ${hadFile ? 'replaced' : 'uploaded'}`, 'success', `${file.name} attached successfully.`)
-    } catch {
-      showToast(`${label} upload failed`, 'error', 'Please try another file.')
-    } finally {
+
+    const validationError = validatePartnerFile(file, key)
+    if (validationError) {
+      showToast(`${label} not accepted`, 'error', validationError)
       e.target.value = ''
+      return
     }
+
+    setForm(f => ({ ...f, [key]: file }))
+    showToast(`${label} ${hadFile ? 'replaced' : 'selected'}`, 'success', `${file.name} will upload when you save.`)
+    e.target.value = ''
   }
 
   const open = useCallback((k = null) => {
@@ -609,17 +654,21 @@ export default function PickupPartners() {
         city: k.city||'Gurgaon', sectors: Array.isArray(k.sectors)?[...k.sectors]:[],
         societies: Array.isArray(k.societies)?[...k.societies]:[], area: k.area||'',
         rateChart: { ...DEFAULT_RATE_CHART, ...(k.rateChart||{}) },
-        photo: k.photo || null, aadhaarDoc: k.aadhaarDoc || null,
+        photo: k.photo || k.photoUrl || null,
+        photoPath: k.photoPath || k.photoFile?.storagePath || null,
+        aadhaarDoc: k.aadhaarDoc || k.aadhaarUrl || k.aadhaarDocument || null,
+        aadhaarPath: k.aadhaarPath || k.aadhaarFile?.storagePath || null,
       })
     } else {
-      setForm({ name:'', mobile:'', email:'', city:'Gurgaon', sectors:[], societies:[], area:'', rateChart:{ ...DEFAULT_RATE_CHART }, photo: null, aadhaarDoc: null })
+      setForm({ name:'', mobile:'', email:'', city:'Gurgaon', sectors:[], societies:[], area:'', rateChart:{ ...DEFAULT_RATE_CHART }, photo: null, photoPath: null, aadhaarDoc: null, aadhaarPath: null })
     }
     setModal(true)
-  }, [])
+  }, [DEFAULT_RATE_CHART])
 
   const close = useCallback(() => { setModal(false); setEditing(null); setError(''); setShowRateEditor(false) }, [])
 
   const save = useCallback(async () => {
+    if (!canEditPartner) { setError('Only admins and managers can add or edit pickup partners.'); return }
     if (!form.name?.trim())   { setError('Name is required.'); return }
     if (!form.mobile?.trim()) { setError('Mobile number is required.'); return }
     setSaving(true); setError('')
@@ -628,23 +677,24 @@ export default function PickupPartners() {
       editing?.id ? await updatePartner(editing.id, { ...form, area }) : await addPartner({ ...form, area })
       showToast(editing?.id ? 'Pickup partner updated' : 'Pickup partner added', 'success', form.name.trim())
       close()
-    } catch {
-      setError('Failed to save. Please try again.')
-      showToast('Save failed', 'error', 'The partner details were not saved.')
+    } catch (err) {
+      const message = err?.message || 'The partner details were not saved.'
+      setError(message)
+      showToast('Save failed', 'error', message)
     }
     finally { setSaving(false) }
-  }, [form, editing, addPartner, updatePartner, close, showToast])
+  }, [form, editing, addPartner, updatePartner, close, showToast, canEditPartner])
 
   // FIX: Delete clears all partner data including photo/aadhaar (they're in state)
   const removeK = useCallback(async (id) => {
-    if (role !== 'admin') return
+    if (!canDeletePartner) return
     if (!window.confirm('Remove this pickup partner? This will delete all their data including documents.')) return
     try {
       await deletePartner(id)
       showToast('Pickup partner removed', 'success')
     } catch (err) {
       console.error(err)
-      showToast('Delete failed', 'error', 'The partner was not removed.')
+      showToast('Delete failed', 'error', err?.message || 'The partner was not removed.')
     }
   }, [canDeletePartner, deletePartner, showToast])
 
@@ -814,7 +864,7 @@ export default function PickupPartners() {
                       value={form.photo}
                       accept="image/*"
                       preview
-                      onChange={handleFileUpload('photo', 'Photo')}
+                      onChange={handleFileSelect('photo', 'Photo')}
                       onRemove={() => {
                         setForm(f => ({ ...f, photo: null }))
                         showToast('Photo removed', 'info')
@@ -825,7 +875,7 @@ export default function PickupPartners() {
                       icon={FileText}
                       value={form.aadhaarDoc}
                       accept="image/*,application/pdf"
-                      onChange={handleFileUpload('aadhaarDoc', 'Aadhaar document')}
+                      onChange={handleFileSelect('aadhaarDoc', 'Aadhaar document')}
                       onRemove={() => {
                         setForm(f => ({ ...f, aadhaarDoc: null }))
                         showToast('Aadhaar document removed', 'info')
@@ -858,8 +908,7 @@ export default function PickupPartners() {
   if (isExecutive) {
     return (
       <div className="page-body">
-        <ExecutiveSectorSearch partners={partners} onAddNew={() => open()}/>
-        {modal && renderModal()}
+        <ExecutiveSectorSearch partners={partners} />
         <ToastStack toasts={toasts} onRemove={removeToast} />
       </div>
     )

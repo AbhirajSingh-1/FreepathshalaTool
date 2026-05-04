@@ -1,7 +1,7 @@
 // Frontend/src/components/SocietyInput.jsx
 // Reusable society selector: native <select> for known societies +
 // text input fallback for custom names. Works reliably on all devices.
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState } from 'react'
 import { useApp } from '../context/AppContext'
 
 /**
@@ -15,13 +15,11 @@ import { useApp } from '../context/AppContext'
  *  style    — optional extra input style
  */
 export default function SocietyInput({ city, sector, value, onChange, id, style }) {
-  const [customMode, setCustomMode] = useState(false)
+  const [customChoice, setCustomChoice] = useState({ key: '', enabled: false })
   const { locations } = useApp()
 
-  // Reset to select mode whenever city or sector changes
-  useEffect(() => {
-    setCustomMode(false)
-  }, [city, sector])
+  const locationKey = `${city || ''}::${sector || ''}`
+  const customMode = customChoice.enabled && customChoice.key === locationKey
 
   // Build suggestion list for the current city + sector
   const suggestions = useMemo(() => {
@@ -62,7 +60,7 @@ export default function SocietyInput({ city, sector, value, onChange, id, style 
           {suggestions.length > 0 && (
             <button
               type="button"
-              onClick={() => { setCustomMode(false) }}
+              onClick={() => setCustomChoice({ key: locationKey, enabled: false })}
               style={{
                 fontSize: 11, color: 'var(--primary)', background: 'none',
                 border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0,
@@ -95,9 +93,10 @@ export default function SocietyInput({ city, sector, value, onChange, id, style 
         onChange={e => {
           const v = e.target.value
           if (v === '__custom__') {
-            setCustomMode(true)
+            setCustomChoice({ key: locationKey, enabled: true })
             onChange('')
           } else {
+            setCustomChoice({ key: locationKey, enabled: false })
             onChange(v)
           }
         }}

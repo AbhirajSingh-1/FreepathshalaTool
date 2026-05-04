@@ -13,12 +13,12 @@ const get = asyncHandler(async (req, res) => {
 });
 
 const create = asyncHandler(async (req, res) => {
-  const data = await partnerService.createPickupPartner(req.body, req.user);
+  const data = await partnerService.createPickupPartner(req.body, req.user, req.files);
   sendSuccess(res, data, "Pickup partner created", 201);
 });
 
 const update = asyncHandler(async (req, res) => {
-  const data = await partnerService.updatePickupPartner(req.params.id, req.body, req.user);
+  const data = await partnerService.updatePickupPartner(req.params.id, req.body, req.user, req.files);
   sendSuccess(res, data, "Pickup partner updated");
 });
 

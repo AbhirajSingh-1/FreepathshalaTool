@@ -184,6 +184,7 @@ export default function RaddiMaster() {
   const [expanded,     setExpanded]    = useState({})
 
   const debounceRef = useRef(null)
+  const requestSeqRef = useRef(0)
 
   // Collect unique partner names and sectors from loaded records
   const pickuppartnerNames = useMemo(() => [...new Set(records.map(r => r.PickupPartnerName).filter(Boolean))].sort(), [records])
@@ -219,19 +220,22 @@ export default function RaddiMaster() {
   useEffect(() => {
     clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(async () => {
+      const requestId = ++requestSeqRef.current
       setFetching(true)
       setFetchError('')
       try {
         const result = await fetchFilteredRaddiRecords(fetchParams)
+        if (requestId !== requestSeqRef.current) return
         const rows = Array.isArray(result) ? result : (result?.records || [])
         const pag  = result?.pagination || { page: 1, pageSize: PAGE_SIZE, total: rows.length, pages: 1 }
         setRecords(rows)
         setPagination(pag)
       } catch (err) {
+        if (requestId !== requestSeqRef.current) return
         setFetchError(err.message || 'Failed to load records')
         setRecords([])
       } finally {
-        setFetching(false)
+        if (requestId === requestSeqRef.current) setFetching(false)
       }
     }, 350)
     return () => clearTimeout(debounceRef.current)

@@ -672,6 +672,7 @@ function PartnerPaymentHub({ PickupPartners, recordPickupPartnerPayment, clearPa
   const [fetchError,  setFetchError]  = useState('')
 
   const debounceRef = useRef(null)
+  const requestSeqRef = useRef(0)
 
   const { from: dateFrom, to: dateTo } = useMemo(
     () => getDateRange(datePreset, customFrom, customTo),
@@ -688,16 +689,19 @@ function PartnerPaymentHub({ PickupPartners, recordPickupPartnerPayment, clearPa
   }), [dateFrom, dateTo, partnerFilter, globalSearch, statusFilter])
 
   // Fetch from backend whenever filters change
-  const loadSummary = useCallback(async (params) => {
+  const loadSummary = useCallback(async (params, options = {}) => {
+    const requestId = ++requestSeqRef.current
     setFetching(true)
     setFetchError('')
     try {
-      const data = await fetchPartnerSummary(params)
+      const data = await fetchPartnerSummary(params, options)
+      if (requestId !== requestSeqRef.current) return
       setPartnerData(data)
     } catch (err) {
+      if (requestId !== requestSeqRef.current) return
       setFetchError(err.message || 'Failed to load payment summary')
     } finally {
-      setFetching(false)
+      if (requestId === requestSeqRef.current) setFetching(false)
     }
   }, [fetchPartnerSummary])
 
@@ -750,7 +754,7 @@ function PartnerPaymentHub({ PickupPartners, recordPickupPartnerPayment, clearPa
       notify('Payment recorded', 'success', `${money(amount)} from ${payContext.partnerName}`)
       setPayContext(null)
       // Re-fetch summary after mutation
-      await loadSummary(summaryParams)
+      await loadSummary(summaryParams, { force: true })
     } catch {
       notify('Payment failed', 'error', 'Please try again.')
     } finally { setSaving(false) }
@@ -767,7 +771,7 @@ function PartnerPaymentHub({ PickupPartners, recordPickupPartnerPayment, clearPa
       }
       notify('Write-off saved', 'success', `${writeOffCtx.partnerName} updated.`)
       setWriteOffCtx(null)
-      await loadSummary(summaryParams)
+      await loadSummary(summaryParams, { force: true })
     } catch {
       notify('Write-off failed', 'error')
     } finally { setSaving(false) }
@@ -888,7 +892,7 @@ function PartnerPaymentHub({ PickupPartners, recordPickupPartnerPayment, clearPa
               </button>
             ))}
           </div>
-          <button className="btn btn-ghost btn-sm" onClick={() => loadSummary(summaryParams)} title="Refresh" style={{ flexShrink:0 }}>
+          <button className="btn btn-ghost btn-sm" onClick={() => loadSummary(summaryParams, { force: true })} title="Refresh" style={{ flexShrink:0 }}>
             <RefreshCw size={13}/>
           </button>
           <button className="btn btn-ghost btn-sm" onClick={handleExport} style={{ flexShrink:0 }}>
@@ -901,7 +905,7 @@ function PartnerPaymentHub({ PickupPartners, recordPickupPartnerPayment, clearPa
       {fetchError && (
         <div className="alert-strip alert-danger" style={{ marginBottom:12 }}>
           <AlertCircle size={13}/> {fetchError}
-          <button className="btn btn-ghost btn-sm" style={{ marginLeft:'auto' }} onClick={() => loadSummary(summaryParams)}>Retry</button>
+          <button className="btn btn-ghost btn-sm" style={{ marginLeft:'auto' }} onClick={() => loadSummary(summaryParams, { force: true })}>Retry</button>
         </div>
       )}
 
@@ -980,6 +984,7 @@ function RSTAnalytics() {
   const [fetching,     setFetching]     = useState(false)
   const [page,         setPage]         = useState(1)
   const debounceRef = useRef(null)
+  const requestSeqRef = useRef(0)
 
   const { from: dateFrom, to: dateTo } = useMemo(() => getDateRange(datePreset, customFrom, customTo), [datePreset, customFrom, customTo])
   const uniqueSectors = useMemo(() => {
@@ -1001,15 +1006,21 @@ function RSTAnalytics() {
   useEffect(() => {
     clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(async () => {
+      const requestId = ++requestSeqRef.current
       setFetching(true)
       try {
         const result = await fetchFilteredRaddiRecords(fetchParams)
+        if (requestId !== requestSeqRef.current) return
         // result is { records, pagination } from backend
         const rows = Array.isArray(result) ? result : (result?.records || [])
         const pag  = result?.pagination || { page:1, pageSize:200, total:rows.length, pages:1 }
         setRecords(rows)
         setPagination(pag)
-      } catch { /* ignore */ } finally { setFetching(false) }
+      } catch {
+        /* ignore stale analytics errors */
+      } finally {
+        if (requestId === requestSeqRef.current) setFetching(false)
+      }
     }, 350)
     return () => clearTimeout(debounceRef.current)
   }, [fetchParams, fetchFilteredRaddiRecords])
@@ -1223,9 +1234,9 @@ function SKSPaymentAnalytics() {
   }
 
   const toggleSort = (key) => { setSortDir(d=>sortKey===key?(d==='asc'?'desc':'asc'):'desc'); setSortKey(key) }
-  const SortTh = ({ k, children, align }) => (
-    <th onClick={() => toggleSort(k)} style={{ cursor:'pointer', userSelect:'none', textAlign:align||'left' }}>
-      {children}<span style={{ marginLeft:4, opacity:sortKey===k?0.7:0.2 }}>{sortKey===k?(sortDir==='asc'?'↑':'↓'):'↕'}</span>
+  const renderSortTh = (key, label, align) => (
+    <th onClick={() => toggleSort(key)} style={{ cursor:'pointer', userSelect:'none', textAlign:align||'left' }}>
+      {label}<span style={{ marginLeft:4, opacity:sortKey===key?0.7:0.2 }}>{sortKey===key?(sortDir==='asc'?'↑':'↓'):'↕'}</span>
     </th>
   )
 
@@ -1284,12 +1295,12 @@ function SKSPaymentAnalytics() {
           <table>
             <thead>
               <tr>
-                <SortTh k="id">ID</SortTh>
-                <SortTh k="date">Date</SortTh>
-                <SortTh k="partnerName">Recipient</SortTh>
+                {renderSortTh('id', 'ID')}
+                {renderSortTh('date', 'Date')}
+                {renderSortTh('partnerName', 'Recipient')}
                 <th>Items</th>
-                <SortTh k="_paid" align="right">Received</SortTh>
-                <SortTh k="_pending" align="right">Pending</SortTh>
+                {renderSortTh('_paid', 'Received', 'right')}
+                {renderSortTh('_pending', 'Pending', 'right')}
                 <th>Status</th>
                 <th>Proof</th>
               </tr>

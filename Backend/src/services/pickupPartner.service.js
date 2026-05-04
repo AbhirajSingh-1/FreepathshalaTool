@@ -11,9 +11,198 @@ const {
 } = require("../utils/firestore");
 const { toNumber } = require("../utils/businessRules");
 const { upsertLocationsFromPayload } = require("./location.service");
+const { uploadFile, deleteFile } = require("./storage.service");
 
 function partnersCollection() {
   return db.collection(COLLECTIONS.PICKUP_PARTNERS);
+}
+
+function hasOwn(input, key) {
+  return Object.prototype.hasOwnProperty.call(input, key);
+}
+
+function isRemoval(value) {
+  return value === null || value === "" || value === "null";
+}
+
+function firstFile(files = {}, fieldNames = []) {
+  for (const fieldName of fieldNames) {
+    const value = files[fieldName];
+    if (Array.isArray(value) && value[0]) return value[0];
+  }
+  return null;
+}
+
+function filePayload(uploaded) {
+  return {
+    storagePath: uploaded.storagePath,
+    url: uploaded.url,
+    fileName: uploaded.fileName,
+    contentType: uploaded.contentType,
+    size: uploaded.size,
+    uploadedAt: uploaded.uploadedAt
+  };
+}
+
+async function uploadPartnerFiles(files, partnerId, actor) {
+  const photo = firstFile(files, ["photo"]);
+  const aadhaar = firstFile(files, ["aadhaarDoc", "aadhaarDocument"]);
+  const uploaded = {};
+
+  try {
+    if (photo) {
+      const file = await uploadFile({
+        file: photo,
+        purpose: "pickup-partners/photo",
+        entityId: partnerId,
+        user: actor
+      });
+      uploaded.photo = file;
+    }
+
+    if (aadhaar) {
+      const file = await uploadFile({
+        file: aadhaar,
+        purpose: "pickup-partners/aadhaar",
+        entityId: partnerId,
+        user: actor
+      });
+      uploaded.aadhaar = file;
+    }
+
+    return uploaded;
+  } catch (error) {
+    await deleteFilesQuietly(collectUploadedPaths(uploaded));
+    throw asPartnerUploadError(error);
+  }
+}
+
+function collectUploadedPaths(uploaded = {}) {
+  return Object.values(uploaded)
+    .map((file) => file?.storagePath)
+    .filter(Boolean);
+}
+
+function collectPartnerDocumentPaths(partner = {}) {
+  return [
+    partner.photoPath,
+    partner.photoFile?.storagePath,
+    partner.aadhaarPath,
+    partner.aadhaarFile?.storagePath
+  ].filter(Boolean);
+}
+
+async function deleteFilesQuietly(paths = []) {
+  const uniquePaths = [...new Set(paths.filter(Boolean))];
+  await Promise.allSettled(uniquePaths.map((path) => deleteFile(path)));
+}
+
+function documentPatch(data = {}, uploaded = {}) {
+  const patch = {};
+
+  if (uploaded.photo) {
+    patch.photo = uploaded.photo.url;
+    patch.photoUrl = uploaded.photo.url;
+    patch.photoPath = uploaded.photo.storagePath;
+    patch.photoFile = filePayload(uploaded.photo);
+  } else if (isRemoval(data.photo) || isRemoval(data.photoUrl)) {
+    patch.photo = null;
+    patch.photoUrl = null;
+    patch.photoPath = null;
+    patch.photoFile = null;
+  }
+
+  if (uploaded.aadhaar) {
+    patch.aadhaarDoc = uploaded.aadhaar.url;
+    patch.aadhaarDocument = uploaded.aadhaar.url;
+    patch.aadhaarUrl = uploaded.aadhaar.url;
+    patch.aadhaarPath = uploaded.aadhaar.storagePath;
+    patch.aadhaarFile = filePayload(uploaded.aadhaar);
+  } else if (
+    isRemoval(data.aadhaarDoc) ||
+    isRemoval(data.aadhaarDocument) ||
+    isRemoval(data.aadhaarUrl)
+  ) {
+    patch.aadhaarDoc = null;
+    patch.aadhaarDocument = null;
+    patch.aadhaarUrl = null;
+    patch.aadhaarPath = null;
+    patch.aadhaarFile = null;
+  }
+
+  return patch;
+}
+
+function normalizeRateChart(rateChart) {
+  if (!rateChart || typeof rateChart !== "object") return rateChart;
+  return Object.entries(rateChart).reduce((acc, [item, value]) => {
+    acc[item] = toNumber(value);
+    return acc;
+  }, {});
+}
+
+function statusPatch(data = {}, isCreate = false) {
+  if (!isCreate && !hasOwn(data, "active") && !hasOwn(data, "isActive")) return {};
+  const active = data.active !== false && data.isActive !== false;
+  return { active, isActive: active };
+}
+
+function asPartnerSaveError(error) {
+  if (error instanceof AppError) return error;
+  return new AppError(
+    "Pickup partner could not be saved. Please check the partner details and try again.",
+    500,
+    "PICKUP_PARTNER_SAVE_FAILED",
+    { reason: error.message }
+  );
+}
+
+function asPartnerUploadError(error) {
+  if (error instanceof AppError) return error;
+  return new AppError(
+    "Document upload failed. Check Firebase Storage configuration and try again.",
+    502,
+    "PICKUP_PARTNER_UPLOAD_FAILED",
+    { reason: error.message }
+  );
+}
+
+function createPayload(data, id, actor, uploaded) {
+  return cleanUndefined({
+    ...data,
+    ...documentPatch(data, uploaded),
+    id,
+    rating: toNumber(data.rating, 4),
+    totalPickups: toNumber(data.totalPickups),
+    totalValue: toNumber(data.totalValue),
+    amountReceived: toNumber(data.amountReceived),
+    pendingAmount: toNumber(data.pendingAmount),
+    rateChart: normalizeRateChart(data.rateChart),
+    transactions: data.transactions || [],
+    ...statusPatch(data, true),
+    ...auditCreate(actor)
+  });
+}
+
+function updatePayload(data, actor, uploaded) {
+  const numericPatch = {};
+  ["rating", "totalPickups", "totalValue", "amountReceived", "pendingAmount"].forEach((key) => {
+    if (hasOwn(data, key)) numericPatch[key] = toNumber(data[key], key === "rating" ? 4 : 0);
+  });
+
+  return cleanUndefined({
+    ...data,
+    ...numericPatch,
+    ...(hasOwn(data, "rateChart") ? { rateChart: normalizeRateChart(data.rateChart) } : {}),
+    ...statusPatch(data),
+    ...documentPatch(data, uploaded),
+    ...auditUpdate(actor)
+  });
+}
+
+async function reservePickupPartnerId(id) {
+  if (id) return id;
+  return db.runTransaction((tx) => nextId("pickupPartners", tx));
 }
 
 async function listPickupPartners(filters = {}) {
@@ -51,41 +240,58 @@ async function findPartnerByName(name, tx) {
   return { ref: snapshot.docs[0].ref, data: fromDoc(snapshot.docs[0]) };
 }
 
-async function createPickupPartner(data, actor) {
-  const created = await db.runTransaction(async (tx) => {
-    const id = data.id || await nextId("pickupPartners", tx);
-    const ref = partnersCollection().doc(id);
-    const payload = cleanUndefined({
-      ...data,
-      id,
-      rating: toNumber(data.rating, 4),
-      totalPickups: toNumber(data.totalPickups),
-      totalValue: toNumber(data.totalValue),
-      amountReceived: toNumber(data.amountReceived),
-      pendingAmount: toNumber(data.pendingAmount),
-      transactions: data.transactions || [],
-      active: data.active !== false,
-      ...auditCreate(actor)
+async function createPickupPartner(data, actor, files = {}) {
+  const id = await reservePickupPartnerId(data.id);
+  const uploaded = await uploadPartnerFiles(files, id, actor);
+
+  try {
+    const created = await db.runTransaction(async (tx) => {
+      const ref = partnersCollection().doc(id);
+      const existing = await tx.get(ref);
+      if (existing.exists) {
+        throw new AppError("Pickup partner ID already exists", 409, "PICKUP_PARTNER_EXISTS");
+      }
+
+      const payload = createPayload(data, id, actor, uploaded);
+
+      tx.set(ref, payload);
+      await upsertLocationsFromPayload(payload, actor, tx);
+      return { ...payload, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     });
 
-    tx.set(ref, payload);
-    await upsertLocationsFromPayload(payload, actor, tx);
-    return { ...payload, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
-  });
-
-  return created;
+    return created;
+  } catch (error) {
+    await deleteFilesQuietly(collectUploadedPaths(uploaded));
+    throw asPartnerSaveError(error);
+  }
 }
 
-async function updatePickupPartner(id, data, actor) {
+async function updatePickupPartner(id, data, actor, files = {}) {
   const ref = partnersCollection().doc(id);
   const doc = await ref.get();
   if (!doc.exists) throw new AppError("Pickup partner not found", 404, "PICKUP_PARTNER_NOT_FOUND");
 
-  await ref.set(cleanUndefined({
-    ...data,
-    ...auditUpdate(actor)
-  }), { merge: true });
-  await upsertLocationsFromPayload({ ...doc.data(), ...data }, actor);
+  const existing = fromDoc(doc);
+  const uploaded = await uploadPartnerFiles(files, id, actor);
+  const patch = updatePayload(data, actor, uploaded);
+
+  try {
+    await ref.set(patch, { merge: true });
+    await upsertLocationsFromPayload({ ...doc.data(), ...patch }, actor);
+  } catch (error) {
+    await deleteFilesQuietly(collectUploadedPaths(uploaded));
+    throw asPartnerSaveError(error);
+  }
+
+  const replacedOrRemovedPaths = [];
+  if (uploaded.photo || patch.photo === null) {
+    replacedOrRemovedPaths.push(existing.photoPath, existing.photoFile?.storagePath);
+  }
+  if (uploaded.aadhaar || patch.aadhaarDoc === null) {
+    replacedOrRemovedPaths.push(existing.aadhaarPath, existing.aadhaarFile?.storagePath);
+  }
+
+  await deleteFilesQuietly(replacedOrRemovedPaths);
 
   return getPickupPartner(id);
 }
@@ -94,7 +300,9 @@ async function deletePickupPartner(id) {
   const ref = partnersCollection().doc(id);
   const doc = await ref.get();
   if (!doc.exists) throw new AppError("Pickup partner not found", 404, "PICKUP_PARTNER_NOT_FOUND");
+  const existing = fromDoc(doc);
   await ref.delete();
+  await deleteFilesQuietly(collectPartnerDocumentPaths(existing));
   return { id, deleted: true };
 }
 

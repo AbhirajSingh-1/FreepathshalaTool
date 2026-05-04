@@ -403,6 +403,7 @@ export default function Dashboard() {
 
   // Debounce ref so rapid filter changes don't flood the API
   const debounceRef = useRef(null)
+  const requestSeqRef = useRef(0)
 
   const { from: pFrom, to: pTo } = useMemo(
     () => getPeriodRange(filters.period, filters.customFrom, filters.customTo),
@@ -420,17 +421,20 @@ export default function Dashboard() {
   }), [pFrom, pTo, filters.city, filters.sector, filters.partnerId])
 
   // ── Fetch from backend whenever filters change ───────────────────────────────
-  const loadFilteredStats = useCallback(async (params) => {
+  const loadFilteredStats = useCallback(async (params, options = {}) => {
+    const requestId = ++requestSeqRef.current
     setFetching(true)
     setFetchError('')
     try {
-      const data = await fetchDashboardStats(params)
+      const data = await fetchDashboardStats(params, options)
+      if (requestId !== requestSeqRef.current) return
       setFilteredData(data)
     } catch (err) {
+      if (requestId !== requestSeqRef.current) return
       setFetchError(err.message || 'Failed to load dashboard data')
       setFilteredData(null)
     } finally {
-      setFetching(false)
+      if (requestId === requestSeqRef.current) setFetching(false)
     }
   }, [fetchDashboardStats])
 
@@ -567,14 +571,17 @@ export default function Dashboard() {
           { label: 'Pending',        value: fmtCurrency(stats.pendingFromPickupPartners || 0), sub: 'Needs collection', icon: AlertCircle,  tone: 'red'    },
           { label: 'Active Donors',  value: stats.activeDonors || donors.filter(d => d.status === 'Active').length, sub: `${stats.totalDonors || donors.length} total`, icon: Users, tone: 'blue' },
           { label: 'Partners',       value: (PickupPartners || []).length,                     sub: 'registered',       icon: UserCheck,    tone: 'orange' },
-        ].map(({ label, value, sub, icon: Icon, tone }) => (
-          <div key={label} className={`stat-card ${tone}`} style={{ padding: '12px 12px', opacity: fetching ? 0.75 : 1, transition: 'opacity 0.2s' }}>
-            <div className="stat-icon" style={{ width: 32, height: 32, borderRadius: 8 }}><Icon size={16} /></div>
-            <div className="stat-value" style={{ fontSize: 18 }}>{value}</div>
-            <div className="stat-label" style={{ fontSize: 10.5 }}>{label}</div>
-            <div className="stat-change up" style={{ fontSize: 10 }}>{sub}</div>
-          </div>
-        ))}
+        ].map(item => {
+          const StatIcon = item.icon
+          return (
+            <div key={item.label} className={`stat-card ${item.tone}`} style={{ padding: '12px 12px', opacity: fetching ? 0.75 : 1, transition: 'opacity 0.2s' }}>
+              <div className="stat-icon" style={{ width: 32, height: 32, borderRadius: 8 }}><StatIcon size={16} /></div>
+              <div className="stat-value" style={{ fontSize: 18 }}>{item.value}</div>
+              <div className="stat-label" style={{ fontSize: 10.5 }}>{item.label}</div>
+              <div className="stat-change up" style={{ fontSize: 10 }}>{item.sub}</div>
+            </div>
+          )
+        })}
       </div>
 
       {/* ══════════════════════════════════════════════

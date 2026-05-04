@@ -8,10 +8,8 @@ const { logger } = require("../config/logger");
  * and attaches user info (uid, email, role, claims) to req.user.
  *
  * Role resolution order:
- *   1. Custom claim `role` from the ID token (fastest, no DB call)
- *   2. Firestore users/{uid}.role (fallback, covers the window after
- *      custom claims are set but the token hasn't been refreshed yet)
- *   3. Default: "executive"
+ *   1. Firestore users/{uid}.role, which matches /auth/me and the UI
+ *   2. Custom claim `role` from the ID token as a fallback
  */
 async function requireAuth(req, _res, next) {
   try {
@@ -26,18 +24,21 @@ async function requireAuth(req, _res, next) {
     const decoded = await auth.verifyIdToken(token, true);
 
     // ── Resolve role ─────────────────────────────────────────
-    let role = decoded.role || decoded.roles?.[0] || "";
+    const tokenRole = String(decoded.role || decoded.roles?.[0] || "").toLowerCase();
+    let role = tokenRole;
 
-    // Fallback: fetch from Firestore when the token doesn't carry a role yet.
-    if (!role) {
-      try {
-        const userDoc = await db.collection(COLLECTIONS.USERS).doc(decoded.uid).get();
-        if (userDoc.exists) {
-          role = userDoc.data()?.role; // DO NOT DEFAULT TO EXECUTIVE HERE
+    try {
+      const userDoc = await db.collection(COLLECTIONS.USERS).doc(decoded.uid).get();
+      if (userDoc.exists) {
+        const profile = userDoc.data();
+        if (profile.active === false) {
+          throw new AppError("This user account is disabled", 403, "USER_DISABLED");
         }
-      } catch (dbErr) {
-        logger.warn("Failed to fetch user role from Firestore", { uid: decoded.uid, error: dbErr.message });
+        role = String(profile.role || tokenRole || "").toLowerCase();
       }
+    } catch (dbErr) {
+      if (dbErr instanceof AppError) throw dbErr;
+      logger.warn("Failed to fetch user role from Firestore", { uid: decoded.uid, error: dbErr.message });
     }
 
     req.user = {
@@ -70,7 +71,9 @@ function requireRoles(...roles) {
     }
 
     if (!roles.includes(req.user.role)) {
-      next(new AppError("You do not have permission to perform this action", 403, "FORBIDDEN", {
+      const requiredRoles = roles.join(" or ");
+      const currentRole = req.user.role || "unassigned";
+      next(new AppError(`Only ${requiredRoles} can perform this action. Your current role is ${currentRole}.`, 403, "FORBIDDEN", {
         requiredRoles: roles,
         currentRole: req.user.role
       }));

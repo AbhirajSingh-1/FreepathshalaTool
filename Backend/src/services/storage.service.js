@@ -15,6 +15,10 @@ function expiresAt() {
   return Date.now() + env.signedUrlTtlMinutes * 60 * 1000;
 }
 
+function createFirebaseDownloadUrl(bucketName, storagePath, token) {
+  return `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodeURIComponent(storagePath)}?alt=media&token=${token}`;
+}
+
 async function createReadSignedUrl(storagePath) {
   const [url] = await getBucket().file(storagePath).getSignedUrl({
     version: "v4",
@@ -47,37 +51,56 @@ async function createWriteSignedUrl({ fileName, contentType, purpose, entityId }
 }
 
 async function uploadFile({ file, purpose, entityId, user }) {
+  const bucket = getBucket();
   const storagePath = buildStoragePath({
     purpose,
     entityId,
     fileName: file.originalname
   });
-  const fileRef = getBucket().file(storagePath);
+  const fileRef = bucket.file(storagePath);
+  const downloadToken = randomUUID();
 
   await fileRef.save(file.buffer, {
     resumable: false,
     metadata: {
       contentType: file.mimetype,
       metadata: {
+        firebaseStorageDownloadTokens: downloadToken,
         originalName: file.originalname,
         uploadedBy: user?.uid || "system"
       }
     }
   });
 
-  const read = await createReadSignedUrl(storagePath);
+  const downloadUrl = createFirebaseDownloadUrl(bucket.name, storagePath, downloadToken);
+
   return {
     storagePath,
     fileName: file.originalname,
     contentType: file.mimetype,
     size: file.size,
-    signedUrl: read.signedUrl,
-    expiresAt: read.expiresAt
+    url: downloadUrl,
+    downloadUrl,
+    signedUrl: downloadUrl,
+    expiresAt: null,
+    uploadedAt: new Date().toISOString()
   };
+}
+
+async function deleteFile(storagePath) {
+  if (!storagePath) return false;
+  try {
+    await getBucket().file(storagePath).delete();
+    return true;
+  } catch (error) {
+    if (error.code === 404) return false;
+    throw error;
+  }
 }
 
 module.exports = {
   createReadSignedUrl,
   createWriteSignedUrl,
-  uploadFile
+  uploadFile,
+  deleteFile
 };

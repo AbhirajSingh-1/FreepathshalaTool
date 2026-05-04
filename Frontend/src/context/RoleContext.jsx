@@ -10,6 +10,10 @@ export const ROLES = {
 
 const RoleContext = createContext(null)
 
+function normalizeRole(role) {
+  return String(role || '').toLowerCase()
+}
+
 export const useRole = () => {
   const ctx = useContext(RoleContext)
   if (!ctx) throw new Error('useRole must be inside <RoleProvider>')
@@ -38,8 +42,9 @@ export function RoleProvider({ children }) {
       // Backend returns user profile with role from Firestore or custom claims
       const profile = await fetchCurrentUser()
       setUser(profile)
-      setRole(profile.role || 'executive')
-      localStorage.setItem('fp_role', profile.role || 'executive')
+      const nextRole = normalizeRole(profile.role || 'executive')
+      setRole(nextRole)
+      localStorage.setItem('fp_role', nextRole)
       return profile
     } catch (err) {
       setUser(null)
@@ -62,7 +67,7 @@ export function RoleProvider({ children }) {
       const session = await apiLogin(email, password)
       // Backend returns user with role - this is the source of truth
       setUser(session.user)
-      setRole(session.user?.role || 'executive')
+      setRole(normalizeRole(session.user?.role || 'executive'))
       return session.user
     } catch (err) {
       setAuthError(err.message || 'Login failed')

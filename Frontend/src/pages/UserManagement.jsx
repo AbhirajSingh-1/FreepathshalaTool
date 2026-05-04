@@ -16,6 +16,16 @@ const ROLE_BADGES = {
   executive: { label: 'Executive', bg: '#DBEAFE', color: '#3B82F6', border: '#BFDBFE' },
 }
 
+function userId(user) {
+  return user?.id || user?.uid
+}
+
+function upsertUser(users, user) {
+  const id = userId(user)
+  if (!id) return users
+  return [user, ...users.filter(existing => userId(existing) !== id)]
+}
+
 function RoleBadge({ role }) {
   const cfg = ROLE_BADGES[role] || ROLE_BADGES.executive
   return (
@@ -88,10 +98,10 @@ export default function UserManagement() {
     name: '', email: '', password: '', phone: '', role: 'executive', active: true,
   })
 
-  const loadUsers = useCallback(async () => {
+  const loadUsers = useCallback(async (options = {}) => {
     setLoading(true)
     try {
-      const data = await api.fetchUsers({ limit: 200 })
+      const data = await api.fetchUsers({ limit: 200 }, { force: options?.force === true })
       setUsers(Array.isArray(data) ? data : [])
     } catch (err) {
       showToast('Failed to load users', 'error', err.message)
@@ -150,14 +160,15 @@ export default function UserManagement() {
     try {
       if (editing) {
         const patch = { name: form.name, phone: form.phone, role: form.role, active: form.active }
-        await api.updateUser(editing.id || editing.uid, patch)
+        const updated = await api.updateUser(userId(editing), patch)
+        setUsers(prev => upsertUser(prev, updated))
         showToast('User updated', 'success', form.name)
       } else {
-        await api.createUser(form)
+        const created = await api.createUser(form)
+        setUsers(prev => upsertUser(prev, created))
         showToast('User created', 'success', `${form.name} (${form.role})`)
       }
       close()
-      await loadUsers()
     } catch (err) {
       setError(err.message || 'Save failed')
     } finally {
@@ -168,9 +179,9 @@ export default function UserManagement() {
   const toggleStatus = async (u) => {
     if (u.uid === currentUser?.uid) { showToast("Can't deactivate yourself", 'error'); return }
     try {
-      await api.updateUser(u.id || u.uid, { active: u.active === false })
+      const updated = await api.updateUser(userId(u), { active: u.active === false })
+      setUsers(prev => upsertUser(prev, updated))
       showToast(u.active === false ? 'User activated' : 'User deactivated', 'success', u.name)
-      await loadUsers()
     } catch (err) {
       showToast('Status change failed', 'error', err.message)
     }
@@ -180,9 +191,9 @@ export default function UserManagement() {
     if (u.uid === currentUser?.uid) { showToast("Can't delete yourself", 'error'); return }
     if (!window.confirm(`Delete user "${u.name}"? This cannot be undone.`)) return
     try {
-      await api.deleteUser(u.id || u.uid)
+      await api.deleteUser(userId(u))
+      setUsers(prev => prev.filter(existing => userId(existing) !== userId(u)))
       showToast('User deleted', 'success', u.name)
-      await loadUsers()
     } catch (err) {
       showToast('Delete failed', 'error', err.message)
     }
@@ -277,7 +288,7 @@ export default function UserManagement() {
               <option value="active">Active</option>
               <option value="inactive">Inactive</option>
             </select>
-            <button className="btn btn-ghost btn-sm" onClick={loadUsers} title="Refresh">
+            <button className="btn btn-ghost btn-sm" onClick={() => loadUsers({ force: true })} title="Refresh">
               <RefreshCw size={14} />
             </button>
           </div>

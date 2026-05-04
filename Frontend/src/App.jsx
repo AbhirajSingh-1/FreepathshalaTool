@@ -551,7 +551,7 @@ const PageComponent = PAGES[page] || Dashboard
         {error && (
           <div style={{ padding: '10px 18px', background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, display: 'flex', justifyContent: 'space-between', gap: 12 }}>
             <span>{error}</span>
-            <button className="btn btn-ghost btn-sm" onClick={refetchAll}>Retry</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => refetchAll({ force: true })}>Retry</button>
           </div>
         )}
         {/* Always render the page component - backend will return 403 if unauthorized */}
