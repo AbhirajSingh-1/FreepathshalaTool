@@ -161,6 +161,7 @@ function RowDetail({ record }) {
 
 export default function RaddiMaster() {
   const { RST_ITEMS, fetchFilteredRaddiRecords } = useApp()
+  const defaultMonthRange = getPresetRange('month')
 
   // ── Local data state (self-fetching) ──────────────────────────────────────
   const [records,    setRecords]    = useState([])
@@ -175,9 +176,9 @@ export default function RaddiMaster() {
   const [filterpickuppartner, setFpickuppartner] = useState('')
   const [filterSector, setFSector]     = useState('')
   const [filterStatus, setFStatus]     = useState('')
-  const [datePreset,   setPreset]      = useState('')
-  const [dateFrom,     setDateFrom]    = useState('')
-  const [dateTo,       setDateTo]      = useState('')
+  const [datePreset,   setPreset]      = useState('month')
+  const [dateFrom,     setDateFrom]    = useState(defaultMonthRange.from)
+  const [dateTo,       setDateTo]      = useState(defaultMonthRange.to)
   const [showFilters,  setFilters]     = useState(false)
   const [page,         setPage]        = useState(1)
   const [sortKey,      setSortKey]     = useState('pickupDate')

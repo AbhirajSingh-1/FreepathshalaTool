@@ -20,6 +20,17 @@ const todayStr = () => new Date().toISOString().slice(0, 10)
 const PAYMENT_STATUS_OPTIONS = ['Paid', 'Not Paid', 'Partially Paid']
 let _otherId = 0
 const nextOtherId = () => ++_otherId
+const displayText = (value) => {
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (typeof value === 'object') {
+    if ('label' in value && value.label != null) return String(value.label)
+    if ('value' in value && value.value != null) return String(value.value)
+    if ('operand' in value && value.operand != null) return String(value.operand)
+    return ''
+  }
+  return String(value)
+}
 
 const EMPTY_FORM = {
   donorId: '', pickupMode: 'Drive',
@@ -37,13 +48,29 @@ function toKg(value, unit) {
 
 // ─── Donor search dropdown ────────────────────────────────────────────────────
 function DonorSearch({ donors, selectedId, onSelect, onAddNew }) {
+  const toText = (value) => {
+    if (value === null || value === undefined) return ''
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value)
+    // Some legacy/malformed donor fields may be stored as objects.
+    if (typeof value === 'object') {
+      if ('label' in value && value.label != null) return String(value.label)
+      if ('value' in value && value.value != null) return String(value.value)
+      if ('operand' in value && value.operand != null) return String(value.operand)
+      return ''
+    }
+    return String(value)
+  }
+
   const [query, setQuery] = useState('')
   const [open, setOpen]   = useState(false)
   const selected = useMemo(() => donors.find(d => d.id === selectedId), [donors, selectedId])
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim()
     if (!q) return donors.slice(0, 30)
-    return donors.filter(d => d.name.toLowerCase().includes(q) || (d.mobile || '').includes(q))
+    return donors.filter(d =>
+      toText(d.name).toLowerCase().includes(q) ||
+      toText(d.mobile).toLowerCase().includes(q)
+    )
   }, [donors, query])
   const choose   = (d)  => { onSelect(d.id); setOpen(false); setQuery('') }
   const clear    = (e)  => { e.stopPropagation(); onSelect(''); setQuery('') }
@@ -55,7 +82,10 @@ function DonorSearch({ donors, selectedId, onSelect, onAddNew }) {
         <Search size={14} color="var(--text-muted)" style={{ flexShrink: 0 }} />
         {selected && !open ? (
           <>
-            <span style={{ flex: 1, fontWeight: 600, fontSize: 13.5 }}>{selected.name}<span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: 8, fontSize: 12 }}>{selected.mobile}</span></span>
+            <span style={{ flex: 1, fontWeight: 600, fontSize: 13.5 }}>
+              {toText(selected.name)}
+              <span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: 8, fontSize: 12 }}>{toText(selected.mobile)}</span>
+            </span>
             <button type="button" onMouseDown={clear} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 2, color: 'var(--text-muted)', display: 'flex' }}><X size={14} /></button>
           </>
         ) : (
@@ -71,15 +101,17 @@ function DonorSearch({ donors, selectedId, onSelect, onAddNew }) {
             <div style={{ padding: '14px 16px', textAlign: 'center', fontSize: 13, color: 'var(--text-muted)' }}>No donors match "{query}"</div>
           ) : filtered.map(d => (
             <div key={d.id} tabIndex={0} onMouseDown={e => { e.preventDefault(); choose(d) }} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', borderBottom: '1px solid var(--border-light)', cursor: 'pointer', background: d.id === selectedId ? 'var(--primary-light)' : 'transparent' }}>
-              <div style={{ width: 32, height: 32, borderRadius: 8, flexShrink: 0, background: 'var(--primary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: 'var(--primary)', fontSize: 14 }}>{d.name[0]}</div>
+              <div style={{ width: 32, height: 32, borderRadius: 8, flexShrink: 0, background: 'var(--primary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: 'var(--primary)', fontSize: 14 }}>
+                {(toText(d.name).trim()[0] || '?').toUpperCase()}
+              </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 700, color: 'white', background: 'var(--primary)', padding: '1px 5px', borderRadius: 3 }}>{d.id}</span>
-                  <div style={{ fontWeight: 600, fontSize: 13 }}>{d.name}</div>
+                  <span style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 700, color: 'white', background: 'var(--primary)', padding: '1px 5px', borderRadius: 3 }}>{displayText(d.id)}</span>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>{toText(d.name)}</div>
                 </div>
                 <div style={{ fontSize: 11.5, color: 'var(--text-muted)', display: 'flex', gap: 8 }}>
-                  <span>{d.mobile}</span>
-                  {d.society && <span>· {d.society}</span>}
+                  <span>{toText(d.mobile)}</span>
+                  {toText(d.society) && <span>· {toText(d.society)}</span>}
                 </div>
               </div>
               {d.id === selectedId && <CheckCircle size={12} color="var(--primary)" />}
@@ -148,8 +180,8 @@ function PartnerSearch({ partners, donorSector, value, onChange }) {
         {selected ? (
           <>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--secondary)' }}>{selected.name}</div>
-              <div style={{ fontSize: 11, color: 'var(--secondary)', opacity: 0.7 }}>{selected.mobile}</div>
+              <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--secondary)' }}>{displayText(selected.name)}</div>
+              <div style={{ fontSize: 11, color: 'var(--secondary)', opacity: 0.7 }}>{displayText(selected.mobile)}</div>
             </div>
             <button type="button" onClick={e => { e.stopPropagation(); onChange(''); }} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 2, color: 'var(--secondary)', display: 'flex', flexShrink: 0 }}><X size={14} /></button>
           </>
@@ -443,7 +475,7 @@ function DonorPickupHistory({ donor, pickups }) {
     <div className="card">
       <div className="card-header">
         <History size={15} color="var(--primary)" />
-        <div className="card-title" style={{ fontSize: 13.5 }}>{donor.name}'s Pickups</div>
+        <div className="card-title" style={{ fontSize: 13.5 }}>{displayText(donor.name)}'s Pickups</div>
         <span style={{ fontSize: 11.5, color: 'var(--text-muted)', marginLeft: 'auto' }}>{history.length} records</span>
       </div>
       <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border-light)', background: 'var(--secondary-light)' }}>
@@ -679,7 +711,7 @@ const rateChart      = selectedpickuppartner?.rateChart || null
       const combinedKg    = rstTotalWeight + rstOthersWeight
 
       const pickupData = {
-        donorId: donor.id, donorName: donor.name,
+        donorId: donor.id, donorName: displayText(donor.name),
         mobile: donor.mobile || '', society: donor.society || '',
         sector: donor.sector || '', city: donor.city || '',
         date: todayStr(), pickupMode: form.pickupMode, status: 'Completed', type,
@@ -735,7 +767,7 @@ const rateChart      = selectedpickuppartner?.rateChart || null
     if (!donor) return
     const payload = {
       donorId: donor.id,
-      donorName: donor.name,
+      donorName: displayText(donor.name),
       mobile: donor.mobile || '',
       society: donor.society || '',
       sector: donor.sector || '',
@@ -818,8 +850,8 @@ const rateChart      = selectedpickuppartner?.rateChart || null
             {selectedDonor && (
               <div style={{ padding: '9px 13px', background: 'var(--secondary-light)', borderRadius: 8, fontSize: 12.5, color: 'var(--secondary)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <MapPin size={13} style={{ flexShrink: 0 }} />
-                <span>{[selectedDonor.society, selectedDonor.sector, selectedDonor.city].filter(Boolean).join(', ')}</span>
-                {selectedDonor.id && <span style={{ marginLeft: 'auto', fontFamily: 'monospace', fontSize: 11, fontWeight: 800, color: 'white', background: 'var(--primary)', padding: '1px 7px', borderRadius: 4 }}>{selectedDonor.id}</span>}
+                <span>{[displayText(selectedDonor.society), displayText(selectedDonor.sector), displayText(selectedDonor.city)].filter(Boolean).join(', ')}</span>
+                {displayText(selectedDonor.id) && <span style={{ marginLeft: 'auto', fontFamily: 'monospace', fontSize: 11, fontWeight: 800, color: 'white', background: 'var(--primary)', padding: '1px 7px', borderRadius: 4 }}>{displayText(selectedDonor.id)}</span>}
               </div>
             )}
 
@@ -844,7 +876,7 @@ const rateChart      = selectedpickuppartner?.rateChart || null
               <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <UserCheck size={13} color="var(--secondary)" />
                 Assign Pickup Partner
-                {selectedDonor?.sector && <span style={{ fontSize: 10.5, fontWeight: 400, color: 'var(--secondary)', marginLeft: 2 }}>— filtered for {selectedDonor.sector}</span>}
+                {displayText(selectedDonor?.sector) && <span style={{ fontSize: 10.5, fontWeight: 400, color: 'var(--secondary)', marginLeft: 2 }}>— filtered for {displayText(selectedDonor?.sector)}</span>}
               </label>
               <PartnerSearch
                 partners={activePartners}

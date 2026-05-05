@@ -34,6 +34,19 @@ function safeAmount(value) {
   return Number.isFinite(n) ? n : 0
 }
 
+function donorRSTAmount(donor, fallbackFromPickups = 0) {
+  // Handle legacy/mixed field names from existing Firebase records.
+  const fromDoc = [
+    donor?.totalRST,
+    donor?.totalRst,
+    donor?.totalRaddi,
+    donor?.rstTotal,
+  ].map(v => Number(v)).find(v => Number.isFinite(v))
+
+  if (Number.isFinite(fromDoc) && fromDoc > 0) return fromDoc
+  return safeAmount(fallbackFromPickups)
+}
+
 // ── Icon badge — 👍 for donors, 👍❤️ for both ────────────────────────────────
 // Supporters-only (❤️) never appear on this page
 function CategoryBadge({ donorType }) {
@@ -124,6 +137,17 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
     })
     return counts
   }, [actualDonors])
+
+  const pickupRSTByDonor = useMemo(() => {
+    const totals = {}
+    pickups.forEach(p => {
+      if (p.status !== 'Completed') return
+      const donorId = p.donorId
+      if (!donorId) return
+      totals[donorId] = (totals[donorId] || 0) + safeAmount(p.totalValue)
+    })
+    return totals
+  }, [pickups])
 
   // ── Filtered list — exclude supporter-only users ──────────────────────────
   const filtered = useMemo(() => {
@@ -347,7 +371,7 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
 
                 <div style={{ display:'flex', gap:0, borderTop:'1px solid var(--border-light)', background:'var(--bg)' }}>
                   {[
-                    { label:'RST Donated',  value:<span style={{ fontWeight:700, fontSize:12, color:'var(--secondary)' }}>{fmtCurrency(safeAmount(d.totalRST))}</span> },
+                    { label:'RST Donated',  value:<span style={{ fontWeight:700, fontSize:12, color:'var(--secondary)' }}>{fmtCurrency(donorRSTAmount(d, pickupRSTByDonor[d.id]))}</span> },
                     { label:'Last Pickup',  value:<span style={{ fontWeight:600, fontSize:11.5 }}>{d.lastPickup ? fmtDate(d.lastPickup) : '—'}</span> },
                     {
                       label: overdue ? '⚠ Overdue' : 'Next Pickup',
