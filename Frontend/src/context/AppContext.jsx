@@ -6,10 +6,12 @@ import {
   useEffect,
   useMemo,
   useRef,
-  useState,
+  useState
 } from "react";
+import { useQueries, useQueryClient } from "@tanstack/react-query";
 import * as api from "../services/api";
 import { useRole } from "./RoleContext";
+import { queryKeys } from "../query/queryKeys";
 
 const AppContext = createContext(null);
 
@@ -80,10 +82,10 @@ const EMPTY_DASHBOARD_PAYLOAD = {
 };
 
 const CORE_LIMITS = {
-  donors: 500,
-  pickups: 500,
-  partners: 200,
-  sks: 500,
+  donors: 100,
+  pickups: 100,
+  partners: 100,
+  sks: 100,
 };
 
 export function useApp() {
@@ -134,6 +136,21 @@ function updateStock(stock = [], items = [], direction = 1) {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+function deltaItems(oldItems = [], newItems = []) {
+  const map = new Map();
+  (oldItems || []).forEach(it => {
+    if (!it?.name) return;
+    map.set(it.name, (map.get(it.name) || 0) - toNumber(it.qty));
+  });
+  (newItems || []).forEach(it => {
+    if (!it?.name) return;
+    map.set(it.name, (map.get(it.name) || 0) + toNumber(it.qty));
+  });
+  return Array.from(map.entries())
+    .filter(([, qty]) => qty !== 0)
+    .map(([name, qty]) => ({ name, qty }));
+}
+
 function patchDonorAfterCompletedPickup(donor, pickup) {
   if (!donor || pickup.status !== "Completed") return donor;
   return {
@@ -160,6 +177,7 @@ function patchPartnerAfterCompletedPickup(partner, pickup) {
 
 export function AppProvider({ children }) {
   const { role } = useRole();
+  const queryClient = useQueryClient();
   const locationRefreshTimer = useRef(null);
 
   const [donors, setDonors] = useState([]);
@@ -179,61 +197,109 @@ export function AppProvider({ children }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const fetchDashboardStats = useCallback((filters = {}, options) => (
-    api.fetchDashboardStats({ limit: 2000, ...filters }, options)
-  ), []);
+  const canReadReports = role === "admin" || role === "manager";
+
+  const coreQueries = useQueries({
+    queries: [
+      {
+        queryKey: queryKeys.donors({ limit: CORE_LIMITS.donors }),
+        queryFn: () => api.fetchDonors({ limit: CORE_LIMITS.donors }),
+        enabled: Boolean(role),
+      },
+      {
+        queryKey: queryKeys.pickups({ limit: CORE_LIMITS.pickups }),
+        queryFn: () => api.fetchPickups({ limit: CORE_LIMITS.pickups }),
+        enabled: Boolean(role),
+      },
+      {
+        queryKey: queryKeys.pickupPartners({ limit: CORE_LIMITS.partners }),
+        queryFn: () => api.fetchPickupPartners({ limit: CORE_LIMITS.partners }),
+        enabled: Boolean(role),
+      },
+      {
+        queryKey: queryKeys.sksInflows({ limit: CORE_LIMITS.sks }),
+        queryFn: () => api.fetchSksInflows({ limit: CORE_LIMITS.sks }),
+        enabled: Boolean(role),
+      },
+      {
+        queryKey: queryKeys.sksOutflows({ limit: CORE_LIMITS.sks }),
+        queryFn: () => api.fetchSksOutflows({ limit: CORE_LIMITS.sks }),
+        enabled: Boolean(role),
+      },
+      {
+        queryKey: queryKeys.sksStock(),
+        queryFn: () => api.fetchSksStock(),
+        enabled: Boolean(role),
+      },
+      {
+        queryKey: queryKeys.masterData(),
+        queryFn: () => api.fetchMasterData(),
+        enabled: Boolean(role),
+      },
+      {
+        queryKey: queryKeys.locations(),
+        queryFn: () => api.fetchLocations(),
+        enabled: Boolean(role),
+      },
+      {
+        queryKey: queryKeys.dashboardStats({ limit: 100 }),
+        queryFn: () => api.fetchDashboardStats({ limit: 100 }),
+        enabled: canReadReports,
+      },
+      {
+        queryKey: queryKeys.schedulerSummary(),
+        queryFn: () => api.fetchSchedulerSummary(),
+        enabled: canReadReports,
+      },
+    ],
+  });
+  const donorsQuery = coreQueries[0];
+  const pickupsQuery = coreQueries[1];
+  const partnersQuery = coreQueries[2];
+  const inflowsQuery = coreQueries[3];
+  const outflowsQuery = coreQueries[4];
+  const stockQuery = coreQueries[5];
+  const masterQuery = coreQueries[6];
+  const locationsQuery = coreQueries[7];
+  const dashboardQuery = coreQueries[8];
+  const schedulerQuery = coreQueries[9];
+
+  const fetchDashboardStats = useCallback((filters = {}, options = {}) => (
+    queryClient.fetchQuery({
+      queryKey: queryKeys.dashboardStats({ limit: 100, ...filters }),
+      queryFn: () => api.fetchDashboardStats({ limit: 100, ...filters }, options),
+      staleTime: options.force ? 0 : 60_000,
+    })
+  ), [queryClient]);
 
   const refreshCoreData = useCallback(async ({ force = false } = {}) => {
-    const safe = result => (result.status === "fulfilled" ? result.value : null);
-    const canReadReports = role === "admin" || role === "manager";
-    const requestOptions = { force };
-
-    const results = await Promise.allSettled([
-      api.fetchDonors({ limit: CORE_LIMITS.donors }, requestOptions),
-      api.fetchPickups({ limit: CORE_LIMITS.pickups }, requestOptions),
-      api.fetchPickupPartners({ limit: CORE_LIMITS.partners }, requestOptions),
-      api.fetchSksInflows({ limit: CORE_LIMITS.sks }, requestOptions),
-      api.fetchSksOutflows({ limit: CORE_LIMITS.sks }, requestOptions),
-      api.fetchSksStock(requestOptions),
-      api.fetchMasterData(requestOptions),
-      api.fetchLocations(requestOptions),
-      canReadReports
-        ? api.fetchDashboardStats({ limit: 2000 }, requestOptions)
-        : Promise.resolve(null),
-      canReadReports
-        ? api.fetchSchedulerSummary(requestOptions)
-        : Promise.resolve(null),
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["donors"] }),
+      queryClient.invalidateQueries({ queryKey: ["pickups"] }),
+      queryClient.invalidateQueries({ queryKey: ["pickupPartners"] }),
+      queryClient.invalidateQueries({ queryKey: ["sksInflows"] }),
+      queryClient.invalidateQueries({ queryKey: ["sksOutflows"] }),
+      queryClient.invalidateQueries({ queryKey: ["sksStock"] }),
+      queryClient.invalidateQueries({ queryKey: ["masterData"] }),
+      queryClient.invalidateQueries({ queryKey: ["locations"] }),
+      queryClient.invalidateQueries({ queryKey: ["dashboardStats"] }),
+      queryClient.invalidateQueries({ queryKey: ["schedulerSummary"] }),
     ]);
-
-    const [
-      donorsData,
-      pickupsData,
-      partnersData,
-      inflowsData,
-      outflowsData,
-      stockData,
-      master,
-      locationTree,
-      dashboardData,
-      schedulerSummary,
-    ] = results.map(safe);
-
-    setDonors(donorsData || []);
-    setPickups(pickupsData || []);
-    setPickupPartners(partnersData || []);
-    setSksInflows(inflowsData || []);
-    setSksOutflows(outflowsData || []);
-    setSksStock(stockData || []);
-    setMasterData({ ...EMPTY_MASTER, ...(master || {}) });
-    setLocations({ ...EMPTY_LOCATIONS, ...(locationTree || {}) });
-
-    if (dashboardData) {
-      setDashboardPayload({ ...EMPTY_DASHBOARD_PAYLOAD, ...dashboardData });
+    if (force) {
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: ["donors"] }),
+        queryClient.refetchQueries({ queryKey: ["pickups"] }),
+        queryClient.refetchQueries({ queryKey: ["pickupPartners"] }),
+        queryClient.refetchQueries({ queryKey: ["sksInflows"] }),
+        queryClient.refetchQueries({ queryKey: ["sksOutflows"] }),
+        queryClient.refetchQueries({ queryKey: ["sksStock"] }),
+        queryClient.refetchQueries({ queryKey: ["masterData"] }),
+        queryClient.refetchQueries({ queryKey: ["locations"] }),
+        queryClient.refetchQueries({ queryKey: ["dashboardStats"] }),
+        queryClient.refetchQueries({ queryKey: ["schedulerSummary"] }),
+      ]);
     }
-    if (schedulerSummary) {
-      setSchedulerTabData(schedulerSummary);
-    }
-  }, [role]);
+  }, [queryClient]);
 
   const refetchAll = useCallback(async (options = {}) => {
     const force = options?.force === true;
@@ -249,8 +315,96 @@ export function AppProvider({ children }) {
   }, [refreshCoreData]);
 
   useEffect(() => {
-    refetchAll();
-  }, [refetchAll]);
+    const donorsData = donorsQuery?.data;
+    const pickupsData = pickupsQuery?.data;
+    const partnersData = partnersQuery?.data;
+    const inflowsData = inflowsQuery?.data;
+    const outflowsData = outflowsQuery?.data;
+    const stockData = stockQuery?.data;
+    const master = masterQuery?.data;
+    const locationTree = locationsQuery?.data;
+    const dashboardData = dashboardQuery?.data;
+    const schedulerSummary = schedulerQuery?.data;
+
+    if (donorsData) setDonors(donorsData);
+    if (pickupsData) setPickups(pickupsData);
+    if (partnersData) setPickupPartners(partnersData);
+    if (inflowsData) setSksInflows(inflowsData);
+    if (outflowsData) setSksOutflows(outflowsData);
+    if (stockData) setSksStock(stockData);
+    if (master) setMasterData({ ...EMPTY_MASTER, ...master });
+    if (locationTree) setLocations({ ...EMPTY_LOCATIONS, ...locationTree });
+    if (dashboardData) setDashboardPayload({ ...EMPTY_DASHBOARD_PAYLOAD, ...dashboardData });
+    if (schedulerSummary) setSchedulerTabData(schedulerSummary);
+
+    const hasLoading = [
+      donorsQuery,
+      pickupsQuery,
+      partnersQuery,
+      inflowsQuery,
+      outflowsQuery,
+      stockQuery,
+      masterQuery,
+      locationsQuery,
+      dashboardQuery,
+      schedulerQuery,
+    ].some(query => query?.isLoading || query?.isFetching);
+    const firstError = [
+      donorsQuery,
+      pickupsQuery,
+      partnersQuery,
+      inflowsQuery,
+      outflowsQuery,
+      stockQuery,
+      masterQuery,
+      locationsQuery,
+      dashboardQuery,
+      schedulerQuery,
+    ].find(query => query?.error)?.error;
+    setLoading(hasLoading);
+    if (firstError) setError(firstError.message || "Unable to load data");
+  }, [
+    donorsQuery?.data,
+    pickupsQuery?.data,
+    partnersQuery?.data,
+    inflowsQuery?.data,
+    outflowsQuery?.data,
+    stockQuery?.data,
+    masterQuery?.data,
+    locationsQuery?.data,
+    dashboardQuery?.data,
+    schedulerQuery?.data,
+    donorsQuery?.isLoading,
+    pickupsQuery?.isLoading,
+    partnersQuery?.isLoading,
+    inflowsQuery?.isLoading,
+    outflowsQuery?.isLoading,
+    stockQuery?.isLoading,
+    masterQuery?.isLoading,
+    locationsQuery?.isLoading,
+    dashboardQuery?.isLoading,
+    schedulerQuery?.isLoading,
+    donorsQuery?.isFetching,
+    pickupsQuery?.isFetching,
+    partnersQuery?.isFetching,
+    inflowsQuery?.isFetching,
+    outflowsQuery?.isFetching,
+    stockQuery?.isFetching,
+    masterQuery?.isFetching,
+    locationsQuery?.isFetching,
+    dashboardQuery?.isFetching,
+    schedulerQuery?.isFetching,
+    donorsQuery?.error,
+    pickupsQuery?.error,
+    partnersQuery?.error,
+    inflowsQuery?.error,
+    outflowsQuery?.error,
+    stockQuery?.error,
+    masterQuery?.error,
+    locationsQuery?.error,
+    dashboardQuery?.error,
+    schedulerQuery?.error,
+  ]);
 
   useEffect(() => () => {
     if (locationRefreshTimer.current) clearTimeout(locationRefreshTimer.current);
@@ -275,11 +429,19 @@ export function AppProvider({ children }) {
       try {
         const locationTree = await api.fetchLocations({ force: true });
         setLocations({ ...EMPTY_LOCATIONS, ...(locationTree || {}) });
+        queryClient.invalidateQueries({ queryKey: ["locations"] });
       } catch {
         // Location lookups are supportive data; primary mutations should remain successful.
       }
     }, 500);
-  }, []);
+  }, [queryClient]);
+
+  const upsertLocation = useCallback((payload) => runMutation(async () => {
+    const tree = await api.createLocation(payload);
+    setLocations({ ...EMPTY_LOCATIONS, ...(tree || {}) });
+    queryClient.invalidateQueries({ queryKey: ["locations"] });
+    return tree;
+  }), [runMutation, queryClient]);
 
   const applyCompletedPickupLocally = useCallback((pickup, previousPickup = null) => {
     if (pickup.status !== "Completed" || previousPickup?.status === "Completed") return;
@@ -294,52 +456,81 @@ export function AppProvider({ children }) {
   }, []);
 
   const fetchFilteredDonors = useCallback(
-    (params, options) => api.fetchDonors(params, options),
-    []
+    (params = {}, options = {}) => queryClient.fetchQuery({
+      queryKey: queryKeys.donors(params),
+      queryFn: () => api.fetchDonors(params, options),
+      staleTime: options.force ? 0 : 60_000,
+    }),
+    [queryClient]
   );
 
   const fetchFilteredPickups = useCallback(
-    (params, options) => api.fetchPickups(params, options),
-    []
+    (params = {}, options = {}) => queryClient.fetchQuery({
+      queryKey: queryKeys.pickups(params),
+      queryFn: () => api.fetchPickups(params, options),
+      staleTime: options.force ? 0 : 60_000,
+    }),
+    [queryClient]
   );
 
   const fetchPartnerSummary = useCallback(
-    (params, options) => api.fetchPartnerSummary(params, options),
-    []
+    (params = {}, options = {}) => queryClient.fetchQuery({
+      queryKey: queryKeys.partnerSummary(params),
+      queryFn: () => api.fetchPartnerSummary(params, options),
+      staleTime: options.force ? 0 : 30_000,
+    }),
+    [queryClient]
   );
 
   const fetchFilteredRaddiRecords = useCallback(
-    (params, options) => api.fetchRaddiRecords(params, options),
-    []
+    (params = {}, options = {}) => queryClient.fetchQuery({
+      queryKey: queryKeys.raddiRecords(params),
+      queryFn: () => api.fetchRaddiRecords(params, options),
+      staleTime: options.force ? 0 : 60_000,
+    }),
+    [queryClient]
   );
 
   const addDonor = useCallback(data => runMutation(async () => {
     const created = await api.createDonor(data);
     setDonors(prev => limitList(upsertById(prev, created), CORE_LIMITS.donors));
+    queryClient.invalidateQueries({ queryKey: ["donors"] });
+    queryClient.invalidateQueries({ queryKey: ["dashboardStats"] });
+    queryClient.invalidateQueries({ queryKey: ["schedulerSummary"] });
     refreshLocationsQuietly();
     return created;
-  }), [runMutation, refreshLocationsQuietly]);
+  }), [runMutation, refreshLocationsQuietly, queryClient]);
 
   const updateDonor = useCallback((id, data) => runMutation(async () => {
     const updated = await api.updateDonor(id, data);
     setDonors(prev => updateById(prev, id, updated));
+    queryClient.invalidateQueries({ queryKey: ["donors"] });
+    queryClient.invalidateQueries({ queryKey: ["dashboardStats"] });
+    queryClient.invalidateQueries({ queryKey: ["schedulerSummary"] });
     refreshLocationsQuietly();
     return updated;
-  }), [runMutation, refreshLocationsQuietly]);
+  }), [runMutation, refreshLocationsQuietly, queryClient]);
 
   const deleteDonor = useCallback(id => runMutation(async () => {
     const removed = await api.deleteDonor(id);
     setDonors(prev => removeById(prev, id));
+    queryClient.invalidateQueries({ queryKey: ["donors"] });
+    queryClient.invalidateQueries({ queryKey: ["dashboardStats"] });
+    queryClient.invalidateQueries({ queryKey: ["schedulerSummary"] });
     return removed;
-  }), [runMutation]);
+  }), [runMutation, queryClient]);
 
   const createPickup = useCallback(data => runMutation(async () => {
     const created = await api.createPickup(data);
     setPickups(prev => limitList(upsertById(prev, created), CORE_LIMITS.pickups));
     applyCompletedPickupLocally(created);
+    queryClient.invalidateQueries({ queryKey: ["pickups"] });
+    queryClient.invalidateQueries({ queryKey: ["dashboardStats"] });
+    queryClient.invalidateQueries({ queryKey: ["schedulerSummary"] });
+    queryClient.invalidateQueries({ queryKey: ["partnerSummary"] });
     refreshLocationsQuietly();
     return created;
-  }), [runMutation, applyCompletedPickupLocally, refreshLocationsQuietly]);
+  }), [runMutation, applyCompletedPickupLocally, refreshLocationsQuietly, queryClient]);
 
   const schedulePickup = useCallback(data => createPickup({ ...data, status: "Pending" }), [createPickup]);
 
@@ -348,83 +539,168 @@ export function AppProvider({ children }) {
     const recorded = await api.recordPickup(id, data);
     setPickups(prev => updateById(prev, id, recorded));
     applyCompletedPickupLocally(recorded, previousPickup);
+    queryClient.invalidateQueries({ queryKey: ["pickups"] });
+    queryClient.invalidateQueries({ queryKey: ["dashboardStats"] });
+    queryClient.invalidateQueries({ queryKey: ["schedulerSummary"] });
+    queryClient.invalidateQueries({ queryKey: ["partnerSummary"] });
     return recorded;
-  }), [runMutation, applyCompletedPickupLocally, pickups]);
+  }), [runMutation, applyCompletedPickupLocally, pickups, queryClient]);
 
   const updatePickup = useCallback((id, data) => runMutation(async () => {
     const previousPickup = pickups.find(pickup => pickup.id === id);
     const updated = await api.updatePickup(id, data);
     setPickups(prev => updateById(prev, id, updated));
     applyCompletedPickupLocally(updated, previousPickup);
+    queryClient.invalidateQueries({ queryKey: ["pickups"] });
+    queryClient.invalidateQueries({ queryKey: ["dashboardStats"] });
+    queryClient.invalidateQueries({ queryKey: ["schedulerSummary"] });
+    queryClient.invalidateQueries({ queryKey: ["partnerSummary"] });
     refreshLocationsQuietly();
     return updated;
-  }), [runMutation, applyCompletedPickupLocally, refreshLocationsQuietly, pickups]);
+  }), [runMutation, applyCompletedPickupLocally, refreshLocationsQuietly, pickups, queryClient]);
 
   const deletePickup = useCallback(id => runMutation(async () => {
     const removed = await api.deletePickup(id);
     setPickups(prev => removeById(prev, id));
+    queryClient.invalidateQueries({ queryKey: ["pickups"] });
+    queryClient.invalidateQueries({ queryKey: ["dashboardStats"] });
+    queryClient.invalidateQueries({ queryKey: ["schedulerSummary"] });
+    queryClient.invalidateQueries({ queryKey: ["partnerSummary"] });
     return removed;
-  }), [runMutation]);
+  }), [runMutation, queryClient]);
 
   const addPickupPartner = useCallback(data => runMutation(async () => {
     const created = await api.createPickupPartner(data);
     setPickupPartners(prev => limitList(upsertById(prev, created), CORE_LIMITS.partners));
+    queryClient.invalidateQueries({ queryKey: ["pickupPartners"] });
+    queryClient.invalidateQueries({ queryKey: ["dashboardStats"] });
+    queryClient.invalidateQueries({ queryKey: ["partnerSummary"] });
     refreshLocationsQuietly();
     return created;
-  }), [runMutation, refreshLocationsQuietly]);
+  }), [runMutation, refreshLocationsQuietly, queryClient]);
 
   const updatePickupPartner = useCallback((id, data) => runMutation(async () => {
     const updated = await api.updatePickupPartner(id, data);
     setPickupPartners(prev => updateById(prev, id, updated));
+    queryClient.invalidateQueries({ queryKey: ["pickupPartners"] });
+    queryClient.invalidateQueries({ queryKey: ["dashboardStats"] });
+    queryClient.invalidateQueries({ queryKey: ["partnerSummary"] });
     refreshLocationsQuietly();
     return updated;
-  }), [runMutation, refreshLocationsQuietly]);
+  }), [runMutation, refreshLocationsQuietly, queryClient]);
 
   const deletePickupPartner = useCallback(id => runMutation(async () => {
     const removed = await api.deletePickupPartner(id);
     setPickupPartners(prev => removeById(prev, id));
+    queryClient.invalidateQueries({ queryKey: ["pickupPartners"] });
+    queryClient.invalidateQueries({ queryKey: ["dashboardStats"] });
+    queryClient.invalidateQueries({ queryKey: ["partnerSummary"] });
     return removed;
-  }), [runMutation]);
+  }), [runMutation, queryClient]);
 
   const recordPickupPartnerPayment = useCallback(
-    (partnerId, data) => runMutation(() => api.recordPickupPartnerPayment(partnerId, data)),
-    [runMutation]
+    (partnerId, data) => runMutation(async () => {
+      const result = await api.recordPickupPartnerPayment(partnerId, data);
+      queryClient.invalidateQueries({ queryKey: ["pickupPartners"] });
+      queryClient.invalidateQueries({ queryKey: ["pickups"] });
+      queryClient.invalidateQueries({ queryKey: ["payments"] });
+      queryClient.invalidateQueries({ queryKey: ["partnerSummary"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboardStats"] });
+      return result;
+    }),
+    [runMutation, queryClient]
   );
 
   const clearPartnerBalance = useCallback(
-    ({ pickuppartnerId }, paymentInfo) => runMutation(() => api.clearPartnerBalance(pickuppartnerId, paymentInfo)),
-    [runMutation]
+    ({ pickuppartnerId }, paymentInfo) => runMutation(async () => {
+      const result = await api.clearPartnerBalance(pickuppartnerId, paymentInfo);
+      queryClient.invalidateQueries({ queryKey: ["pickupPartners"] });
+      queryClient.invalidateQueries({ queryKey: ["pickups"] });
+      queryClient.invalidateQueries({ queryKey: ["payments"] });
+      queryClient.invalidateQueries({ queryKey: ["partnerSummary"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboardStats"] });
+      return result;
+    }),
+    [runMutation, queryClient]
   );
 
   const addSksInflow = useCallback(data => runMutation(async () => {
     const created = await api.createSksInflow(data);
     setSksInflows(prev => limitList(upsertById(prev, created), CORE_LIMITS.sks));
     setSksStock(prev => updateStock(prev, created.items, 1));
+    queryClient.invalidateQueries({ queryKey: ["sksInflows"] });
+    queryClient.invalidateQueries({ queryKey: ["sksStock"] });
+    queryClient.invalidateQueries({ queryKey: ["dashboardStats"] });
     return created;
-  }), [runMutation]);
+  }), [runMutation, queryClient]);
 
   const addSksOutflow = useCallback(data => runMutation(async () => {
     const created = await api.createSksOutflow(data);
     setSksOutflows(prev => limitList(upsertById(prev, created), CORE_LIMITS.sks));
     setSksStock(prev => updateStock(prev, created.items, -1));
+    queryClient.invalidateQueries({ queryKey: ["sksOutflows"] });
+    queryClient.invalidateQueries({ queryKey: ["sksStock"] });
+    queryClient.invalidateQueries({ queryKey: ["dashboardStats"] });
     return created;
-  }), [runMutation]);
+  }), [runMutation, queryClient]);
+
+  const updateSksInflow = useCallback((id, patch) => runMutation(async () => {
+    const existing = sksInflows.find(entry => entry.id === id);
+    const updated = await api.updateSksInflow(id, patch);
+    setSksInflows(prev => updateById(prev, id, updated));
+    if (existing) {
+      const diff = deltaItems(existing.items, updated.items);
+      if (diff.length) setSksStock(stock => updateStock(stock, diff, 1));
+    }
+    queryClient.invalidateQueries({ queryKey: ["sksInflows"] });
+    queryClient.invalidateQueries({ queryKey: ["sksStock"] });
+    queryClient.invalidateQueries({ queryKey: ["dashboardStats"] });
+    return updated;
+  }), [runMutation, sksInflows, queryClient]);
+
+  const updateSksOutflow = useCallback((id, patch) => runMutation(async () => {
+    const existing = sksOutflows.find(entry => entry.id === id);
+    const updated = await api.updateSksOutflow(id, patch);
+    setSksOutflows(prev => updateById(prev, id, updated));
+    if (existing) {
+      const diff = deltaItems(existing.items, updated.items);
+      if (diff.length) setSksStock(stock => updateStock(stock, diff, -1));
+    }
+    queryClient.invalidateQueries({ queryKey: ["sksOutflows"] });
+    queryClient.invalidateQueries({ queryKey: ["sksStock"] });
+    queryClient.invalidateQueries({ queryKey: ["dashboardStats"] });
+    return updated;
+  }), [runMutation, sksOutflows, queryClient]);
+
+  const recordSksOutflowPayment = useCallback((id, payment) => runMutation(async () => {
+    const updated = await api.recordSksOutflowPayment(id, payment);
+    setSksOutflows(prev => updateById(prev, id, updated));
+    queryClient.invalidateQueries({ queryKey: ["sksOutflows"] });
+    queryClient.invalidateQueries({ queryKey: ["dashboardStats"] });
+    return updated;
+  }), [runMutation, queryClient]);
 
   const deleteSksInflow = useCallback(id => runMutation(async () => {
     const existing = sksInflows.find(entry => entry.id === id);
     const removed = await api.deleteSksInflow(id);
     setSksInflows(prev => removeById(prev, id));
     if (existing) setSksStock(stock => updateStock(stock, existing.items, -1));
+    queryClient.invalidateQueries({ queryKey: ["sksInflows"] });
+    queryClient.invalidateQueries({ queryKey: ["sksStock"] });
+    queryClient.invalidateQueries({ queryKey: ["dashboardStats"] });
     return removed;
-  }), [runMutation, sksInflows]);
+  }), [runMutation, sksInflows, queryClient]);
 
   const deleteSksOutflow = useCallback(id => runMutation(async () => {
     const existing = sksOutflows.find(entry => entry.id === id);
     const removed = await api.deleteSksOutflow(id);
     setSksOutflows(prev => removeById(prev, id));
     if (existing) setSksStock(stock => updateStock(stock, existing.items, 1));
+    queryClient.invalidateQueries({ queryKey: ["sksOutflows"] });
+    queryClient.invalidateQueries({ queryKey: ["sksStock"] });
+    queryClient.invalidateQueries({ queryKey: ["dashboardStats"] });
     return removed;
-  }), [runMutation, sksOutflows]);
+  }), [runMutation, sksOutflows, queryClient]);
 
   const CITIES = useMemo(() => names(locations.cities), [locations.cities]);
   const CITY_SECTORS = useMemo(() => locations.citySectors || {}, [locations.citySectors]);
@@ -504,8 +780,13 @@ export function AppProvider({ children }) {
 
     addSksInflow,
     addSksOutflow,
+    updateSksInflow,
+    updateSksOutflow,
     deleteSksInflow,
     deleteSksOutflow,
+    recordSksOutflowPayment,
+
+    upsertLocation,
   }), [
     donors,
     pickups,
@@ -544,8 +825,12 @@ export function AppProvider({ children }) {
     clearPartnerBalance,
     addSksInflow,
     addSksOutflow,
+    updateSksInflow,
+    updateSksOutflow,
     deleteSksInflow,
     deleteSksOutflow,
+    recordSksOutflowPayment,
+    upsertLocation,
   ]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

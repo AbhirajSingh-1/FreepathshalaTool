@@ -2,7 +2,8 @@ const {
   z,
   optionalString,
   dateString,
-  amount
+  amount,
+  withDateRangeValidation
 } = require("./common.validators");
 
 const paymentBase = z.object({
@@ -33,12 +34,12 @@ const clearBalanceSchema = z.object({
   }).passthrough()
 });
 
-const paymentListSchema = z.object({
+const paymentListSchema = withDateRangeValidation(z.object({
   query: z.object({
     pickupId:  optionalString,
     partnerId: optionalString,
-    dateFrom:  optionalString,
-    dateTo:    optionalString,
+    dateFrom:  dateString,
+    dateTo:    dateString,
     refMode:   optionalString,
     writeOff:  z.preprocess((value) => value === "true" ? true : value === "false" ? false : value, z.boolean().optional()),
     cursor:    optionalString,
@@ -46,19 +47,19 @@ const paymentListSchema = z.object({
     pageSize:  z.coerce.number().int().min(1).max(500).optional(),
     limit:     z.coerce.number().int().min(1).max(500).optional()
   }).default({})
-});
+}));
 
 // Query params accepted by GET /payments/partners/summary
-const partnerSummarySchema = z.object({
+const partnerSummarySchema = withDateRangeValidation(z.object({
   query: z.object({
-    dateFrom:  optionalString,
-    dateTo:    optionalString,
+    dateFrom:  dateString,
+    dateTo:    dateString,
     partnerId: optionalString,
     search:    optionalString,
     status:    z.enum(["pending", "clear", "all"]).optional(),
     recordLimit: z.coerce.number().int().min(50).max(1000).optional()
   }).default({})
-});
+}));
 
 module.exports = {
   recordPaymentSchema,

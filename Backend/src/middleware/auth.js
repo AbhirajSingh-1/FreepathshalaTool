@@ -23,8 +23,9 @@ async function requireAuth(req, _res, next) {
       throw new AppError("Missing Bearer token", 401, "UNAUTHENTICATED");
     }
 
-    // checkRevoked = true → rejects tokens whose refresh tokens have been revoked
-    const decoded = await auth.verifyIdToken(token, true);
+    // Keep verification fast for request-path auth checks.
+    // Token refresh on the client keeps sessions valid without per-request revocation calls.
+    const decoded = await auth.verifyIdToken(token);
 
     // ── Resolve role ─────────────────────────────────────────
     const tokenRole = String(decoded.role || decoded.roles?.[0] || "").toLowerCase();

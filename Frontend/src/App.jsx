@@ -118,7 +118,7 @@ function AppShell() {
    */
   const onNav = useCallback((target, opts = {}) => {
     const path  = PAGE_TO_PATH[target] || `/${target}`
-    const state = (opts.donorId || opts.pickupId) ? opts : undefined
+    const state = Object.keys(opts || {}).length ? opts : undefined
     setSidebarOpen(false)
     navigate(path, { state })
   }, [navigate])

@@ -22,6 +22,21 @@ const createOutflow = asyncHandler(async (req, res) => {
   sendSuccess(res, data, "SKS outflow created", 201);
 });
 
+const updateInflow = asyncHandler(async (req, res) => {
+  const data = await sksService.updateInflow(req.params.id, req.body, req.user);
+  sendSuccess(res, data, "SKS inflow updated");
+});
+
+const updateOutflow = asyncHandler(async (req, res) => {
+  const data = await sksService.updateOutflow(req.params.id, req.body, req.user);
+  sendSuccess(res, data, "SKS outflow updated");
+});
+
+const recordOutflowPayment = asyncHandler(async (req, res) => {
+  const data = await sksService.recordOutflowPayment(req.params.id, req.body.payment, req.user);
+  sendSuccess(res, data, "SKS outflow payment recorded");
+});
+
 const deleteInflow = asyncHandler(async (req, res) => {
   const data = await sksService.deleteInflow(req.params.id);
   sendSuccess(res, data, "SKS inflow deleted");
@@ -42,6 +57,9 @@ module.exports = {
   listOutflows,
   createInflow,
   createOutflow,
+  updateInflow,
+  updateOutflow,
+  recordOutflowPayment,
   deleteInflow,
   deleteOutflow,
   getStock

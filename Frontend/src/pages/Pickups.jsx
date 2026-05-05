@@ -492,7 +492,7 @@ export default function Pickups({
 }) {
   const {
     donors, PickupPartners: partners, pickups,
-    addDonor, createPickup, recordPickup,
+    addDonor, createPickup, recordPickup, updatePickup,
     RST_ITEMS, SKS_ITEMS, PICKUP_MODES,
   } = useApp()
 
@@ -506,6 +506,8 @@ export default function Pickups({
 
   // Indicates whether we are updating an existing scheduled pickup
   const [targetPickupId, setTargetPickupId] = useState(null)
+  const [rescheduleDate, setRescheduleDate] = useState('')
+  const [rescheduleTimeSlot, setRescheduleTimeSlot] = useState('')
 
   // Track whether targetPickupId originated from navigation (prop) so the
   // auto-detect effect doesn't fight it.
@@ -683,6 +685,14 @@ const rateChart      = selectedpickuppartner?.rateChart || null
         date: todayStr(), pickupMode: form.pickupMode, status: 'Completed', type,
         rstItems: finalRST, sksItems: finalSKS,
         rstItemWeights: form.rstItemWeights, rstOthers: form.rstOthers,
+        itemEstimatedMap: form.rstItems.filter(i => i !== 'Others').reduce((acc, item) => {
+          const w = form.rstItemWeights[item] || { value: '', unit: 'kg' }
+          const kg = toKg(w.value, w.unit || 'kg')
+          const rate = Number(rateChart?.[item] || 0)
+          acc[item] = rate > 0 && kg > 0 ? Math.round(kg * rate) : 0
+          return acc
+        }, {}),
+        pickuppartnerRateChart: rateChart || {},
         rstTotalWeight: combinedKg > 0 ? combinedKg.toFixed(3) : '',
         rstWeightUnit: 'kg', totalKg: combinedKg,
         totalValue, amountPaid,
@@ -715,6 +725,37 @@ const rateChart      = selectedpickuppartner?.rateChart || null
   const payStatus = form.paymentStatus
   const remaining = Math.max(0, (Number(form.totalValue) || 0) - (Number(form.amountPaid) || 0))
   const formDirty = form.donorId || form.rstItems.length > 0 || form.sksItems.length > 0 || form.totalValue
+  const scheduleSlots = form.pickupMode === 'Drive'
+    ? ['9:00 AM – 12:00 PM', '2:00 PM – 5:00 PM']
+    : ['9:00 AM – 10:00 AM', '10:00 AM – 11:00 AM', '11:00 AM – 12:00 PM', '12:00 PM – 1:00 PM', '2:00 PM – 3:00 PM', '3:00 PM – 4:00 PM', '4:00 PM – 5:00 PM', '5:00 PM – 6:00 PM']
+
+  const handleReschedule = async () => {
+    if (!form.donorId || !rescheduleDate || !rescheduleTimeSlot) return
+    const donor = activeDonors.find(d => d.id === form.donorId)
+    if (!donor) return
+    const payload = {
+      donorId: donor.id,
+      donorName: donor.name,
+      mobile: donor.mobile || '',
+      society: donor.society || '',
+      sector: donor.sector || '',
+      city: donor.city || '',
+      date: rescheduleDate,
+      timeSlot: rescheduleTimeSlot,
+      pickupMode: form.pickupMode,
+      notes: form.notes || 'Rescheduled from record pickup',
+      status: 'Pending',
+    }
+    if (targetPickupId) {
+      await updatePickup(targetPickupId, payload)
+    } else {
+      await createPickup(payload)
+    }
+    setToast('Pickup rescheduled successfully!')
+    setTargetPickupId(null)
+    setRescheduleDate('')
+    setRescheduleTimeSlot('')
+  }
 
   // ── Banner state: nav link, auto-link, or fresh entry ─────────────────────
   const bannerIsNav    = !!targetPickupId && !!initialPickupId
@@ -929,6 +970,23 @@ const rateChart      = selectedpickuppartner?.rateChart || null
             <div className="form-group" style={{ margin: 0 }}>
               <label>Notes <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 6 }}>(optional)</span></label>
               <textarea value={form.notes} onChange={e => set('notes', e.target.value)} placeholder="Any observations or remarks…" style={{ minHeight: 62, resize: 'vertical' }} />
+            </div>
+
+            {/* Reschedule option for unavailable donor */}
+            <div style={{ background: 'var(--warning-bg)', borderRadius: 10, padding: 12, border: '1px solid rgba(245,158,11,0.25)' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#92400E', marginBottom: 8 }}>
+                Donor unavailable? Reschedule pickup
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8 }}>
+                <input type="date" value={rescheduleDate} min={todayStr()} onChange={e => setRescheduleDate(e.target.value)} />
+                <select value={rescheduleTimeSlot} onChange={e => setRescheduleTimeSlot(e.target.value)}>
+                  <option value="">Time Slot</option>
+                  {scheduleSlots.map(slot => <option key={slot}>{slot}</option>)}
+                </select>
+                <button type="button" className="btn btn-outline btn-sm" onClick={handleReschedule}>
+                  Reschedule
+                </button>
+              </div>
             </div>
 
             <button className="btn btn-primary" onClick={handleSave} disabled={saving} style={{ width: '100%', justifyContent: 'center', padding: '11px', fontSize: 14, fontWeight: 700 }}>

@@ -26,7 +26,7 @@ function OrderIdChip({ orderId }) {
 }
 
 // ── Overdue table ────────────────────────────────────────────────────────────
-function OverdueTable({ data }) {
+function OverdueTable({ data, onReschedule }) {
   if (!data.length) return <EmptySection message="No overdue pickups! Everything is on track." />
   return (
     <>
@@ -45,6 +45,7 @@ function OverdueTable({ data }) {
               <th>Time Slot</th>
               <th>Days Overdue</th>
               <th>Notes</th>
+              <th>Action</th>
             </tr>
           </thead>
           <tbody>
@@ -68,6 +69,15 @@ function OverdueTable({ data }) {
                 </td>
                 <td style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: p.notes ? 'italic' : 'normal' }}>
                   {p.notes || '—'}
+                </td>
+                <td>
+                  <button
+                    type="button"
+                    className="btn btn-outline btn-sm"
+                    onClick={() => onReschedule?.(p)}
+                  >
+                    Reschedule Pickup
+                  </button>
                 </td>
               </tr>
             ))}
@@ -283,7 +293,7 @@ function MobileCard({ p, badge }) {
 // ════════════════════════════════════════════════════════════════════════════
 // MAIN PickupTabs component
 // ════════════════════════════════════════════════════════════════════════════
-export default function PickupTabs({ activeTab, onTabChange, data, loading }) {
+export default function PickupTabs({ activeTab, onTabChange, data, loading, onRescheduleOverdue }) {
   const counts = {
     overdue:   data.overdue?.length   ?? 0,
     scheduled: data.scheduled?.length ?? 0,
@@ -337,7 +347,7 @@ export default function PickupTabs({ activeTab, onTabChange, data, loading }) {
         <SkeletonTable />
       ) : (
         <div>
-          {activeTab === 'overdue'   && <OverdueTable   data={data.overdue   || []} />}
+          {activeTab === 'overdue'   && <OverdueTable   data={data.overdue   || []} onReschedule={onRescheduleOverdue} />}
           {activeTab === 'scheduled' && <ScheduledTable data={data.scheduled || []} />}
           {activeTab === 'atRisk'    && <AtRiskTable    data={data.atRisk    || []} />}
           {activeTab === 'churned'   && <ChurnedTable   data={data.churned   || []} />}

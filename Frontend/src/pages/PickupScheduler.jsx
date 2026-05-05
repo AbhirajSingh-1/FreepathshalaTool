@@ -1,6 +1,7 @@
 // Frontend/src/pages/PickupScheduler.jsx
 // ─── Pickup Scheduler — schedule form only (tabs moved to PickupOverview) ──────
 import { useState, useEffect, useRef, useMemo } from 'react'
+import { useLocation } from 'react-router-dom'
 import {
   CalendarDays, Plus, X, ChevronDown, Check,
   Clock, User, MapPin, FileText, CheckCircle, AlertTriangle,
@@ -92,7 +93,8 @@ function DonorDropdown({ donors, value, onChange, onAddNew }) {
 }
 
 export default function PickupScheduler({ onNav }) {
-  const { donors, addDonor, schedulePickup, dashboardStats, PICKUP_MODES } = useApp()
+  const { state } = useLocation()
+  const { donors, pickups, addDonor, schedulePickup, updatePickup, dashboardStats, PICKUP_MODES } = useApp()
 
   const [selectedDonorId, setSelectedDonorId] = useState('')
   const [date,       setDate]       = useState('')
@@ -103,9 +105,22 @@ export default function PickupScheduler({ onNav }) {
   const [formError,  setFormError]  = useState('')
   const [showDonorModal, setDonorModal] = useState(false)
   const [toast,          setToast]      = useState(null)
+  const [targetPickupId, setTargetPickupId] = useState(null)
 
   const activeDonors = useMemo(() => donors.filter(d => d.status !== 'Lost'), [donors])
   const timeSlots    = pickupMode === 'Drive' ? DRIVE_TIME_SLOTS : ALL_TIME_SLOTS
+
+  useEffect(() => {
+    if (!state?.pickupId) return
+    const existing = pickups.find(p => p.id === state.pickupId)
+    if (!existing) return
+    setTargetPickupId(existing.id)
+    setSelectedDonorId(existing.donorId || state.donorId || '')
+    setDate(state.date || existing.date || '')
+    setTimeSlot(state.timeSlot || existing.timeSlot || '')
+    setPickupMode(state.pickupMode || existing.pickupMode || 'Individual')
+    setNotes(state.notes || existing.notes || '')
+  }, [state, pickups])
 
   const handleModeChange = (mode) => { setPickupMode(mode); setTimeSlot('') }
 
@@ -123,15 +138,22 @@ export default function PickupScheduler({ onNav }) {
     setFormError('')
     setSaving(true)
     const donor = activeDonors.find(d => d.id === selectedDonorId)
-    await schedulePickup({
+    const payload = {
       donorId: donor.id, donorName: donor.name,
       mobile:  donor.mobile || '', society: donor.society || '',
       sector:  donor.sector || '', city: donor.city || '',
       date, timeSlot, pickupMode, notes,
-    })
+      status: 'Pending',
+    }
+    if (targetPickupId) {
+      await updatePickup(targetPickupId, payload)
+    } else {
+      await schedulePickup(payload)
+    }
     setSelectedDonorId(''); setDate(''); setTimeSlot(''); setNotes('')
+    setTargetPickupId(null)
     setSaving(false)
-    setToast('Pickup scheduled successfully!')
+    setToast(targetPickupId ? 'Pickup rescheduled successfully!' : 'Pickup scheduled successfully!')
   }
 
   const donorDetails = useMemo(() => activeDonors.find(d => d.id === selectedDonorId), [activeDonors, selectedDonorId])
@@ -143,7 +165,7 @@ export default function PickupScheduler({ onNav }) {
         <div className="card">
           <div className="card-header">
             <CalendarDays size={18} color="var(--primary)" />
-            <div className="card-title">Schedule a Pickup</div>
+            <div className="card-title">{targetPickupId ? `Reschedule Pickup (${targetPickupId})` : 'Schedule a Pickup'}</div>
           </div>
           <div className="card-body">
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -198,7 +220,7 @@ export default function PickupScheduler({ onNav }) {
               {formError && <div style={{ fontSize: 12.5, color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: 6 }}>⚠ {formError}</div>}
 
               <button className="btn btn-primary" onClick={handleSchedule} disabled={saving} style={{ width: '100%', justifyContent: 'center', padding: '10px' }}>
-                {saving ? <><span className="spin" style={{ display: 'inline-block', width: 14, height: 14, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: 'white', borderRadius: '50%' }} /> Scheduling…</> : <><Plus size={15} /> Schedule Pickup</>}
+                {saving ? <><span className="spin" style={{ display: 'inline-block', width: 14, height: 14, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: 'white', borderRadius: '50%' }} /> Saving…</> : <><Plus size={15} /> {targetPickupId ? 'Reschedule Pickup' : 'Schedule Pickup'}</>}
               </button>
             </div>
           </div>

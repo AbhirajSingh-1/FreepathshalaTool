@@ -624,26 +624,34 @@ function PartnerRow({ partner, onRecordPayment, onWriteOffEntry, onWriteOffPartn
         </div>
       </div>
 
-      {open && (partner.records||[]).length > 0 && (
+      {open && (
         <div style={{ borderTop:'1px solid var(--border-light)' }}>
           <div style={{ padding:'8px 20px 6px', background:'var(--surface-alt)',
             display:'flex', alignItems:'center', justifyContent:'space-between' }}>
             <span style={{ fontSize:11, fontWeight:700, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.05em' }}>Pickup Records</span>
             <span style={{ fontSize:11.5, color:'var(--text-muted)' }}>{(partner.records||[]).length} entries</span>
           </div>
-          {[...(partner.records||[])]
-            .sort((a,b) => {
-              const ap = STATUS_PRIORITY[a.paymentStatus||getPickupPayStatus(a.totalValue,a.amountPaid)]??99
-              const bp = STATUS_PRIORITY[b.paymentStatus||getPickupPayStatus(b.totalValue,b.amountPaid)]??99
-              if(ap!==bp) return ap-bp
-              return (b.date||'').localeCompare(a.date||'')
-            })
-            .map(r => (
-              <PickupRow key={r.id||r.orderId} pickup={r}
-                onPay={onRecordPayment}
-                onWriteOff={p => onWriteOffEntry(p)}
-                canWriteOff={canWriteOff}/>
-            ))}
+          {(partner.records||[]).length === 0 ? (
+            <div className="empty-state" style={{ padding: 24 }}>
+              <div className="empty-icon" style={{ width: 44, height: 44 }}><Package size={18}/></div>
+              <h3 style={{ margin: 0 }}>No pickups to show</h3>
+              <p style={{ marginTop: 6 }}>Try refreshing or adjusting filters.</p>
+            </div>
+          ) : (
+            [...(partner.records||[])]
+              .sort((a,b) => {
+                const ap = STATUS_PRIORITY[a.paymentStatus||getPickupPayStatus(a.totalValue,a.amountPaid)]??99
+                const bp = STATUS_PRIORITY[b.paymentStatus||getPickupPayStatus(b.totalValue,b.amountPaid)]??99
+                if(ap!==bp) return ap-bp
+                return (b.date||'').localeCompare(a.date||'')
+              })
+              .map(r => (
+                <PickupRow key={r.id||r.orderId} pickup={r}
+                  onPay={onRecordPayment}
+                  onWriteOff={p => onWriteOffEntry(p)}
+                  canWriteOff={canWriteOff}/>
+              ))
+          )}
         </div>
       )}
     </div>
@@ -1185,7 +1193,7 @@ function RSTAnalytics() {
 
 // ── SKS Payment Analytics ──────────────────────────────────────────────────────
 function SKSPaymentAnalytics() {
-  const { sksOutflows } = useApp()
+  const { sksOutflows, recordSksOutflowPayment } = useApp()
   const [datePreset, setDatePreset] = useState('all')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo,   setCustomTo]   = useState('')
@@ -1193,6 +1201,11 @@ function SKSPaymentAnalytics() {
   const [search, setSearch] = useState('')
   const [sortKey, setSortKey] = useState('date')
   const [sortDir, setSortDir] = useState('desc')
+
+  const { toasts, showToast, removeToast } = useToastStack()
+  const [payModal, setPayModal] = useState({ open: false, record: null })
+  const [payState, setPayState] = useState({ method: 'cash', amount: '', reference: '', notes: '', screenshot: null, totalValue: '' })
+  const [savingPay, setSavingPay] = useState(false)
 
   const { from:dateFrom, to:dateTo } = useMemo(() => getDateRange(datePreset,customFrom,customTo), [datePreset,customFrom,customTo])
   const enriched = useMemo(() => (sksOutflows||[]).map(r => {
@@ -1222,6 +1235,44 @@ function SKSPaymentAnalytics() {
     totalPending: filtered.reduce((s,r)=>s+r._pending,0),
     totalItems:   filtered.reduce((s,r)=>s+(r.items||[]).reduce((a,it)=>a+it.qty,0),0),
   }), [filtered])
+
+  const canRecordPaymentForStatus = (status) => (status === 'Not Paid' || status === 'Partially Paid' || status === 'Pending')
+
+  const openPay = (record) => {
+    const pay = record?.payment || {}
+    setPayState({
+      method: (pay.method || 'cash').toLowerCase(),
+      amount: pay.amount !== undefined && pay.amount !== null ? String(pay.amount) : '',
+      reference: pay.reference || '',
+      notes: pay.notes || '',
+      screenshot: pay.screenshot || null,
+      totalValue: pay.totalValue !== undefined && pay.totalValue !== null ? String(pay.totalValue) : '',
+    })
+    setPayModal({ open: true, record })
+  }
+
+  const savePay = async () => {
+    if (!payModal.record?.id) return
+    setSavingPay(true)
+    try {
+      const paid = Number(payState.amount) || 0
+      const total = Number(payState.totalValue) || 0
+      await recordSksOutflowPayment(payModal.record.id, {
+        method: payState.method,
+        amount: paid,
+        totalValue: total,
+        reference: String(payState.reference || ''),
+        notes: String(payState.notes || ''),
+        screenshot: payState.screenshot || undefined,
+      })
+      showToast('Payment recorded', 'success', `Saved for dispatch ${payModal.record.id}`)
+      setPayModal({ open: false, record: null })
+    } catch (err) {
+      showToast('Payment failed', 'error', err?.message || 'Please try again.')
+    } finally {
+      setSavingPay(false)
+    }
+  }
 
   if ((sksOutflows||[]).length === 0) {
     return (
@@ -1291,44 +1342,218 @@ function SKSPaymentAnalytics() {
       {filtered.length === 0 ? (
         <div className="empty-state"><div className="empty-icon"><Package size={24}/></div><h3>No records match</h3><p>Adjust filters.</p></div>
       ) : (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                {renderSortTh('id', 'ID')}
-                {renderSortTh('date', 'Date')}
-                {renderSortTh('partnerName', 'Recipient')}
-                <th>Items</th>
-                {renderSortTh('_paid', 'Received', 'right')}
-                {renderSortTh('_pending', 'Pending', 'right')}
-                <th>Status</th>
-                <th>Proof</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(r => (
-                <tr key={r.id}>
-                  <td><code style={{ fontSize:11, fontWeight:700, color:'var(--secondary)', background:'var(--secondary-light)', padding:'2px 7px', borderRadius:5 }}>{r.id}</code></td>
-                  <td style={{ whiteSpace:'nowrap', fontWeight:600, fontSize:12.5 }}>{fmtDate(r.date)}</td>
-                  <td><div style={{ fontWeight:700 }}>{r.partnerName||'—'}</div>{r.partnerPhone&&<div style={{ fontSize:11.5, color:'var(--text-muted)' }}>{r.partnerPhone}</div>}</td>
-                  <td>
-                    <div style={{ display:'flex', flexWrap:'wrap', gap:3 }}>
-                      {(r.items||[]).slice(0,3).map(it=>(
-                        <span key={it.name} style={{ fontSize:10, padding:'1px 6px', borderRadius:20, background:'var(--info-bg)', color:'var(--info)', fontWeight:600 }}>{it.name} ×{it.qty}</span>
-                      ))}
-                      {(r.items||[]).length>3&&<span style={{ fontSize:10, color:'var(--text-muted)' }}>+{r.items.length-3}</span>}
-                    </div>
-                  </td>
-                  <td style={{ textAlign:'right', fontWeight:700, color:r._paid>0?'var(--secondary)':'var(--text-muted)' }}>{r._paid>0?money(r._paid):'—'}</td>
-                  <td style={{ textAlign:'right', fontWeight:700, color:r._pending>0?'var(--danger)':'var(--text-muted)' }}>{r._pending>0?money(r._pending):'—'}</td>
-                  <td><PayBadge status={r._status}/></td>
-                  <td>{r._screenshot?<ScreenshotThumb src={r._screenshot} size={36}/>:<span style={{ color:'var(--text-muted)', fontSize:11 }}>—</span>}</td>
+        <>
+          {/* Desktop/tablet table */}
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  {renderSortTh('id', 'ID')}
+                  {renderSortTh('date', 'Date')}
+                  {renderSortTh('partnerName', 'Recipient')}
+                  <th>Items</th>
+                  {renderSortTh('_paid', 'Received', 'right')}
+                  {renderSortTh('_pending', 'Pending', 'right')}
+                  <th>Status</th>
+                  <th>Proof</th>
+                  <th style={{ textAlign:'right' }}>Action</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {filtered.map(r => {
+                  const eligible = canRecordPaymentForStatus(r._status) && r._pending > 0
+                  return (
+                  <tr key={r.id}>
+                    <td><code style={{ fontSize:11, fontWeight:700, color:'var(--secondary)', background:'var(--secondary-light)', padding:'2px 7px', borderRadius:5 }}>{r.id}</code></td>
+                    <td style={{ whiteSpace:'nowrap', fontWeight:600, fontSize:12.5 }}>{fmtDate(r.date)}</td>
+                    <td><div style={{ fontWeight:700 }}>{r.partnerName||'—'}</div>{r.partnerPhone&&<div style={{ fontSize:11.5, color:'var(--text-muted)' }}>{r.partnerPhone}</div>}</td>
+                    <td>
+                      <div style={{ display:'flex', flexWrap:'wrap', gap:3 }}>
+                        {(r.items||[]).slice(0,3).map(it=>(
+                          <span key={it.name} style={{ fontSize:10, padding:'1px 6px', borderRadius:20, background:'var(--info-bg)', color:'var(--info)', fontWeight:600 }}>{it.name} ×{it.qty}</span>
+                        ))}
+                        {(r.items||[]).length>3&&<span style={{ fontSize:10, color:'var(--text-muted)' }}>+{r.items.length-3}</span>}
+                      </div>
+                    </td>
+                    <td style={{ textAlign:'right', fontWeight:700, color:r._paid>0?'var(--secondary)':'var(--text-muted)' }}>{r._paid>0?money(r._paid):'—'}</td>
+                    <td style={{ textAlign:'right', fontWeight:700, color:r._pending>0?'var(--danger)':'var(--text-muted)' }}>{r._pending>0?money(r._pending):'—'}</td>
+                    <td><PayBadge status={r._status}/></td>
+                    <td>{r._screenshot?<ScreenshotThumb src={r._screenshot} size={36}/>:<span style={{ color:'var(--text-muted)', fontSize:11 }}>—</span>}</td>
+                    <td style={{ textAlign:'right' }}>
+                      {eligible ? (
+                        <button className="btn btn-outline btn-sm"
+                          onClick={() => openPay(r)}
+                          style={{ fontSize:11.5, padding:'5px 10px', display:'inline-flex', alignItems:'center', gap:6 }}>
+                          <IndianRupee size={12}/> Record Payment
+                        </button>
+                      ) : (
+                        <span style={{ color:'var(--text-muted)', fontSize:11 }}>—</span>
+                      )}
+                    </td>
+                  </tr>
+                )})}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile cards (≤768px CSS shows this, hides table) */}
+          <div className="mobile-cards" style={{ display:'flex', flexDirection:'column', gap:10 }}>
+            {filtered.map(r => {
+              const eligible = canRecordPaymentForStatus(r._status) && r._pending > 0
+              return (
+                <div key={r.id} className="card">
+                  <div className="card-body" style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                    <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:10 }}>
+                      <div style={{ minWidth:0 }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                          <code style={{ fontSize:11, fontWeight:800, color:'white', background:'var(--secondary)', padding:'2px 8px', borderRadius:6 }}>{r.id}</code>
+                          <span style={{ fontWeight:800 }}>{r.partnerName || '—'}</span>
+                        </div>
+                        <div style={{ marginTop:4, fontSize:12, color:'var(--text-muted)', display:'flex', gap:8, flexWrap:'wrap' }}>
+                          <span>{fmtDate(r.date)}</span>
+                          {r.partnerPhone && <span>{r.partnerPhone}</span>}
+                        </div>
+                      </div>
+                      <div style={{ flexShrink:0, display:'flex', alignItems:'center', gap:8 }}>
+                        {r._screenshot ? <ScreenshotThumb src={r._screenshot} size={42}/> : null}
+                      </div>
+                    </div>
+
+                    <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+                      <PayBadge status={r._status}/>
+                      <span style={{ fontSize:12, fontWeight:800, color:'var(--secondary)', background:'var(--secondary-light)', padding:'3px 10px', borderRadius:999 }}>
+                        Received: {r._paid > 0 ? money(r._paid) : '—'}
+                      </span>
+                      <span style={{ fontSize:12, fontWeight:800, color:r._pending>0?'var(--danger)':'var(--text-muted)', background:r._pending>0?'var(--danger-bg)':'var(--border-light)', padding:'3px 10px', borderRadius:999 }}>
+                        Pending: {r._pending > 0 ? money(r._pending) : '—'}
+                      </span>
+                    </div>
+
+                    <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
+                      {(r.items||[]).slice(0,6).map(it => (
+                        <span key={it.name} style={{ fontSize:11, padding:'2px 10px', borderRadius:999, background:'var(--info-bg)', color:'var(--info)', fontWeight:700 }}>
+                          {it.name} ×{it.qty}
+                        </span>
+                      ))}
+                      {(r.items||[]).length>6 && <span style={{ fontSize:11, color:'var(--text-muted)' }}>+{r.items.length-6} more</span>}
+                    </div>
+
+                    {eligible && (
+                      <button className="btn btn-outline"
+                        onClick={() => openPay(r)}
+                        style={{ width:'100%', justifyContent:'center' }}>
+                        <IndianRupee size={14}/> Record Payment
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </>
+      )}
+
+      {payModal.open && (
+        <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && setPayModal({ open: false, record: null })}>
+          <div className="modal" style={{ maxWidth: 620, width: '95vw' }}>
+            <div className="modal-header">
+              <div className="modal-title">Record Payment</div>
+              <span style={{ fontSize: 12, fontFamily: 'monospace', fontWeight: 800, color: 'white', background: 'var(--primary)', padding: '2px 10px', borderRadius: 5 }}>
+                {payModal.record?.id}
+              </span>
+              <button className="btn btn-ghost btn-icon btn-sm" onClick={() => setPayModal({ open: false, record: null })}><X size={16} /></button>
+            </div>
+            <div className="modal-body" style={{ maxHeight: '72vh', overflowY: 'auto' }}>
+              <div style={{ background: 'linear-gradient(135deg, rgba(232,82,26,0.04), rgba(245,185,66,0.04))', borderRadius: 10, padding: 14, border: '1px solid rgba(232,82,26,0.18)' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <IndianRupee size={12} /> Payment Details
+                </div>
+
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 8 }}>Payment Method</label>
+                  <MethodPicker value={payState.method} onChange={m => setPayState(s => ({ ...s, method: m, reference: '', screenshot: null }))} />
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label style={{ fontSize: 11.5 }}>Total Goods Value (₹)</label>
+                    <input type="number" onWheel={e=>e.target.blur()} min={0} inputMode="decimal"
+                      value={payState.totalValue || ''}
+                      onChange={e => setPayState(s => ({ ...s, totalValue: e.target.value }))}
+                      placeholder="Estimated value of goods" />
+                  </div>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label style={{ fontSize: 11.5 }}>Amount Received (₹)</label>
+                    <input type="number" onWheel={e=>e.target.blur()} min={0} inputMode="decimal"
+                      value={payState.amount}
+                      onChange={e => setPayState(s => ({ ...s, amount: e.target.value }))}
+                      placeholder="0" />
+                  </div>
+                </div>
+
+                {payState.method !== 'cash' && (
+                  <div className="form-group" style={{ margin: '0 0 12px' }}>
+                    <label style={{ fontSize: 11.5 }}>
+                      {payState.method === 'upi' ? 'UPI Transaction ID' : payState.method === 'bank' ? 'Bank Reference No.' : 'Cheque Number'}
+                      <span style={{ fontSize: 10.5, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 4 }}>(optional)</span>
+                    </label>
+                    <input value={payState.reference} onChange={e => setPayState(s => ({ ...s, reference: e.target.value }))} placeholder="Reference number…" />
+                  </div>
+                )}
+
+                {payState.method === 'upi' && (
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 5, marginBottom: 6 }}>
+                      <Image size={12} color="var(--info)" /> Payment Screenshot
+                      <span style={{ fontSize: 10.5, fontWeight: 400, color: 'var(--text-muted)' }}>(optional)</span>
+                    </label>
+                    {payState.screenshot ? (
+                      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                        <ScreenshotThumb src={payState.screenshot} label="Payment Proof" />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--secondary)', marginBottom: 4 }}>Screenshot attached ✓</div>
+                          <button type="button" onClick={() => setPayState(s => ({ ...s, screenshot: null }))}
+                            style={{ fontSize: 11.5, color: 'var(--danger)', background: 'var(--danger-bg)', border: '1px solid var(--danger)', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontWeight: 600 }}>
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <label className="btn btn-ghost btn-sm" style={{ width: '100%', justifyContent: 'center', borderStyle: 'dashed', cursor: 'pointer', padding: '8px' }}>
+                        <Upload size={13} /> Upload UPI Screenshot
+                        <input type="file" accept="image/*" style={{ display: 'none' }} onChange={async (e) => {
+                          const file = e.target.files?.[0]; if (!file) return
+                          try {
+                            const uploaded = await uploadFileViaSignedUrl(file, { purpose: 'sks-proof', entityId: payModal.record?.id || 'sks-dispatch' })
+                            setPayState(s => ({ ...s, screenshot: uploaded.url }))
+                          } catch (err) {
+                            showToast('Upload failed', 'error', err?.message || 'Please try again.')
+                          } finally {
+                            e.target.value = ''
+                          }
+                        }} />
+                      </label>
+                    )}
+                  </div>
+                )}
+
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label style={{ fontSize: 11.5 }}>Payment Notes <span style={{ fontSize: 10.5, fontWeight: 400, color: 'var(--text-muted)' }}>(optional)</span></label>
+                  <input value={payState.notes} onChange={e => setPayState(s => ({ ...s, notes: e.target.value }))} placeholder="Any remarks about this payment…" />
+                </div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={() => setPayModal({ open: false, record: null })} disabled={savingPay}>Cancel</button>
+              <button className="btn btn-primary" onClick={savePay} disabled={savingPay}>
+                {savingPay ? 'Saving…' : 'Save Payment'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
+
+      <ToastStack toasts={toasts} onRemove={removeToast}/>
     </div>
   )
 }

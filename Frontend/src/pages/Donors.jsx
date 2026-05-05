@@ -9,6 +9,7 @@ import { useApp } from '../context/AppContext'
 import { fmtDate, fmtCurrency, donorStatusColor } from '../utils/helpers'
 import { differenceInDays, parseISO } from 'date-fns'
 import SocietyInput from '../components/SocietyInput'
+import SectorSearchSelect from '../components/SectorSearchSelect'
 
 // ── Segments — operational health only (supporters live on their own page) ───
 const SEGMENTS = [
@@ -26,6 +27,11 @@ function getSegment(donor) {
 function daysSince(dateStr) {
   if (!dateStr) return null
   return differenceInDays(new Date(), parseISO(dateStr))
+}
+
+function safeAmount(value) {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : 0
 }
 
 // ── Icon badge — 👍 for donors, 👍❤️ for both ────────────────────────────────
@@ -82,7 +88,7 @@ const EMPTY_FORM = {
 }
 
 export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
-  const { donors, pickups, addDonor, updateDonor, deleteDonor, CITIES, CITY_SECTORS, locations } = useApp()
+  const { donors, pickups, addDonor, updateDonor, deleteDonor, CITIES, CITY_SECTORS, locations, upsertLocation } = useApp()
 
   const [modal, setModal]       = useState(false)
   const [editing, setEditing]   = useState(null)
@@ -341,7 +347,7 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
 
                 <div style={{ display:'flex', gap:0, borderTop:'1px solid var(--border-light)', background:'var(--bg)' }}>
                   {[
-                    { label:'RST Donated',  value:<span style={{ fontWeight:700, fontSize:12, color:'var(--secondary)' }}>{fmtCurrency(d.totalRST)}</span> },
+                    { label:'RST Donated',  value:<span style={{ fontWeight:700, fontSize:12, color:'var(--secondary)' }}>{fmtCurrency(safeAmount(d.totalRST))}</span> },
                     { label:'Last Pickup',  value:<span style={{ fontWeight:600, fontSize:11.5 }}>{d.lastPickup ? fmtDate(d.lastPickup) : '—'}</span> },
                     {
                       label: overdue ? '⚠ Overdue' : 'Next Pickup',
@@ -412,10 +418,18 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
                 </div>
                 <div className="form-group">
                   <label>Sector / Area</label>
-                  <input list="donor-sectors" value={form.sector} onChange={e => setField('sector', e.target.value)} disabled={!form.city} placeholder={form.city ? 'Type or choose sector' : 'Select city first'} />
-                  <datalist id="donor-sectors">
-                    {formSectors.map(s => <option key={s} value={s} />)}
-                  </datalist>
+                  <SectorSearchSelect
+                    options={formSectors}
+                    value={form.sector}
+                    onChange={(val) => setField('sector', val)}
+                    disabled={!form.city}
+                    placeholder={form.city ? 'Search or select sector' : 'Select city first'}
+                    onAddOption={async (sectorName) => {
+                      await upsertLocation({ city: form.city, sector: sectorName })
+                      return sectorName
+                    }}
+                    addLabel="Add sector"
+                  />
                 </div>
                 <div className="form-group full">
                   <label>Society / Colony</label>

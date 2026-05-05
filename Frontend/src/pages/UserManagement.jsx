@@ -2,6 +2,7 @@
 // Admin-only page: create, edit, activate/deactivate users with RBAC
 
 import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Users, Plus, Edit2, X, CheckCircle, AlertCircle,
   Shield, Mail, Phone, UserCheck, UserX, Search,
@@ -9,6 +10,7 @@ import {
 } from 'lucide-react'
 import { useRole } from '../context/RoleContext'
 import * as api from '../services/api'
+import { queryKeys } from '../query/queryKeys'
 
 const ROLE_BADGES = {
   admin:     { label: 'Admin',     bg: '#FDE7DA', color: '#E8521A', border: '#FDCFB0' },
@@ -74,10 +76,10 @@ function useToast() {
 
 export default function UserManagement() {
   const { role, user: currentUser } = useRole()
+  const queryClient = useQueryClient()
   const { toasts, show: showToast, remove: removeToast } = useToast()
 
   const [users, setUsers] = useState([])
-  const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState(false)
   const [editing, setEditing] = useState(null)
   const [saving, setSaving] = useState(false)
@@ -85,6 +87,7 @@ export default function UserManagement() {
   const [search, setSearch] = useState('')
   const [filterRole, setFilterRole] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
+  const [viewMode, setViewMode] = useState('cards') // cards | table
   const [showPassword, setShowPassword] = useState(false)
 
   // Change password modal
@@ -99,18 +102,52 @@ export default function UserManagement() {
   })
 
   const loadUsers = useCallback(async (options = {}) => {
-    setLoading(true)
     try {
-      const data = await api.fetchUsers({ limit: 200 }, { force: options?.force === true })
-      setUsers(Array.isArray(data) ? data : [])
+      await queryClient.invalidateQueries({ queryKey: ['users'] })
+      if (options?.force === true) {
+        await queryClient.refetchQueries({ queryKey: queryKeys.users({ limit: 200 }) })
+      }
     } catch (err) {
       showToast('Failed to load users', 'error', err.message)
-    } finally {
-      setLoading(false)
     }
-  }, [showToast])
+  }, [showToast, queryClient])
 
-  useEffect(() => { loadUsers() }, [loadUsers])
+  const usersQuery = useQuery({
+    queryKey: queryKeys.users({ limit: 200 }),
+    queryFn: () => api.fetchUsers({ limit: 200 }),
+    staleTime: 60_000,
+  })
+
+  useEffect(() => {
+    if (Array.isArray(usersQuery.data)) setUsers(usersQuery.data)
+  }, [usersQuery.data])
+
+  const upsertUserMutation = useMutation({
+    mutationFn: async ({ editingUser, formData }) => {
+      if (editingUser) {
+        const patch = { name: formData.name, phone: formData.phone, role: formData.role, active: formData.active }
+        return api.updateUser(userId(editingUser), patch)
+      }
+      return api.createUser(formData)
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['users'] })
+    },
+  })
+
+  const toggleStatusMutation = useMutation({
+    mutationFn: ({ id, nextActive }) => api.updateUser(id, { active: nextActive }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['users'] })
+    },
+  })
+
+  const deleteUserMutation = useMutation({
+    mutationFn: id => api.deleteUser(id),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['users'] })
+    },
+  })
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim()
@@ -158,16 +195,10 @@ export default function UserManagement() {
 
     setSaving(true); setError('')
     try {
-      if (editing) {
-        const patch = { name: form.name, phone: form.phone, role: form.role, active: form.active }
-        const updated = await api.updateUser(userId(editing), patch)
-        setUsers(prev => upsertUser(prev, updated))
-        showToast('User updated', 'success', form.name)
-      } else {
-        const created = await api.createUser(form)
-        setUsers(prev => upsertUser(prev, created))
-        showToast('User created', 'success', `${form.name} (${form.role})`)
-      }
+      const saved = await upsertUserMutation.mutateAsync({ editingUser: editing, formData: form })
+      setUsers(prev => upsertUser(prev, saved))
+      if (editing) showToast('User updated', 'success', form.name)
+      else showToast('User created', 'success', `${form.name} (${form.role})`)
       close()
     } catch (err) {
       setError(err.message || 'Save failed')
@@ -179,7 +210,7 @@ export default function UserManagement() {
   const toggleStatus = async (u) => {
     if (u.uid === currentUser?.uid) { showToast("Can't deactivate yourself", 'error'); return }
     try {
-      const updated = await api.updateUser(userId(u), { active: u.active === false })
+      const updated = await toggleStatusMutation.mutateAsync({ id: userId(u), nextActive: u.active === false })
       setUsers(prev => upsertUser(prev, updated))
       showToast(u.active === false ? 'User activated' : 'User deactivated', 'success', u.name)
     } catch (err) {
@@ -191,7 +222,7 @@ export default function UserManagement() {
     if (u.uid === currentUser?.uid) { showToast("Can't delete yourself", 'error'); return }
     if (!window.confirm(`Delete user "${u.name}"? This cannot be undone.`)) return
     try {
-      await api.deleteUser(userId(u))
+      await deleteUserMutation.mutateAsync(userId(u))
       setUsers(prev => prev.filter(existing => userId(existing) !== userId(u)))
       showToast('User deleted', 'success', u.name)
     } catch (err) {
@@ -239,6 +270,44 @@ export default function UserManagement() {
           <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: 2 }}>Create, manage, and control user access</div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 4, padding: 3, background: 'var(--border-light)', borderRadius: 10, alignItems: 'center' }}>
+            <button
+              type="button"
+              onClick={() => setViewMode('cards')}
+              style={{
+                border: 'none',
+                cursor: 'pointer',
+                padding: '6px 10px',
+                borderRadius: 8,
+                fontSize: 12,
+                fontWeight: viewMode === 'cards' ? 800 : 600,
+                background: viewMode === 'cards' ? 'var(--surface)' : 'transparent',
+                color: viewMode === 'cards' ? 'var(--text-primary)' : 'var(--text-muted)',
+                boxShadow: viewMode === 'cards' ? 'var(--shadow)' : 'none',
+              }}
+              title="Card view"
+            >
+              Cards
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('table')}
+              style={{
+                border: 'none',
+                cursor: 'pointer',
+                padding: '6px 10px',
+                borderRadius: 8,
+                fontSize: 12,
+                fontWeight: viewMode === 'table' ? 800 : 600,
+                background: viewMode === 'table' ? 'var(--surface)' : 'transparent',
+                color: viewMode === 'table' ? 'var(--text-primary)' : 'var(--text-muted)',
+                boxShadow: viewMode === 'table' ? 'var(--shadow)' : 'none',
+              }}
+              title="Table view"
+            >
+              Table
+            </button>
+          </div>
           <button className="btn btn-ghost btn-sm" onClick={() => { setPwForm({ currentPassword: '', newPassword: '', confirmPassword: '' }); setPwError(''); setPwModal(true); setShowPwFields({ current: false, new: false, confirm: false }) }}>
             <Key size={14} /> Change My Password
           </button>
@@ -268,27 +337,27 @@ export default function UserManagement() {
       {/* Filters */}
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-body" style={{ padding: '12px 16px' }}>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-            <div style={{ position: 'relative', flex: '1 1 200px', minWidth: 160 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 96px 96px auto', gap: 6, alignItems: 'center' }}>
+            <div style={{ position: 'relative', minWidth: 0 }}>
               <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
               <input
                 value={search} onChange={e => setSearch(e.target.value)}
                 placeholder="Search name or email…"
-                style={{ paddingLeft: 32, width: '100%', fontSize: 13 }}
+                style={{ paddingLeft: 30, width: '100%', fontSize: 12, height: 32 }}
               />
             </div>
-            <select value={filterRole} onChange={e => setFilterRole(e.target.value)} style={{ fontSize: 13, minWidth: 120 }}>
+            <select value={filterRole} onChange={e => setFilterRole(e.target.value)} style={{ fontSize: 12, minWidth: 0, width: '100%', height: 32, padding: '4px 6px' }}>
               <option value="">All Roles</option>
               <option value="admin">Admin</option>
               <option value="manager">Manager</option>
               <option value="executive">Executive</option>
             </select>
-            <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ fontSize: 13, minWidth: 120 }}>
+            <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ fontSize: 12, minWidth: 0, width: '100%', height: 32, padding: '4px 6px' }}>
               <option value="">All Status</option>
               <option value="active">Active</option>
               <option value="inactive">Inactive</option>
             </select>
-            <button className="btn btn-ghost btn-sm" onClick={() => loadUsers({ force: true })} title="Refresh">
+            <button className="btn btn-ghost btn-sm" onClick={() => loadUsers({ force: true })} title="Refresh" style={{ height: 32, minHeight: 32, padding: '0 8px' }}>
               <RefreshCw size={14} />
             </button>
           </div>
@@ -296,13 +365,80 @@ export default function UserManagement() {
       </div>
 
       {/* Users List */}
-      {loading ? (
+      {usersQuery.isLoading ? (
         <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>Loading users…</div>
       ) : filtered.length === 0 ? (
         <div className="empty-state" style={{ padding: 40 }}>
           <div className="empty-icon"><Users size={22} /></div>
           <h3>No users found</h3>
           <p>{search || filterRole || filterStatus ? 'Try adjusting your filters' : 'Create your first user to get started'}</p>
+        </div>
+      ) : viewMode === 'table' ? (
+        <div className="table-wrap">
+          <table style={{ minWidth: 760 }}>
+            <thead>
+              <tr>
+                <th>User</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th>Phone</th>
+                <th style={{ textAlign: 'right' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(u => {
+                const isSelf = u.uid === currentUser?.uid
+                const isActive = u.active !== false
+                return (
+                  <tr key={u.id || u.uid} style={{ opacity: isActive ? 1 : 0.65 }}>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div style={{ width: 34, height: 34, borderRadius: 10, background: ROLE_BADGES[u.role]?.bg || '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, color: ROLE_BADGES[u.role]?.color || '#666', flexShrink: 0 }}>
+                          {(u.name || '?')[0].toUpperCase()}
+                        </div>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 800, fontSize: 13.5 }} className="truncate">
+                            {u.name || 'Unnamed'} {isSelf && <span style={{ fontSize: 10, color: 'var(--info)', fontWeight: 700 }}>(You)</span>}
+                          </div>
+                          <div style={{ fontSize: 12, color: 'var(--text-muted)' }} className="truncate">{u.email}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td><RoleBadge role={u.role} /></td>
+                    <td>
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 20, fontSize: 10.5, fontWeight: 800,
+                        background: isActive ? 'var(--secondary-light)' : 'var(--danger-bg)',
+                        color: isActive ? 'var(--secondary)' : 'var(--danger)',
+                        border: `1px solid ${isActive ? 'rgba(27,94,53,0.2)' : 'rgba(220,38,38,0.2)'}`,
+                      }}>
+                        {isActive ? <CheckCircle size={9} /> : <X size={9} />}
+                        {isActive ? 'Active' : 'Inactive'}
+                      </span>
+                    </td>
+                    <td style={{ color: 'var(--text-muted)', fontSize: 12.5 }}>{u.phone || '—'}</td>
+                    <td style={{ textAlign: 'right' }}>
+                      <div className="td-actions" style={{ justifyContent: 'flex-end' }}>
+                        <button className="btn btn-ghost btn-sm btn-icon" onClick={() => openEdit(u)} title="Edit">
+                          <Edit2 size={14} />
+                        </button>
+                        {!isSelf && (
+                          <>
+                            <button className="btn btn-ghost btn-sm btn-icon" onClick={() => toggleStatus(u)} title={isActive ? 'Deactivate' : 'Activate'}>
+                              {isActive ? <UserX size={14} color="var(--danger)" /> : <UserCheck size={14} color="var(--secondary)" />}
+                            </button>
+                            <button className="btn btn-ghost btn-sm btn-icon" onClick={() => deleteUser(u)} title="Delete">
+                              <Trash2 size={14} color="var(--danger)" />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 12 }}>

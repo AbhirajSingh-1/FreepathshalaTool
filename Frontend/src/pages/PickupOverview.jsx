@@ -2,6 +2,7 @@
 // Admin/Manager: Overview of all pickups — Individual & Drive stats + scheduler tabs
 // FIXED: "This Week" = Monday to Sunday of current week (includes future dates in week)
 import { useState, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Truck, Users, AlertTriangle, TrendingUp,
   Filter, X, Calendar, BarChart3, ChevronDown, ChevronUp,
@@ -10,6 +11,7 @@ import { useApp }   from '../context/AppContext'
 import { useRole }  from '../context/RoleContext'
 import PickupTabs   from '../components/PickupTabs'
 import { fmtDate, fmtCurrency } from '../utils/helpers'
+import SectorSearchSelect from '../components/SectorSearchSelect'
 
 // ── Period helpers ─────────────────────────────────────────────────────────────
 const padM = (n) => String(n).padStart(2, '0')
@@ -111,6 +113,7 @@ function PeriodBar({ dateFrom, dateTo, onRange, last5 }) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 export default function PickupOverview() {
+  const navigate = useNavigate()
   const { pickups, schedulerTabData, CITIES, CITY_SECTORS } = useApp()
   const { role } = useRole()
 
@@ -123,9 +126,8 @@ export default function PickupOverview() {
   const [dateFrom,   setDateFrom]  = useState(defaultFrom)
   const [dateTo,     setDateTo]    = useState(defaultTo)
   const [sector,     setSector]    = useState('')
-  const [city,       setCity]      = useState('')
+  const [city,       setCity]      = useState('Gurgaon')
   const [society,    setSociety]   = useState('')
-  const [showFilters, setShowFilters] = useState(false)
 
   // Scheduler sub-filters
   const [schPreset, setSchPreset] = useState('all')
@@ -142,15 +144,26 @@ export default function PickupOverview() {
     }
   }
 
-  const allSectors = useMemo(() => {
-    if (city) return CITY_SECTORS[city] || []
-    return [...new Set(pickups.map(p => p.sector).filter(Boolean))].sort()
-  }, [pickups, city])
+  const handleRescheduleFromOverdue = (row) => {
+    navigate('/pickup-scheduler', {
+      state: {
+        pickupId: row.id,
+        donorId: row.donorId,
+        date: row.scheduledDate || '',
+        timeSlot: row.timeSlot || '',
+        pickupMode: row.pickupMode || 'Individual',
+        notes: row.notes || '',
+      },
+    })
+  }
+
+  const allSectors = useMemo(() => CITY_SECTORS[city] || [], [CITY_SECTORS, city])
 
   const allSocieties = useMemo(() => {
-    if (!sector) return []
-    return [...new Set(pickups.map(p => p.society).filter(Boolean))].sort()
-  }, [pickups, sector])
+    if (!city) return []
+    const scoped = pickups.filter(p => p.city === city && (!sector || p.sector === sector))
+    return [...new Set(scoped.map(p => p.society).filter(Boolean))].sort()
+  }, [pickups, city, sector])
 
   const filteredPickups = useMemo(() =>
     pickups.filter(p => {
@@ -189,15 +202,14 @@ export default function PickupOverview() {
   // Scheduler tab data filtered — THIS WEEK fix applied via getPresetRange
   const filteredTabData = useMemo(() => {
     const inRange  = (ds) => { if (!ds) return true; if (schFrom && ds < schFrom) return false; if (schTo && ds > schTo) return false; return true }
-    const inSec    = (row) => !sector || row.sector === sector
-    const f        = (rows, dk = 'scheduledDate') => rows.filter(r => inRange(r[dk]) && inSec(r))
+    const f        = (rows, dk = 'scheduledDate') => rows.filter(r => inRange(r[dk]))
     return {
       overdue:   f(schedulerTabData.overdue   || []),
       scheduled: f(schedulerTabData.scheduled || []),
       atRisk:    f(schedulerTabData.atRisk    || [], 'lastPickup'),
       churned:   f(schedulerTabData.churned   || [], 'lastPickup'),
     }
-  }, [schedulerTabData, schFrom, schTo, sector])
+  }, [schedulerTabData, schFrom, schTo])
 
   const periodLabel = useMemo(() => {
     if (!dateFrom && !dateTo) return 'All Time'
@@ -264,28 +276,33 @@ export default function PickupOverview() {
               <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
                 style={{ width: 125, fontSize: 11.5, height: 28, padding: '2px 6px', flexShrink: 0 }} />
 
-              {/* City → Sector → Society cascading */}
+              {/* City -> Sector -> Society searchable hierarchy */}
               <select value={city} onChange={e => { setCity(e.target.value); setSector(''); setSociety('') }}
-                style={{ fontSize: 11, width: 'auto', minWidth: 0, maxWidth: 100, height: 26, padding: '2px 4px', flexShrink: 0 }}>
-                <option value="">All Cities</option>
+                style={{ fontSize: 11, width: 'auto', minWidth: 0, maxWidth: 120, height: 26, padding: '2px 4px', flexShrink: 0 }}>
                 {CITIES.map(c => <option key={c}>{c}</option>)}
               </select>
-              <select value={sector} onChange={e => { setSector(e.target.value); setSociety('') }}
-                disabled={!city && allSectors.length === 0}
-                style={{ fontSize: 11, width: 'auto', minWidth: 0, maxWidth: 110, height: 26, padding: '2px 4px', flexShrink: 0 }}>
-                <option value="">All Sectors</option>
-                {allSectors.map(s => <option key={s}>{s}</option>)}
-              </select>
-              {sector && allSocieties.length > 0 && (
-                <select value={society} onChange={e => setSociety(e.target.value)}
-                  style={{ fontSize: 11, width: 'auto', minWidth: 0, maxWidth: 110, height: 26, padding: '2px 4px', flexShrink: 0 }}>
-                  <option value="">All Societies</option>
-                  {allSocieties.map(s => <option key={s}>{s}</option>)}
-                </select>
-              )}
+              <div style={{ width: 140, flexShrink: 0 }}>
+                <SectorSearchSelect
+                  options={allSectors}
+                  value={sector}
+                  onChange={(val) => { setSector(val); setSociety('') }}
+                  disabled={!city}
+                  placeholder="Sector"
+                />
+              </div>
+              <input
+                list="pickup-overview-societies"
+                value={society}
+                onChange={e => setSociety(e.target.value)}
+                placeholder="Society"
+                style={{ fontSize: 11, width: 'auto', minWidth: 0, maxWidth: 140, height: 26, padding: '2px 6px', flexShrink: 0 }}
+              />
+              <datalist id="pickup-overview-societies">
+                {allSocieties.map(s => <option key={s} value={s} />)}
+              </datalist>
 
-              {(dateFrom || dateTo || city || sector || society) && (
-                <button className="btn btn-ghost btn-sm" onClick={() => { setDateFrom(defaultFrom); setDateTo(defaultTo); setCity(''); setSector(''); setSociety('') }}
+              {(dateFrom || dateTo || sector || society || city !== 'Gurgaon') && (
+                <button className="btn btn-ghost btn-sm" onClick={() => { setDateFrom(defaultFrom); setDateTo(defaultTo); setCity('Gurgaon'); setSector(''); setSociety('') }}
                   style={{ color: 'var(--danger)', fontSize: 10.5, padding: '3px 6px', flexShrink: 0 }}>
                   <X size={10} />
                 </button>
@@ -396,18 +413,14 @@ export default function PickupOverview() {
         <div className="card">
           <div className="card-header" style={{ flexWrap: 'wrap', gap: 10 }}>
             <div className="card-title">Scheduled & At-Risk Pickups</div>
-            <button
-              className={`btn btn-sm ${showFilters ? 'btn-outline' : 'btn-ghost'}`}
-              onClick={() => setShowFilters(f => !f)}
-              style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}
-            >
-              <Filter size={13} />Filters
-            </button>
+            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Filter size={13} />
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Filters</span>
+            </div>
           </div>
 
-          {/* Filters OUTSIDE tabs (moved per spec) */}
-          {showFilters && (
-            <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--border-light)', background: 'var(--bg)', display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          {/* Filters OUTSIDE tabs (always visible for accessibility) */}
+          <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--border-light)', background: 'var(--bg)', display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Date</label>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -437,20 +450,12 @@ export default function PickupOverview() {
                   </div>
                 )}
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Sector</label>
-                <select value={sector} onChange={e => setSector(e.target.value)} style={{ minWidth: 160, fontSize: 13 }}>
-                  <option value="">All Sectors</option>
-                  {allSectors.map(s => <option key={s}>{s}</option>)}
-                </select>
-              </div>
-              {(sector || schPreset !== 'all') && (
-                <button className="btn btn-ghost btn-sm" onClick={() => { setSector(''); applySchPreset('all') }}>
+              {schPreset !== 'all' && (
+                <button className="btn btn-ghost btn-sm" onClick={() => { applySchPreset('all') }}>
                   <X size={11} /> Clear
                 </button>
               )}
             </div>
-          )}
 
           <div className="card-body">
             <PickupTabs
@@ -458,6 +463,7 @@ export default function PickupOverview() {
               onTabChange={setActiveTab}
               data={filteredTabData}
               loading={false}
+              onRescheduleOverdue={handleRescheduleFromOverdue}
             />
           </div>
         </div>

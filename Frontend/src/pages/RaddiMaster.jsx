@@ -92,7 +92,8 @@ function RowDetail({ record }) {
                 {rstItems.filter(i => i !== 'Others').map((item, idx) => {
                   const kg   = itemKgMap[item] || 0
                   const rate = pickuppartnerRateChart[item] ?? null
-                  const est  = rate !== null && kg > 0 ? Math.round(kg * rate) : null
+                  const estFromMap = Number(record.itemEstimatedMap?.[item] || 0)
+                  const est  = estFromMap > 0 ? estFromMap : (rate !== null && kg > 0 ? Math.round(kg * rate) : null)
                   return (
                     <div key={item} style={{ display: 'grid', gridTemplateColumns: '1fr 70px 70px', padding: '6px 10px', fontSize: 12.5, borderTop: idx > 0 ? '1px solid var(--border-light)' : 'none', background: idx % 2 === 0 ? 'var(--surface)' : 'var(--bg)' }}>
                       <span style={{ fontWeight: 600 }}>{item}</span>
@@ -306,9 +307,10 @@ export default function RaddiMaster() {
         base[`${item} (₹ Est.)`] = est || ''
       })
       ;(r.rstOthers || []).forEach((o, i) => {
-        base[`Others Item ${i + 1} Name`] = o.name || ''
-        base[`Others Item ${i + 1} KG`]  = o.weight ? (o.unit === 'gm' ? (Number(o.weight) / 1000).toFixed(3) : o.weight) : ''
-        base[`Others Item ${i + 1} ₹`]   = o.amount || ''
+        const idx = i + 1
+        base[`other item${idx} (name)`] = o.name || ''
+        base[`other item${idx} (kg)`]  = o.weight ? (o.unit === 'gm' ? (Number(o.weight) / 1000).toFixed(3) : o.weight) : ''
+        base[`other item${idx} (Rs)`]   = o.amount || ''
       })
       base['RST Items']        = (r.rstItems || []).join(', ')
       base['SKS Items']        = (r.sksItems || []).join(', ')

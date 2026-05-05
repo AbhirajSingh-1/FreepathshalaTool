@@ -431,7 +431,7 @@ export default function Dashboard() {
   useEffect(() => {
     clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => {
-      loadFilteredStats(apiFilters)
+      loadFilteredStats(apiFilters, { force: true })
     }, 350)
     return () => clearTimeout(debounceRef.current)
   }, [apiFilters, loadFilteredStats])

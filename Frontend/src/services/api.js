@@ -1,11 +1,29 @@
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1'
 const DEFAULT_GET_CACHE_TTL_MS = 60_000
 const MASTER_DATA_CACHE_TTL_MS = 10 * 60_000
+const SESSION_EXPIRY_SKEW_SECONDS = 5 * 60
+const REQUEST_TIMEOUT_MS = 15_000
+const MAX_REQUEST_RETRIES = 2
 
 const getRequestCache = new Map()
+let refreshPromise = null
 
 function getAuthToken() {
   return localStorage.getItem('fp_id_token') || ''
+}
+
+function getTokenExpiryMs() {
+  const value = Number(localStorage.getItem('fp_token_expires_at') || 0)
+  return Number.isFinite(value) ? value : 0
+}
+
+function parseJwtExp(idToken) {
+  try {
+    const payload = JSON.parse(atob(String(idToken || '').split('.')[1] || ''))
+    return Number(payload.exp || 0)
+  } catch {
+    return 0
+  }
 }
 
 export function clearApiCache() {
@@ -28,6 +46,13 @@ function setSession(session) {
   if (session?.idToken) localStorage.setItem('fp_id_token', session.idToken)
   if (session?.refreshToken) localStorage.setItem('fp_refresh_token', session.refreshToken)
   if (session?.user?.role) localStorage.setItem('fp_role', String(session.user.role).toLowerCase())
+  const expiresInSeconds = Number(session?.expiresIn || 0)
+  const tokenExpSeconds = parseJwtExp(session?.idToken)
+  const fallbackSeconds = Math.max(60, expiresInSeconds || 3600)
+  const expiresAtMs = tokenExpSeconds
+    ? tokenExpSeconds * 1000
+    : Date.now() + fallbackSeconds * 1000
+  localStorage.setItem('fp_token_expires_at', String(expiresAtMs))
 }
 
 function clearSession() {
@@ -35,6 +60,7 @@ function clearSession() {
   localStorage.removeItem('fp_id_token')
   localStorage.removeItem('fp_refresh_token')
   localStorage.removeItem('fp_role')
+  localStorage.removeItem('fp_token_expires_at')
 }
 
 function toQuery(params = {}) {
@@ -80,11 +106,49 @@ function cacheKey(path, token) {
   return `${token || 'anonymous'}::${path}`
 }
 
+function shouldRetry(error) {
+  if (!error) return false
+  if (error.name === 'AbortError') return true
+  if (error.code === 'NETWORK_ERROR') return true
+  return error.status >= 500
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await fetch(url, { ...options, signal: controller.signal })
+  } catch (error) {
+    if (error.name !== 'AbortError' && !('status' in error)) {
+      const networkError = new Error('Network request failed')
+      networkError.code = 'NETWORK_ERROR'
+      throw networkError
+    }
+    throw error
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+export async function ensureFreshSession() {
+  const token = getAuthToken()
+  if (!token) return null
+  const expiresAtMs = getTokenExpiryMs()
+  const refreshAtMs = expiresAtMs - SESSION_EXPIRY_SKEW_SECONDS * 1000
+  if (expiresAtMs && Date.now() < refreshAtMs) {
+    return { idToken: token, expiresAt: expiresAtMs }
+  }
+  return refreshToken()
+}
+
 export async function apiFetch(path, options = {}) {
   const {
     cacheTtl = DEFAULT_GET_CACHE_TTL_MS,
     dedupe = true,
     force = false,
+    retry = MAX_REQUEST_RETRIES,
+    timeoutMs = REQUEST_TIMEOUT_MS,
+    skipSessionRefresh = false,
     ...fetchOptions
   } = options
 
@@ -106,26 +170,63 @@ export async function apiFetch(path, options = {}) {
     if (!headers.has('Content-Type') && !(fetchOptions.body instanceof FormData)) {
       headers.set('Content-Type', 'application/json')
     }
-    if (token) headers.set('Authorization', `Bearer ${token}`)
-
-    const response = await fetch(`${BASE_URL}${path}`, {
-      ...fetchOptions,
-      method,
-      headers,
-    })
-    const payload = await response.json().catch(() => ({}))
-
-    if (!response.ok || payload.success === false) {
-      const message = payload.error?.message || `API error ${response.status}`
-      const error = new Error(message)
-      error.status = response.status
-      error.code = payload.error?.code
-      error.details = payload.error?.details
-      if (response.status === 401) clearSession()
-      throw error
+    let currentToken = token
+    if (currentToken) {
+      try {
+        const refreshed = skipSessionRefresh ? null : await ensureFreshSession()
+        currentToken = refreshed?.idToken || getAuthToken() || currentToken
+      } catch {
+        clearSession()
+        throw new Error('Session expired, please login again')
+      }
+      headers.set('Authorization', `Bearer ${currentToken}`)
     }
 
-    return payload.data ?? payload
+    let attempt = 0
+    // attempt indexes: 0..retry
+    while (attempt <= retry) {
+      try {
+        const response = await fetchWithTimeout(`${BASE_URL}${path}`, {
+          ...fetchOptions,
+          method,
+          headers,
+        }, timeoutMs)
+        const payload = await response.json().catch(() => ({}))
+
+        if (!response.ok || payload.success === false) {
+          const message = payload.error?.message || `API error ${response.status}`
+          const error = new Error(message)
+          error.status = response.status
+          error.code = payload.error?.code
+          error.details = payload.error?.details
+
+          if (response.status === 401 && currentToken && attempt === 0) {
+            try {
+              const refreshed = await refreshToken()
+              currentToken = refreshed?.idToken || getAuthToken()
+              if (currentToken) {
+                headers.set('Authorization', `Bearer ${currentToken}`)
+                attempt += 1
+                continue
+              }
+            } catch {
+              clearSession()
+            }
+          }
+          throw error
+        }
+
+        return payload.data ?? payload
+      } catch (error) {
+        if (!shouldRetry(error) || attempt >= retry) {
+          if (error?.status === 401) clearSession()
+          throw error
+        }
+        await new Promise(resolve => setTimeout(resolve, 250 * (attempt + 1)))
+        attempt += 1
+      }
+    }
+    throw new Error('Request failed')
   })()
 
   if (shouldCacheGet) {
@@ -177,14 +278,26 @@ export async function logout() {
 }
 
 export async function refreshToken() {
+  if (refreshPromise) return refreshPromise
   const refreshTokenValue = localStorage.getItem('fp_refresh_token')
   if (!refreshTokenValue) throw new Error('Missing refresh token')
-  const session = await apiFetch('/auth/refresh', {
-    method: 'POST',
-    body: JSON.stringify({ refreshToken: refreshTokenValue }),
-  })
-  setSession(session)
-  return session
+  refreshPromise = (async () => {
+    const session = await apiFetch('/auth/refresh', {
+      method: 'POST',
+      body: JSON.stringify({ refreshToken: refreshTokenValue }),
+      retry: 0,
+      dedupe: false,
+      skipSessionRefresh: true,
+    })
+    setSession(session)
+    return session
+  })()
+
+  try {
+    return await refreshPromise
+  } finally {
+    refreshPromise = null
+  }
 }
 
 export const fetchCurrentUser = options => apiFetch('/auth/me', options)
@@ -294,15 +407,22 @@ export const fetchSksInflows = (params, options) =>
   apiFetch(`/sks/inflows${toQuery(params)}`, options)
 export const createSksInflow = data =>
   apiFetch('/sks/inflows', { method: 'POST', body: JSON.stringify(data) })
+export const updateSksInflow = (id, data) =>
+  apiFetch(`/sks/inflows/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
 export const deleteSksInflow = id =>
   apiFetch(`/sks/inflows/${id}`, { method: 'DELETE' })
 export const fetchSksOutflows = (params, options) =>
   apiFetch(`/sks/outflows${toQuery(params)}`, options)
 export const createSksOutflow = data =>
   apiFetch('/sks/outflows', { method: 'POST', body: JSON.stringify(data) })
+export const updateSksOutflow = (id, data) =>
+  apiFetch(`/sks/outflows/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
 export const deleteSksOutflow = id =>
   apiFetch(`/sks/outflows/${id}`, { method: 'DELETE' })
 export const fetchSksStock = options => apiFetch('/sks/stock', options)
+
+export const recordSksOutflowPayment = (id, payment) =>
+  apiFetch(`/sks/outflows/${id}/payment`, { method: 'PATCH', body: JSON.stringify({ payment }) })
 
 // Dashboard
 export const fetchDashboardStats = (params, options) =>

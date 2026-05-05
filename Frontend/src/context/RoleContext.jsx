@@ -1,5 +1,10 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
-import { fetchCurrentUser, login as apiLogin, logout as apiLogout } from '../services/api'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  ensureFreshSession,
+  fetchCurrentUser,
+  login as apiLogin,
+  logout as apiLogout,
+} from '../services/api'
 
 // Role display metadata - only for UI rendering, not for authorization
 export const ROLES = {
@@ -21,10 +26,36 @@ export const useRole = () => {
 }
 
 export function RoleProvider({ children }) {
+  const refreshTimerRef = useRef(null)
   const [user, setUser] = useState(null)
   const [role, setRole] = useState(() => localStorage.getItem('fp_role') || '')
   const [authLoading, setAuthLoading] = useState(true)
   const [authError, setAuthError] = useState('')
+
+  const clearRefreshTimer = useCallback(() => {
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current)
+      refreshTimerRef.current = null
+    }
+  }, [])
+
+  const scheduleTokenRefresh = useCallback(() => {
+    clearRefreshTimer()
+    const expiresAtMs = Number(localStorage.getItem('fp_token_expires_at') || 0)
+    if (!expiresAtMs) return
+    const leadMs = 5 * 60 * 1000
+    const delay = Math.max(15_000, expiresAtMs - Date.now() - leadMs)
+    refreshTimerRef.current = setTimeout(async () => {
+      try {
+        await ensureFreshSession()
+        scheduleTokenRefresh()
+      } catch {
+        setUser(null)
+        setRole('')
+        setAuthError('Session expired, please login again')
+      }
+    }, delay)
+  }, [clearRefreshTimer])
 
   // Fetch user profile from backend - this is the single source of truth for role
   const loadCurrentUser = useCallback(async () => {
@@ -39,12 +70,14 @@ export function RoleProvider({ children }) {
     setAuthLoading(true)
     setAuthError('')
     try {
+      await ensureFreshSession()
       // Backend returns user profile with role from Firestore or custom claims
       const profile = await fetchCurrentUser()
       setUser(profile)
       const nextRole = normalizeRole(profile.role || 'executive')
       setRole(nextRole)
       localStorage.setItem('fp_role', nextRole)
+      scheduleTokenRefresh()
       return profile
     } catch (err) {
       setUser(null)
@@ -54,7 +87,7 @@ export function RoleProvider({ children }) {
     } finally {
       setAuthLoading(false)
     }
-  }, [])
+  }, [scheduleTokenRefresh])
 
   useEffect(() => {
     loadCurrentUser()
@@ -68,6 +101,7 @@ export function RoleProvider({ children }) {
       // Backend returns user with role - this is the source of truth
       setUser(session.user)
       setRole(normalizeRole(session.user?.role || 'executive'))
+      scheduleTokenRefresh()
       return session.user
     } catch (err) {
       setAuthError(err.message || 'Login failed')
@@ -75,13 +109,31 @@ export function RoleProvider({ children }) {
     } finally {
       setAuthLoading(false)
     }
-  }, [])
+  }, [scheduleTokenRefresh])
 
   const logout = useCallback(async () => {
+    clearRefreshTimer()
     await apiLogout()
     setUser(null)
     setRole('')
-  }, [])
+  }, [clearRefreshTimer])
+
+  useEffect(() => {
+    const onStorage = event => {
+      if (!['fp_id_token', 'fp_role', 'fp_token_expires_at'].includes(event.key)) return
+      if (!localStorage.getItem('fp_id_token')) {
+        clearRefreshTimer()
+        setUser(null)
+        setRole('')
+        return
+      }
+      loadCurrentUser()
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [clearRefreshTimer, loadCurrentUser])
+
+  useEffect(() => () => clearRefreshTimer(), [clearRefreshTimer])
 
   // Frontend now only stores role from backend - no permission checks
   // All authorization is enforced server-side via requireRoles middleware

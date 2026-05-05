@@ -13,6 +13,7 @@ import { useRole } from '../context/RoleContext'
 import { fmtDate, exportToExcel } from '../utils/helpers'
 import { differenceInDays, parseISO } from 'date-fns'
 import SocietyInput from '../components/SocietyInput'
+import SectorSearchSelect from '../components/SectorSearchSelect'
 
 // ── Status logic — time-based engagement buckets ─────────────────────────────
 function getSupporterStatus(lastSupportDate) {
@@ -131,6 +132,17 @@ export default function Supporters() {
 
   const sectorOptions = useMemo(() => filterCity ? (CITY_SECTORS[filterCity] || []) : [], [filterCity])
   const formSectors   = CITY_SECTORS[form.city] || []
+  const existingDonorMatch = useMemo(() => {
+    const name = form.name.trim().toLowerCase()
+    const mobile = form.mobile.trim()
+    if (!name && !mobile) return null
+    return donors.find(d => {
+      if (editing && d.id === editing.id) return false
+      const sameMobile = mobile && d.mobile === mobile
+      const sameName = name && String(d.name || '').trim().toLowerCase() === name
+      return sameMobile || sameName
+    }) || null
+  }, [donors, form.name, form.mobile, editing])
 
   // ── Pull only supporters ──────────────────────────────────────────────────
   const supporters = useMemo(() =>
@@ -212,11 +224,17 @@ export default function Supporters() {
     try {
       const payload = {
         ...form,
-        donorType:           form.isAlsoDonor ? 'both' : 'supporter',
+        donorType:           (form.isAlsoDonor || existingDonorMatch) ? 'both' : 'supporter',
         supportContribution: form.contributionType,
       }
       delete payload.isAlsoDonor
-      editing ? await updateDonor(editing.id, payload) : await addDonor(payload)
+      if (editing) {
+        await updateDonor(editing.id, payload)
+      } else if (existingDonorMatch) {
+        await updateDonor(existingDonorMatch.id, payload)
+      } else {
+        await addDonor(payload)
+      }
       closeModal()
     } finally { setSaving(false) }
   }
@@ -612,17 +630,22 @@ export default function Supporters() {
                 </div>
                 <div className="form-group">
                   <label>City</label>
-                  <input list="supporter-cities" value={form.city} onChange={e => setField('city', e.target.value)} placeholder="Type or choose city" />
-                  <datalist id="supporter-cities">
-                    {CITIES.map(c => <option key={c} value={c} />)}
-                  </datalist>
+                  <SectorSearchSelect
+                    options={CITIES}
+                    value={form.city}
+                    onChange={val => setField('city', val)}
+                    placeholder="Search city"
+                  />
                 </div>
                 <div className="form-group">
                   <label>Sector / Area</label>
-                  <input list="supporter-sectors" value={form.sector} onChange={e => setField('sector', e.target.value)} disabled={!form.city} placeholder={form.city ? 'Type or choose sector' : 'Select city first'} />
-                  <datalist id="supporter-sectors">
-                    {formSectors.map(s => <option key={s} value={s} />)}
-                  </datalist>
+                  <SectorSearchSelect
+                    options={formSectors}
+                    value={form.sector}
+                    onChange={val => setField('sector', val)}
+                    disabled={!form.city}
+                    placeholder={form.city ? 'Search sector' : 'Select city first'}
+                  />
                 </div>
                 <div className="form-group full">
                   <label>Society / Colony</label>
@@ -657,30 +680,44 @@ export default function Supporters() {
                 </div>
               </div>
 
-              {/* Also a Donor toggle */}
+              {/* Role selection */}
               <div
-                style={{ marginTop: 16, padding: '14px 16px', borderRadius: 10, cursor: 'pointer', transition: 'all 0.15s', border: `2px solid ${form.isAlsoDonor ? 'var(--secondary)' : 'var(--border)'}`, background: form.isAlsoDonor ? 'var(--secondary-light)' : 'var(--surface)' }}
-                onClick={() => setField('isAlsoDonor', !form.isAlsoDonor)}
+                style={{ marginTop: 16, padding: '14px 16px', borderRadius: 10, transition: 'all 0.15s', border: `2px solid ${(form.isAlsoDonor || existingDonorMatch) ? 'var(--secondary)' : 'var(--border)'}`, background: (form.isAlsoDonor || existingDonorMatch) ? 'var(--secondary-light)' : 'var(--surface)' }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <input type="checkbox" checked={form.isAlsoDonor} onChange={e => setField('isAlsoDonor', e.target.checked)}
-                    onClick={e => e.stopPropagation()}
-                    style={{ width: 16, height: 16, accentColor: 'var(--secondary)', cursor: 'pointer', padding: 0, border: 'none', flexShrink: 0 }} />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 700, fontSize: 13.5, color: form.isAlsoDonor ? 'var(--secondary)' : 'var(--text-primary)' }}>
-                      👍 Also an RST/SKS Donor
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: existingDonorMatch ? 'not-allowed' : 'pointer', opacity: existingDonorMatch ? 0.7 : 1 }}>
+                    <input
+                      type="radio"
+                      name="supporter-role"
+                      checked={!form.isAlsoDonor}
+                      onChange={() => !existingDonorMatch && setField('isAlsoDonor', false)}
+                      disabled={!!existingDonorMatch}
+                      style={{ width: 16, height: 16, accentColor: 'var(--secondary)', margin: 0 }}
+                    />
+                    <span style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--text-primary)' }}>❤️ Supporter only</span>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="supporter-role"
+                      checked={Boolean(form.isAlsoDonor || existingDonorMatch)}
+                      onChange={() => setField('isAlsoDonor', true)}
+                      style={{ width: 16, height: 16, accentColor: 'var(--secondary)', margin: 0 }}
+                    />
+                    <div style={{ fontWeight: 700, fontSize: 13.5, color: (form.isAlsoDonor || existingDonorMatch) ? 'var(--secondary)' : 'var(--text-primary)' }}>
+                      👍❤️ Donor + Supporter
                     </div>
-                    <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>
-                      This person also donates raddi/goods. They'll appear in the Donors page too.
-                    </div>
+                  </label>
+                  <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                    Mark as Donor + Supporter when this person gives raddi/SKS and support contributions.
                   </div>
-                  {form.isAlsoDonor && (
-                    <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--secondary)', background: 'rgba(27,94,53,0.12)', padding: '4px 10px', borderRadius: 20, whiteSpace: 'nowrap' }}>
-                      👍❤️ Both
-                    </span>
-                  )}
                 </div>
               </div>
+              {existingDonorMatch && (
+                <div style={{ marginTop: 8, fontSize: 12, color: 'var(--secondary)', background: 'var(--secondary-light)', borderRadius: 8, padding: '8px 10px' }}>
+                  Match found in donors collection ({existingDonorMatch.id}). Saving will merge this as a combined donor + supporter profile.
+                </div>
+              )}
             </div>
 
             <div className="modal-footer">

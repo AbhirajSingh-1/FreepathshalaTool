@@ -104,6 +104,8 @@ async function updateDonor(id, data, actor) {
     ...locationSnapshot({ ...current, ...data }),
     house: data.house || data.houseNo || current.house || "",
     status: data.status || deriveDonorStatus(data.lastPickup || current.lastPickup, current.status),
+    totalRST: data.totalRST !== undefined ? toNumber(data.totalRST) : current.totalRST,
+    totalSKS: data.totalSKS !== undefined ? toNumber(data.totalSKS) : current.totalSKS,
     ...auditUpdate(actor)
   });
 

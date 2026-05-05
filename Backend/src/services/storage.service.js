@@ -2,6 +2,7 @@ const { randomUUID } = require("crypto");
 const { getBucket } = require("../config/firebase");
 const { env } = require("../config/env");
 const { logger } = require("../config/logger");
+const { AppError } = require("../utils/AppError");
 const { sanitizeFileName, sanitizePathSegment } = require("../utils/sanitize");
 
 function buildStoragePath({ purpose = "general", entityId = "general", fileName }) {
@@ -85,6 +86,15 @@ async function uploadFile({ file, purpose, entityId, user }) {
     });
   } catch (err) {
     logger.error("Firebase Storage upload failed", { storagePath, error: err.message });
+    const message = String(err?.message || "");
+    if (/specified bucket does not exist/i.test(message) || /not found/i.test(message)) {
+      throw new AppError(
+        "Document upload failed: The specified bucket does not exist. Enable Firebase Storage for this project or set FIREBASE_STORAGE_BUCKET (e.g. <project-id>.appspot.com).",
+        502,
+        "STORAGE_BUCKET_NOT_FOUND",
+        { bucket: bucket?.name || null }
+      );
+    }
     throw err;
   }
 

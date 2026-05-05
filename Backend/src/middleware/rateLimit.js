@@ -29,7 +29,7 @@ function rateLimit({ windowMs = 60_000, maxRequests = 60, message } = {}) {
   if (cleanup.unref) cleanup.unref();
 
   return (req, res, next) => {
-    const key = req.ip || req.connection?.remoteAddress || "unknown";
+    const key = req.user?.uid || req.ip || req.connection?.remoteAddress || "unknown";
     const now = Date.now();
 
     let entry = clients.get(key);

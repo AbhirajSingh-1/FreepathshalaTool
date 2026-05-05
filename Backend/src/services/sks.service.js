@@ -12,6 +12,16 @@ const { derivePaymentStatus } = require("../utils/businessRules");
 const { fetchCursorPage, listPayload } = require("../utils/query");
 const { cache } = require("../utils/cache");
 
+function sumQty(items = []) {
+  return (items || []).reduce((s, it) => s + (Number(it?.qty) || 0), 0);
+}
+
+function normalizeItems(items = []) {
+  return (items || [])
+    .filter((it) => it && it.name && (Number(it.qty) || 0) > 0)
+    .map((it) => ({ ...it, qty: Number(it.qty) || 0 }));
+}
+
 function inflowsCollection() {
   return db.collection(COLLECTIONS.SKS_INFLOWS);
 }
@@ -93,6 +103,28 @@ async function createOutflow(data, actor) {
   });
 }
 
+async function recordOutflowPayment(id, paymentPatch = {}, actor) {
+  const ref = outflowsCollection().doc(id);
+  return db.runTransaction(async (tx) => {
+    const doc = await tx.get(ref);
+    if (!doc.exists) throw new AppError("SKS outflow not found", 404, "SKS_OUTFLOW_NOT_FOUND");
+    const current = fromDoc(doc);
+    const existing = current.payment && typeof current.payment === "object" ? current.payment : {};
+
+    const merged = cleanUndefined({
+      ...existing,
+      ...paymentPatch,
+      status: paymentPatch.status || derivePaymentStatus(
+        paymentPatch.totalValue ?? existing.totalValue,
+        paymentPatch.amount ?? existing.amount
+      )
+    });
+
+    tx.set(ref, { payment: merged }, { merge: true });
+    return { ...current, payment: merged, updatedAt: new Date().toISOString() };
+  });
+}
+
 async function deleteInflow(id) {
   const ref = inflowsCollection().doc(id);
   const doc = await ref.get();
@@ -109,6 +141,70 @@ async function deleteOutflow(id) {
   await ref.delete();
   cache.invalidate("sks:stock");
   return { id, deleted: true };
+}
+
+async function updateInflow(id, patch = {}, actor) {
+  const ref = inflowsCollection().doc(id);
+  return db.runTransaction(async (tx) => {
+    const doc = await tx.get(ref);
+    if (!doc.exists) throw new AppError("SKS inflow not found", 404, "SKS_INFLOW_NOT_FOUND");
+    const current = fromDoc(doc);
+
+    const items = patch.items ? normalizeItems(patch.items) : current.items;
+    if (!items || sumQty(items) <= 0) throw new AppError("At least one item with qty is required", 422, "SKS_ITEMS_REQUIRED");
+
+    const merged = cleanUndefined({
+      ...current,
+      ...patch,
+      items,
+      id: current.id,
+      updatedAt: new Date().toISOString(),
+      updatedBy: actor?.uid || actor?.id || null,
+      updatedByName: actor?.name || actor?.email || null
+    });
+
+    tx.set(ref, merged, { merge: false });
+    cache.invalidate("sks:stock");
+    return { ...merged, updatedAt: new Date().toISOString() };
+  });
+}
+
+async function updateOutflow(id, patch = {}, actor) {
+  const ref = outflowsCollection().doc(id);
+  return db.runTransaction(async (tx) => {
+    const doc = await tx.get(ref);
+    if (!doc.exists) throw new AppError("SKS outflow not found", 404, "SKS_OUTFLOW_NOT_FOUND");
+    const current = fromDoc(doc);
+
+    const items = patch.items ? normalizeItems(patch.items) : current.items;
+    if (!items || sumQty(items) <= 0) throw new AppError("At least one item with qty is required", 422, "SKS_ITEMS_REQUIRED");
+
+    const payment = patch.payment
+      ? cleanUndefined({
+        ...(current.payment && typeof current.payment === "object" ? current.payment : {}),
+        ...patch.payment,
+        status: patch.payment.status || derivePaymentStatus(
+          patch.payment.totalValue ?? current.payment?.totalValue,
+          patch.payment.amount ?? current.payment?.amount
+        )
+      })
+      : current.payment;
+
+    const merged = cleanUndefined({
+      ...current,
+      ...patch,
+      items,
+      payment,
+      id: current.id,
+      updatedAt: new Date().toISOString(),
+      updatedBy: actor?.uid || actor?.id || null,
+      updatedByName: actor?.name || actor?.email || null
+    });
+
+    tx.set(ref, merged, { merge: false });
+    cache.invalidate("sks:stock");
+    return { ...merged, updatedAt: new Date().toISOString() };
+  });
 }
 
 function addItems(stock, items = [], direction) {
@@ -141,6 +237,9 @@ module.exports = {
   listOutflows,
   createInflow,
   createOutflow,
+  updateInflow,
+  updateOutflow,
+  recordOutflowPayment,
   deleteInflow,
   deleteOutflow,
   getStock

@@ -239,10 +239,14 @@ async function getPartnerSummary(filters = {}) {
     limit: recordLimit
   };
 
+  // For all-time view:
+  // - If status=clear: show paid pickups
+  // - If status=pending: show unpaid pickups
+  // - If status is omitted/"all": do NOT restrict; we still want records available
+  //   for fully paid partners so the UI can expand "View Pickups".
   if (!hasDateFilter) {
-    pickupFilters.paymentStatus = status === "clear"
-      ? "Paid"
-      : ["Not Paid", "Partially Paid"];
+    if (status === "clear") pickupFilters.paymentStatus = "Paid";
+    else if (status === "pending") pickupFilters.paymentStatus = ["Not Paid", "Partially Paid"];
   }
 
   const pickups = await listPickups(pickupFilters);

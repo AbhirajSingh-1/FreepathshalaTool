@@ -33,7 +33,38 @@ const outflowBase = z.object({
 const createSksInflowSchema = z.object({ body: inflowBase });
 const createSksOutflowSchema = z.object({ body: outflowBase });
 
+const updateSksInflowSchema = z.object({
+  body: inflowBase.partial().extend({
+    items: z.array(item).min(1).optional()
+  }).passthrough()
+});
+
+const updateSksOutflowSchema = z.object({
+  body: outflowBase.partial().extend({
+    items: z.array(item).min(1).optional()
+  }).passthrough()
+});
+
+const paymentPatch = z.object({
+  method: optionalString,
+  amount: z.coerce.number().min(0).optional(),
+  totalValue: z.coerce.number().min(0).optional(),
+  reference: optionalString,
+  notes: optionalString,
+  screenshot: optionalString,
+  status: optionalString,
+}).passthrough();
+
+const recordSksOutflowPaymentSchema = z.object({
+  body: z.object({
+    payment: paymentPatch
+  }).passthrough()
+});
+
 module.exports = {
   createSksInflowSchema,
-  createSksOutflowSchema
+  createSksOutflowSchema,
+  updateSksInflowSchema,
+  updateSksOutflowSchema,
+  recordSksOutflowPaymentSchema
 };

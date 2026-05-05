@@ -15,6 +15,7 @@ import { useApp }  from '../context/AppContext'
 import { useRole } from '../context/RoleContext'
 import { fmtDate, fmtCurrency, exportToExcel } from '../utils/helpers'
 import { uploadFileViaSignedUrl } from '../services/api'
+import SectorSearchSelect from '../components/SectorSearchSelect'
 
 // ── Toast Component ───────────────────────────────────────────────────────────
 function Toast({ toasts, onRemove }) {
@@ -205,7 +206,7 @@ function ScreenshotThumb({ src, label = 'Payment Proof' }) {
 
 // ── Stock In Form ─────────────────────────────────────────────────────────────
 function StockInForm({ allSKSItems, onAdd, onAddCustomItem, showToast }) {
-  const { CITIES, CITY_SECTORS, locations } = useApp()
+  const { CITIES, CITY_SECTORS, locations, upsertLocation } = useApp()
   const [date,           setDate]           = useState(todayStr())
   const [city,           setCity]           = useState('Gurgaon')
   const [sector,         setSector]         = useState('')
@@ -308,11 +309,19 @@ function StockInForm({ allSKSItems, onAdd, onAddCustomItem, showToast }) {
             </div>
             <div className="form-group" style={{ margin: 0 }}>
               <label>Sector / Area</label>
-              <input list="sks-sectors" value={sector} onChange={e => handleSectorChange(e.target.value)} disabled={!city} placeholder={city ? 'Type or choose sector' : 'Select city first'} />
-              <datalist id="sks-sectors">
-                <option value="">— Select Sector —</option>
-                {sectorOptions.map(s => <option key={s}>{s}</option>)}
-              </datalist>
+              <SectorSearchSelect
+                options={sectorOptions}
+                value={sector}
+                onChange={handleSectorChange}
+                disabled={!city}
+                placeholder={city ? 'Search or select sector' : 'Select city first'}
+                onAddOption={async (sectorName) => {
+                  await upsertLocation({ city, sector: sectorName })
+                  showToast('Sector added', 'success', `"${sectorName}" added under ${city}`)
+                  return sectorName
+                }}
+                addLabel="Add sector"
+              />
             </div>
             <div className="form-group" style={{ margin: 0 }}>
               <label>Society / Colony</label>
@@ -448,12 +457,16 @@ function StockInForm({ allSKSItems, onAdd, onAddCustomItem, showToast }) {
 }
 
 // ── Stock In History ──────────────────────────────────────────────────────────
-function HistoryView({ inflows, outflows = [], isAdmin, onDeleteInflow, onDeleteOutflow, showToast }) {
+function HistoryView({ inflows, outflows = [], allSKSItems = [], isAdmin, onDeleteInflow, onDeleteOutflow, onUpdateInflow, onUpdateOutflow, showToast }) {
   const [datePreset, setDatePreset] = useState('')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo,   setCustomTo]   = useState('')
   const [search,     setSearch]     = useState('')
   const [expanded,   setExpanded]   = useState({})
+  const [editModal, setEditModal] = useState({ open: false, record: null })
+  const [editForm, setEditForm] = useState({ date: todayStr(), notes: '', partnerName: '', partnerPhone: '', city: '', sector: '', society: '', items: [] })
+  const [editSaving, setEditSaving] = useState(false)
+  const [editError, setEditError] = useState('')
 
   const { from: dateFrom, to: dateTo } = useMemo(
     () => getDateRange(datePreset, customFrom, customTo),
@@ -507,6 +520,68 @@ function HistoryView({ inflows, outflows = [], isAdmin, onDeleteInflow, onDelete
       'SKS_Stock_Movement_History'
     )
     showToast('Export complete', 'success', `${filtered.length} records downloaded`)
+  }
+
+  const openEdit = (record) => {
+    const isOut = record.movementType === 'out'
+    setEditError('')
+    setEditForm({
+      date: record.date || todayStr(),
+      notes: record.notes || '',
+      partnerName: isOut ? (record.partnerName || '') : '',
+      partnerPhone: isOut ? (record.partnerPhone || '') : '',
+      city: !isOut ? (record.city || '') : '',
+      sector: !isOut ? (record.sector || '') : '',
+      society: !isOut ? (record.society || '') : '',
+      items: (record.items || []).map(it => ({ name: it.name, qty: Number(it.qty) || 0 })),
+    })
+    setEditModal({ open: true, record })
+  }
+
+  const closeEdit = () => { setEditModal({ open: false, record: null }); setEditError(''); setEditSaving(false) }
+
+  const normalizeEditItems = (items) => (items || [])
+    .map(it => ({ name: String(it.name || '').trim(), qty: Number(it.qty) || 0 }))
+    .filter(it => it.name && it.qty > 0)
+
+  const saveEdit = async () => {
+    const record = editModal.record
+    if (!record?.id) return
+    setEditError('')
+    const items = normalizeEditItems(editForm.items)
+    if (!editForm.date) { setEditError('Please select a date.'); return }
+    if (items.length === 0) { setEditError('Please enter quantity for at least one item.'); return }
+    if (record.movementType === 'out' && !editForm.partnerName.trim()) { setEditError('Recipient / Partner name is required for Stock Out.'); return }
+
+    setEditSaving(true)
+    try {
+      const payload = record.movementType === 'out'
+        ? {
+          date: editForm.date,
+          partnerName: editForm.partnerName.trim(),
+          partnerPhone: editForm.partnerPhone.trim(),
+          notes: editForm.notes.trim(),
+          items,
+        }
+        : {
+          date: editForm.date,
+          city: editForm.city.trim(),
+          sector: editForm.sector.trim(),
+          society: editForm.society.trim(),
+          notes: editForm.notes.trim(),
+          items,
+        }
+
+      if (record.movementType === 'out') await onUpdateOutflow?.(record.id, payload)
+      else await onUpdateInflow?.(record.id, payload)
+
+      showToast('Record updated', 'success', `${record.movementLabel} ${record.id}`)
+      closeEdit()
+    } catch (err) {
+      setEditError(err?.message || 'Update failed')
+    } finally {
+      setEditSaving(false)
+    }
   }
 
   return (
@@ -605,7 +680,7 @@ function HistoryView({ inflows, outflows = [], isAdmin, onDeleteInflow, onDelete
                     </div>
                     {hasDetails && <span style={{ color: 'var(--text-muted)' }}>{isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</span>}
                     {isAdmin && (
-                      <button onClick={e => { e.stopPropagation(); showToast('Edit functionality coming soon', 'info') }}
+                      <button onClick={e => { e.stopPropagation(); openEdit(r) }}
                         style={{ width: 30, height: 30, borderRadius: 7, border: '1px solid var(--info)', background: 'var(--info-bg)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--info)' }}
                         title="Edit record (Admin only)">
                         <Edit2 size={12} />
@@ -648,6 +723,104 @@ function HistoryView({ inflows, outflows = [], isAdmin, onDeleteInflow, onDelete
               </div>
             )
           })}
+        </div>
+      )}
+
+      {editModal.open && (
+        <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && closeEdit()}>
+          <div className="modal" style={{ maxWidth: 720, width: '96vw' }}>
+            <div className="modal-header">
+              <div className="modal-title">Edit {editModal.record?.movementLabel}</div>
+              <span style={{ fontSize: 12, fontFamily: 'monospace', fontWeight: 800, color: 'white', background: 'var(--info)', padding: '2px 10px', borderRadius: 6 }}>
+                {editModal.record?.id}
+              </span>
+              <button className="btn btn-ghost btn-icon btn-sm" onClick={closeEdit}><X size={16} /></button>
+            </div>
+            <div className="modal-body" style={{ maxHeight: '72vh', overflowY: 'auto' }}>
+              {editError && <div className="alert-strip alert-danger" style={{ marginBottom: 12 }}><AlertCircle size={14} /> {editError}</div>}
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>Date <span className="required">*</span></label>
+                  <input type="date" value={editForm.date} onChange={e => setEditForm(f => ({ ...f, date: e.target.value }))} />
+                </div>
+                {editModal.record?.movementType === 'out' ? (
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label>Recipient / Partner Name <span className="required">*</span></label>
+                    <input value={editForm.partnerName} onChange={e => setEditForm(f => ({ ...f, partnerName: e.target.value }))} />
+                  </div>
+                ) : (
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label>City</label>
+                    <input value={editForm.city} onChange={e => setEditForm(f => ({ ...f, city: e.target.value }))} placeholder="e.g. Gurgaon" />
+                  </div>
+                )}
+              </div>
+
+              {editModal.record?.movementType === 'out' ? (
+                <div className="form-group" style={{ margin: '0 0 12px' }}>
+                  <label>Contact Number</label>
+                  <input value={editForm.partnerPhone} onChange={e => setEditForm(f => ({ ...f, partnerPhone: e.target.value }))} placeholder="10-digit" maxLength={10} inputMode="numeric" />
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label>Sector / Area</label>
+                    <input value={editForm.sector} onChange={e => setEditForm(f => ({ ...f, sector: e.target.value }))} />
+                  </div>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label>Society / Colony</label>
+                    <input value={editForm.society} onChange={e => setEditForm(f => ({ ...f, society: e.target.value }))} />
+                  </div>
+                </div>
+              )}
+
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+                  Items <span className="required">*</span>
+                </div>
+                <div style={{ border: '1px solid var(--border-light)', borderRadius: 10, overflow: 'hidden' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px 36px', padding: '8px 12px', background: 'var(--surface-alt)', fontSize: 10.5, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    <span>Item</span>
+                    <span style={{ textAlign: 'right' }}>Qty</span>
+                    <span />
+                  </div>
+                  {(editForm.items || []).map((it, idx) => (
+                    <div key={`${it.name}-${idx}`} style={{ display: 'grid', gridTemplateColumns: '1fr 120px 36px', gap: 8, padding: '10px 12px', borderTop: '1px solid var(--border-light)', alignItems: 'center' }}>
+                      <select value={it.name} onChange={e => setEditForm(f => ({ ...f, items: f.items.map((row, i) => i === idx ? { ...row, name: e.target.value } : row) }))}>
+                        {allSKSItems.map(name => <option key={name} value={name}>{name}</option>)}
+                      </select>
+                      <input type="number" min={0} onWheel={e=>e.target.blur()} inputMode="numeric"
+                        value={String(it.qty ?? '')}
+                        onChange={e => setEditForm(f => ({ ...f, items: f.items.map((row, i) => i === idx ? { ...row, qty: parseInt(e.target.value) || 0 } : row) })) }
+                        style={{ textAlign: 'right', fontWeight: 800 }}
+                      />
+                      <button type="button" className="btn btn-ghost btn-sm btn-icon"
+                        onClick={() => setEditForm(f => ({ ...f, items: f.items.filter((_, i) => i !== idx) }))}
+                        title="Remove">
+                        <Trash2 size={14} color="var(--danger)" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <button type="button" className="btn btn-ghost btn-sm" style={{ marginTop: 8 }}
+                  onClick={() => setEditForm(f => ({ ...f, items: [...(f.items || []), { name: allSKSItems[0] || 'Others', qty: 0 }] }))}>
+                  <Plus size={14} /> Add item row
+                </button>
+              </div>
+
+              <div className="form-group" style={{ margin: 0 }}>
+                <label>Notes <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)' }}>(optional)</span></label>
+                <textarea value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} style={{ minHeight: 70 }} />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={closeEdit} disabled={editSaving}>Cancel</button>
+              <button className="btn btn-primary" onClick={saveEdit} disabled={editSaving}>
+                {editSaving ? 'Saving…' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -771,14 +944,8 @@ function DispatchPaymentSection({ payState, onChange }) {
 }
 
 // ── In Warehouse ──────────────────────────────────────────────────────────────
-function WarehouseView({ stock, allSKSItems, outflows, isAdmin, onDeleteOutflow, showToast }) {
+function WarehouseView({ stock, allSKSItems, showToast }) {
   const totalInStock   = Object.values(stock).reduce((s, v) => s + v, 0)
-
-  const handleDeleteOutflow = (id) => {
-    if (!window.confirm('Delete this dispatch record?')) return
-    onDeleteOutflow(id)
-    showToast('Dispatch record deleted', 'info')
-  }
 
   const handleExportStock = () => {
     exportToExcel(
@@ -876,81 +1043,12 @@ function WarehouseView({ stock, allSKSItems, outflows, isAdmin, onDeleteOutflow,
 
 
 
-      {/* Dispatch history */}
-      {outflows.length > 0 && (
-        <div className="card">
-          <div className="card-header">
-            <ArrowUpCircle size={16} color="var(--primary)" />
-            <div className="card-title">Dispatch History</div>
-            {!isAdmin && <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)', padding: '2px 9px', background: 'var(--border-light)', borderRadius: 20 }}>🔒 Edit: Admin only</span>}
-          </div>
-          <div>
-            {[...outflows].sort((a, b) => (b.date || '').localeCompare(a.date || '')).map((r, i) => {
-              const totalQ = (r.items || []).reduce((s, it) => s + it.qty, 0)
-              const pay = r.payment || {}
-              const payPaid = Number(pay.amount) || 0
-              return (
-                <div key={r.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 16px', borderBottom: i < outflows.length - 1 ? '1px solid var(--border-light)' : 'none' }}>
-                  <div style={{ width: 36, height: 36, borderRadius: 8, background: 'var(--primary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <ArrowUpCircle size={15} color="var(--primary)" />
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
-                      <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 700, color: 'white', background: 'var(--primary)', padding: '1px 6px', borderRadius: 4 }}>{r.id}</span>
-                      <span style={{ fontWeight: 700, fontSize: 13 }}>{r.partnerName}</span>
-                      {r.partnerPhone && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{r.partnerPhone}</span>}
-                      <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 'auto' }}>{fmtDate(r.date)}</span>
-                    </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginBottom: 4 }}>
-                      {(r.items || []).map(it => (
-                        <span key={it.name} style={{ fontSize: 10.5, padding: '1px 8px', borderRadius: 20, background: 'var(--primary-light)', color: 'var(--primary)', fontWeight: 600 }}>
-                          {it.name} ×{it.qty}
-                        </span>
-                      ))}
-                    </div>
-                    {/* Payment info */}
-                    {payPaid > 0 && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--secondary)', background: 'var(--secondary-light)', padding: '2px 9px', borderRadius: 20 }}>
-                          ₹{payPaid.toLocaleString('en-IN')} received · {pay.method?.toUpperCase() || 'CASH'}
-                        </span>
-                        {pay.status && (
-                          <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 20, fontWeight: 700, background: pay.status === 'Paid' ? 'var(--secondary-light)' : pay.status === 'Partially Paid' ? 'var(--warning-bg)' : 'var(--border-light)', color: pay.status === 'Paid' ? 'var(--secondary)' : pay.status === 'Partially Paid' ? '#92400E' : 'var(--text-muted)' }}>
-                            {pay.status}
-                          </span>
-                        )}
-                        {pay.screenshot && (
-                          <ScreenshotThumb src={pay.screenshot} label={`Payment Proof — ${r.partnerName}`} />
-                        )}
-                      </div>
-                    )}
-                    {r.notes && <div style={{ fontSize: 11.5, color: 'var(--text-muted)', fontStyle: 'italic', marginTop: 3 }}>{r.notes}</div>}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 800, color: 'var(--primary)', lineHeight: 1 }}>-{totalQ}</div>
-                      <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>items</div>
-                    </div>
-                    {isAdmin && (
-                      <button onClick={() => handleDeleteOutflow(r.id)}
-                        style={{ width: 30, height: 30, borderRadius: 7, border: '1px solid var(--danger)', background: 'var(--danger-bg)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--danger)' }}
-                        title="Delete (Admin only)">
-                        <Trash2 size={12} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
     </div>
   )
 }
 
 // ── Stock Out Tab ─────────────────────────────────────────────────────────────
-function StockOutView({ stock, allSKSItems, outflows, isAdmin, onAddOutflow, onDeleteOutflow, showToast }) {
+function StockOutView({ stock, allSKSItems, onAddOutflow, showToast }) {
   const [partnerName,  setPartnerName]  = useState('')
   const [partnerPhone, setPartnerPhone] = useState('')
   const [dispDate,     setDispDate]     = useState(todayStr())
@@ -990,12 +1088,6 @@ function StockOutView({ stock, allSKSItems, outflows, isAdmin, onAddOutflow, onD
       setPayState({ method: 'cash', amount: '', reference: '', notes: '', screenshot: null, totalValue: '' })
       setDispatching(false)
     }, 350)
-  }
-
-  const handleDeleteOutflow = (id) => {
-    if (!window.confirm('Delete this dispatch record?')) return
-    onDeleteOutflow(id)
-    showToast('Dispatch record deleted', 'info')
   }
 
   return (
@@ -1093,71 +1185,6 @@ function StockOutView({ stock, allSKSItems, outflows, isAdmin, onAddOutflow, onD
       </div>
 
       {/* Dispatch history */}
-      {outflows.length > 0 && (
-        <div className="card">
-          <div className="card-header">
-            <ArrowUpCircle size={16} color="var(--primary)" />
-            <div className="card-title">Dispatch History</div>
-            {!isAdmin && <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)', padding: '2px 9px', background: 'var(--border-light)', borderRadius: 20 }}>🔒 Edit: Admin only</span>}
-          </div>
-          <div>
-            {[...outflows].sort((a, b) => (b.date || '').localeCompare(a.date || '')).map((r, i) => {
-              const totalQ = (r.items || []).reduce((s, it) => s + it.qty, 0)
-              const pay = r.payment || {}
-              const payPaid = Number(pay.amount) || 0
-              return (
-                <div key={r.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 16px', borderBottom: i < outflows.length - 1 ? '1px solid var(--border-light)' : 'none' }}>
-                  <div style={{ width: 36, height: 36, borderRadius: 8, background: 'var(--primary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <ArrowUpCircle size={15} color="var(--primary)" />
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
-                      <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 700, color: 'white', background: 'var(--primary)', padding: '1px 6px', borderRadius: 4 }}>{r.id}</span>
-                      <span style={{ fontWeight: 700, fontSize: 13 }}>{r.partnerName}</span>
-                      {r.partnerPhone && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{r.partnerPhone}</span>}
-                      <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 'auto' }}>{fmtDate(r.date)}</span>
-                    </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginBottom: 4 }}>
-                      {(r.items || []).map(it => (
-                        <span key={it.name} style={{ fontSize: 10.5, padding: '1px 8px', borderRadius: 20, background: 'var(--primary-light)', color: 'var(--primary)', fontWeight: 600 }}>
-                          {it.name} ×{it.qty}
-                        </span>
-                      ))}
-                    </div>
-                    {payPaid > 0 && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--secondary)', background: 'var(--secondary-light)', padding: '2px 9px', borderRadius: 20 }}>
-                          ₹{payPaid.toLocaleString('en-IN')} received · {pay.method?.toUpperCase() || 'CASH'}
-                        </span>
-                        {pay.status && (
-                          <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 20, fontWeight: 700, background: pay.status === 'Paid' ? 'var(--secondary-light)' : pay.status === 'Partially Paid' ? 'var(--warning-bg)' : 'var(--border-light)', color: pay.status === 'Paid' ? 'var(--secondary)' : pay.status === 'Partially Paid' ? '#92400E' : 'var(--text-muted)' }}>
-                            {pay.status}
-                          </span>
-                        )}
-                        {pay.screenshot && <ScreenshotThumb src={pay.screenshot} label={`Payment Proof — ${r.partnerName}`} />}
-                      </div>
-                    )}
-                    {r.notes && <div style={{ fontSize: 11.5, color: 'var(--text-muted)', fontStyle: 'italic', marginTop: 3 }}>{r.notes}</div>}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 800, color: 'var(--primary)', lineHeight: 1 }}>-{totalQ}</div>
-                      <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>items</div>
-                    </div>
-                    {isAdmin && (
-                      <button onClick={() => handleDeleteOutflow(r.id)}
-                        style={{ width: 30, height: 30, borderRadius: 7, border: '1px solid var(--danger)', background: 'var(--danger-bg)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--danger)' }}
-                        title="Delete (Admin only)">
-                        <Trash2 size={12} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
     </div>
   )
 }
@@ -1168,6 +1195,7 @@ export default function SKSOverview() {
     sksInflows, sksOutflows,
     sksStock, SKS_ITEMS,
     addSksInflow, addSksOutflow,
+    updateSksInflow, updateSksOutflow,
     deleteSksInflow, deleteSksOutflow,
   } = useApp()
   const { role } = useRole()
@@ -1189,6 +1217,8 @@ export default function SKSOverview() {
   const addOutflow    = useCallback(async (r) => { await addSksOutflow(r) }, [addSksOutflow])
   const deleteInflow  = useCallback(async (id) => { await deleteSksInflow(id) }, [deleteSksInflow])
   const deleteOutflow = useCallback(async (id) => { await deleteSksOutflow(id) }, [deleteSksOutflow])
+  const patchInflow   = useCallback(async (id, patch) => { await updateSksInflow(id, patch) }, [updateSksInflow])
+  const patchOutflow  = useCallback(async (id, patch) => { await updateSksOutflow(id, patch) }, [updateSksOutflow])
   const addCustomItem = useCallback(name => setCustomItems(prev => prev.includes(name) ? prev : [...prev, name]), [])
 
   const totalInStock    = Object.values(stock).reduce((s, v) => s + v, 0)
@@ -1233,22 +1263,23 @@ export default function SKSOverview() {
         <HistoryView
           inflows={sksInflows}
           outflows={sksOutflows}
+          allSKSItems={allSKSItems}
           isAdmin={isAdmin}
           onDeleteInflow={deleteInflow}
           onDeleteOutflow={deleteOutflow}
+          onUpdateInflow={patchInflow}
+          onUpdateOutflow={patchOutflow}
           showToast={showToast}
         />
       )}
       {section === 'warehouse' && (
         <WarehouseView
-          stock={stock} allSKSItems={allSKSItems} outflows={sksOutflows}
-          isAdmin={isAdmin} onDeleteOutflow={deleteOutflow} showToast={showToast}
+          stock={stock} allSKSItems={allSKSItems} showToast={showToast}
         />
       )}
       {section === 'stockout' && (
         <StockOutView
-          stock={stock} allSKSItems={allSKSItems} outflows={sksOutflows}
-          isAdmin={isAdmin} onAddOutflow={addOutflow} onDeleteOutflow={deleteOutflow} showToast={showToast}
+          stock={stock} allSKSItems={allSKSItems} onAddOutflow={addOutflow} showToast={showToast}
         />
       )}
 

@@ -20,9 +20,12 @@ function parseServiceAccount() {
 
 function buildAppOptions() {
   const serviceAccount = parseServiceAccount();
+  const inferredBucket =
+    env.firebaseStorageBucket ||
+    (env.firebaseProjectId ? `${env.firebaseProjectId}.appspot.com` : undefined);
   const options = {
     ...(env.firebaseProjectId ? { projectId: env.firebaseProjectId } : {}),
-    ...(env.firebaseStorageBucket ? { storageBucket: env.firebaseStorageBucket } : {})
+    ...(inferredBucket ? { storageBucket: inferredBucket } : {})
   };
 
   if (serviceAccount) {
@@ -50,9 +53,18 @@ const auth = admin.auth();
 const storage = admin.storage();
 
 function getBucket() {
-  return env.firebaseStorageBucket
-    ? storage.bucket(env.firebaseStorageBucket)
-    : storage.bucket();
+  const projectId =
+    env.firebaseProjectId ||
+    admin.app().options.projectId ||
+    admin.app().options.credential?.projectId ||
+    undefined;
+
+  const bucketName =
+    env.firebaseStorageBucket ||
+    admin.app().options.storageBucket ||
+    (projectId ? `${projectId}.appspot.com` : undefined);
+
+  return bucketName ? storage.bucket(String(bucketName)) : storage.bucket();
 }
 
 module.exports = {

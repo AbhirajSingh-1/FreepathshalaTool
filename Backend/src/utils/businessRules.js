@@ -81,6 +81,13 @@ function buildRaddiRecordFromPickup(pickup, donor = {}, partner = {}) {
     return acc;
   }, {});
 
+  const partnerRateChart = pickup.pickuppartnerRateChart || partner.rateChart || {};
+  const itemEstimatedMap = Object.entries(itemKgMap).reduce((acc, [item, kg]) => {
+    const rate = toNumber(partnerRateChart[item], 0);
+    acc[item] = rate > 0 && kg > 0 ? Math.round(kg * rate) : 0;
+    return acc;
+  }, {});
+
   return {
     orderId: pickup.orderId || pickup.id,
     pickupId: pickup.id,
@@ -102,7 +109,8 @@ function buildRaddiRecordFromPickup(pickup, donor = {}, partner = {}) {
     sksItems: pickup.sksItems || [],
     itemKgMap,
     rstOthers: pickup.rstOthers || [],
-    pickuppartnerRateChart: partner.rateChart || {},
+    pickuppartnerRateChart: partnerRateChart,
+    itemEstimatedMap: pickup.itemEstimatedMap || itemEstimatedMap,
     totalKg: toNumber(pickup.totalKg ?? pickup.totalKgs),
     totalAmount: toNumber(pickup.totalValue),
     amountPaid: toNumber(pickup.amountPaid),

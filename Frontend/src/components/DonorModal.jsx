@@ -3,13 +3,14 @@ import { useState } from 'react'
 import { X, User, MapPin } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import SocietyInput from './SocietyInput'
+import SectorSearchSelect from './SectorSearchSelect'
 
 const EMPTY = {
   name: '', mobile: '', city: 'Gurgaon', sector: '', society: '', address: '',
 }
 
 export default function DonorModal({ onClose, onAdd }) {
-  const { CITIES, CITY_SECTORS } = useApp()
+  const { CITIES, CITY_SECTORS, upsertLocation } = useApp()
   const [form, setForm] = useState(EMPTY)
   const [saving, setSaving] = useState(false)
   const [errors, setErrors] = useState({})
@@ -104,16 +105,18 @@ export default function DonorModal({ onClose, onAdd }) {
             {/* Sector */}
             <div className="form-group">
               <label>Sector / Area</label>
-              <input
-                list="donor-modal-sectors"
+              <SectorSearchSelect
+                options={sectors}
                 value={form.sector}
-                onChange={e => setField('sector', e.target.value)}
+                onChange={(val) => setField('sector', val)}
                 disabled={!form.city}
-                placeholder={form.city ? 'Type or choose sector' : 'Select city first'}
+                placeholder={form.city ? 'Search or select sector' : 'Select city first'}
+                onAddOption={async (sectorName) => {
+                  await upsertLocation({ city: form.city, sector: sectorName })
+                  return sectorName
+                }}
+                addLabel="Add sector"
               />
-              <datalist id="donor-modal-sectors">
-                {sectors.map(s => <option key={s} value={s} />)}
-              </datalist>
             </div>
 
             {/* Society — always allows custom via datalist */}
