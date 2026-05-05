@@ -1,9 +1,4 @@
 // Frontend/src/pages/Pickups.jsx
-// FIX 1: When navigated from TodayPickups with a pickupId, we call recordPickup()
-//         on the existing scheduled entry instead of createPickup() — prevents duplicate.
-// FIX 2: When a donor is selected MANUALLY on this page, the system auto-detects
-//         any pending pickup scheduled for today for that donor and links it,
-//         so completing it here also removes it from TodayPickups. UNIFIED flow.
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import {
   Search, Plus, X, CheckSquare, Square,
@@ -51,7 +46,6 @@ function DonorSearch({ donors, selectedId, onSelect, onAddNew }) {
   const toText = (value) => {
     if (value === null || value === undefined) return ''
     if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value)
-    // Some legacy/malformed donor fields may be stored as objects.
     if (typeof value === 'object') {
       if ('label' in value && value.label != null) return String(value.label)
       if ('value' in value && value.value != null) return String(value.value)
@@ -458,6 +452,8 @@ function PayStatusBadge({ status }) {
   return <span className={`badge ${map[status] || 'badge-muted'}`} style={{ fontSize: 11 }}>{status}</span>
 }
 
+// ─── Donor Pickup History ─────────────────────────────────────────────────────
+// All fields use displayText() to safely handle Firestore {operand: "..."} objects
 function DonorPickupHistory({ donor, pickups }) {
   if (!donor) {
     return (
@@ -470,7 +466,9 @@ function DonorPickupHistory({ donor, pickups }) {
       </div>
     )
   }
-  const history = [...(pickups || [])].filter(p => p.donorId === donor.id).sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+
+  const history = [...(pickups || [])].filter(p => p.donorId === donor.id).sort((a, b) => (displayText(b.date) || '').localeCompare(displayText(a.date) || ''))
+
   return (
     <div className="card">
       <div className="card-header">
@@ -480,9 +478,9 @@ function DonorPickupHistory({ donor, pickups }) {
       </div>
       <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border-light)', background: 'var(--secondary-light)' }}>
         {[
-          { label: 'Total RST',   value: fmtCurrency(donor.totalRST || 0), color: 'var(--secondary)' },
-          { label: 'SKS Pickups', value: donor.totalSKS || 0,              color: 'var(--info)' },
-          { label: 'Last Pickup', value: donor.lastPickup ? fmtDate(donor.lastPickup) : '—', color: 'var(--text-primary)' },
+          { label: 'Total RST',   value: fmtCurrency(Number(donor.totalRST) || 0),                              color: 'var(--secondary)' },
+          { label: 'SKS Pickups', value: Number(donor.totalSKS) || 0,                                           color: 'var(--info)' },
+          { label: 'Last Pickup', value: donor.lastPickup ? fmtDate(displayText(donor.lastPickup)) : '—',       color: 'var(--text-primary)' },
         ].map((s, i) => (
           <div key={i} style={{ flex: 1, padding: '8px 4px', textAlign: 'center', borderRight: i < 2 ? '1px solid rgba(27,94,53,0.15)' : 'none' }}>
             <div style={{ fontWeight: 700, fontSize: 12.5, color: s.color }}>{s.value}</div>
@@ -494,21 +492,40 @@ function DonorPickupHistory({ donor, pickups }) {
         <div style={{ padding: '28px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>No pickups yet.</div>
       ) : (
         <div style={{ maxHeight: 360, overflowY: 'auto' }}>
-          {history.map((p, i) => (
-            <div key={p.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px', borderBottom: i < history.length - 1 ? '1px solid var(--border-light)' : 'none' }}>
-              <div style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, marginTop: 5, background: p.status === 'Completed' ? 'var(--secondary)' : p.status === 'Pending' ? 'var(--info)' : 'var(--warning)' }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 3 }}>
-                  {(p.orderId || p.id) && <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 700, color: 'white', background: 'var(--primary)', padding: '1px 6px', borderRadius: 4 }}>{p.orderId || p.id}</span>}
-                  <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-secondary)' }}>{fmtDate(p.date)}</span>
-                  <span className={`badge ${p.status === 'Completed' ? 'badge-success' : p.status === 'Pending' ? 'badge-info' : 'badge-warning'}`} style={{ fontSize: 9.5 }}>{p.status}</span>
+          {history.map((p, i) => {
+            const orderId  = displayText(p.orderId)
+            const pid      = displayText(p.id)
+            const status   = displayText(p.status)
+            const date     = displayText(p.date)
+            const totalVal = Number(p.totalValue) || 0
+
+            return (
+              <div key={p.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px', borderBottom: i < history.length - 1 ? '1px solid var(--border-light)' : 'none' }}>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, marginTop: 5, background: status === 'Completed' ? 'var(--secondary)' : status === 'Pending' ? 'var(--info)' : 'var(--warning)' }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 3 }}>
+                    {(orderId || pid) && (
+                      <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 700, color: 'white', background: 'var(--primary)', padding: '1px 6px', borderRadius: 4 }}>
+                        {orderId || pid}
+                      </span>
+                    )}
+                    <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-secondary)' }}>{fmtDate(date)}</span>
+                    <span
+                      className={`badge ${status === 'Completed' ? 'badge-success' : status === 'Pending' ? 'badge-info' : 'badge-warning'}`}
+                      style={{ fontSize: 9.5 }}
+                    >
+                      {status}
+                    </span>
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                  {totalVal > 0
+                    ? <div style={{ fontWeight: 700, fontSize: 12.5, color: 'var(--primary)' }}>{fmtCurrency(totalVal)}</div>
+                    : <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>—</div>}
                 </div>
               </div>
-              <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                {(p.totalValue || 0) > 0 ? <div style={{ fontWeight: 700, fontSize: 12.5, color: 'var(--primary)' }}>{fmtCurrency(p.totalValue)}</div> : <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>—</div>}
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>
@@ -519,8 +536,8 @@ function DonorPickupHistory({ donor, pickups }) {
 export default function Pickups({
   initialDonorId,
   onDonorApplied,
-  initialPickupId,   // ID of an existing scheduled pickup to record (from TodayPickups nav)
-  onPickupApplied,   // callback after applying
+  initialPickupId,
+  onPickupApplied,
 }) {
   const {
     donors, PickupPartners: partners, pickups,
@@ -536,20 +553,17 @@ export default function Pickups({
   const [rstOpen,    setRstOpen]    = useState(false)
   const [sksOpen,    setSksOpen]    = useState(false)
 
-  // Indicates whether we are updating an existing scheduled pickup
   const [targetPickupId, setTargetPickupId] = useState(null)
   const [rescheduleDate, setRescheduleDate] = useState('')
   const [rescheduleTimeSlot, setRescheduleTimeSlot] = useState('')
 
-  // Track whether targetPickupId originated from navigation (prop) so the
-  // auto-detect effect doesn't fight it.
   const navLinkedRef = useRef(false)
 
-const activeDonors   = useMemo(() => (donors || []).filter(d => d.status !== 'Lost'), [donors])
-const selectedDonor  = useMemo(() => activeDonors.find(d => d.id === form.donorId) || null, [activeDonors, form.donorId])
-const activePartners = useMemo(() => (partners || []).filter(k => k.isActive !== false), [partners])
-const selectedpickuppartner    = useMemo(() => activePartners.find(k => k.name === form.PickupPartner) || null, [activePartners, form.PickupPartner])
-const rateChart      = selectedpickuppartner?.rateChart || null
+  const activeDonors   = useMemo(() => (donors || []).filter(d => d.status !== 'Lost'), [donors])
+  const selectedDonor  = useMemo(() => activeDonors.find(d => d.id === form.donorId) || null, [activeDonors, form.donorId])
+  const activePartners = useMemo(() => (partners || []).filter(k => k.isActive !== false), [partners])
+  const selectedpickuppartner = useMemo(() => activePartners.find(k => k.name === form.PickupPartner) || null, [activePartners, form.PickupPartner])
+  const rateChart      = selectedpickuppartner?.rateChart || null
 
   const rstTotalWeight = useMemo(() =>
     form.rstItems.filter(i => i !== 'Others').reduce((sum, item) => {
@@ -582,7 +596,6 @@ const rateChart      = selectedpickuppartner?.rateChart || null
     }
   }, [rstEstimatedValue])
 
-  // ── Apply pre-selected donor (from TodayPickups or elsewhere) ──────────────
   useEffect(() => {
     if (initialDonorId) {
       setForm(f => ({ ...f, donorId: initialDonorId }))
@@ -590,12 +603,11 @@ const rateChart      = selectedpickuppartner?.rateChart || null
     }
   }, [initialDonorId]) // eslint-disable-line
 
-  // ── Apply pre-selected existing pickup (from TodayPickups "Record Pickup") ─
   useEffect(() => {
     if (!initialPickupId) return
     const existing = pickups.find(p => p.id === initialPickupId)
     if (existing) {
-      navLinkedRef.current = true          // mark as nav-originated
+      navLinkedRef.current = true
       setTargetPickupId(initialPickupId)
       setForm(f => ({
         ...f,
@@ -611,23 +623,17 @@ const rateChart      = selectedpickuppartner?.rateChart || null
     onPickupApplied?.()
   }, [initialPickupId]) // eslint-disable-line
 
-  // ── AUTO-DETECT: link today's pending pickup when donor is selected manually ─
-  // This is the core sync fix: ensures the Pickup Page and TodayPickups page
-  // both trigger the same completion path regardless of which was used.
   useEffect(() => {
-    // Skip if this change was triggered by the navigation prop above
     if (navLinkedRef.current) {
       navLinkedRef.current = false
       return
     }
 
     if (!form.donorId) {
-      // Donor was cleared — reset link (only if not nav-originated)
       setTargetPickupId(null)
       return
     }
 
-    // Find a pending pickup scheduled for today for this donor
     const todayLinked = pickups.find(p =>
       p.donorId === form.donorId &&
       p.date === todayStr() &&
@@ -636,7 +642,6 @@ const rateChart      = selectedpickuppartner?.rateChart || null
 
     if (todayLinked) {
       setTargetPickupId(todayLinked.id)
-      // Pre-fill form fields from the scheduled pickup (don't overwrite already-set items)
       setForm(f => ({
         ...f,
         pickupMode:   todayLinked.pickupMode   || f.pickupMode,
@@ -734,13 +739,10 @@ const rateChart      = selectedpickuppartner?.rateChart || null
 
       let savedId
       if (targetPickupId) {
-        // ── UPDATE existing scheduled pickup — unified completion path ──
-        // This handles BOTH nav-from-TodayPickups AND manual-donor-selection cases.
         await recordPickup(targetPickupId, pickupData)
         savedId = targetPickupId
         setTargetPickupId(null)
       } else {
-        // ── CREATE new pickup (no existing scheduled entry found) ──
         const created = await createPickup(pickupData)
         savedId = created?.orderId || created?.id
       }
@@ -789,7 +791,6 @@ const rateChart      = selectedpickuppartner?.rateChart || null
     setRescheduleTimeSlot('')
   }
 
-  // ── Banner state: nav link, auto-link, or fresh entry ─────────────────────
   const bannerIsNav    = !!targetPickupId && !!initialPickupId
   const bannerIsAuto   = !!targetPickupId && !initialPickupId
   const bannerColor    = bannerIsNav ? 'var(--info)' : bannerIsAuto ? 'var(--warning)' : 'var(--secondary)'
@@ -859,7 +860,7 @@ const rateChart      = selectedpickuppartner?.rateChart || null
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div className="form-group" style={{ margin: 0 }}>
                 <label>Pickup Date <span style={{ fontSize: 10.5, fontWeight: 400, color: 'var(--info)', marginLeft: 6 }}>🔒 Today only</span></label>
-                <input type="date" value={todayStr()} readOnly style={{ background: 'var(--bg)', cursor: 'not-allPending', color: 'var(--text-muted)', fontWeight: 600 }} />
+                <input type="date" value={todayStr()} readOnly style={{ background: 'var(--bg)', cursor: 'not-allowed', color: 'var(--text-muted)', fontWeight: 600 }} />
               </div>
               <div className="form-group" style={{ margin: 0 }}>
                 <label>Mode</label>
@@ -978,7 +979,7 @@ const rateChart      = selectedpickuppartner?.rateChart || null
                 </div>
                 <div className="form-group" style={{ margin: 0 }}>
                   <label>Amount Paid (₹)</label>
-                  <input type="textF" inputMode="numeric" placeholder="0" value={form.amountPaid} onChange={e => set('amountPaid', e.target.value.replace(/[^0-9]/g, ''))} />
+                  <input type="text" inputMode="numeric" placeholder="0" value={form.amountPaid} onChange={e => set('amountPaid', e.target.value.replace(/[^0-9]/g, ''))} />
                 </div>
               </div>
               <div className="form-group" style={{ margin: '12px 0 0' }}>
@@ -1004,7 +1005,7 @@ const rateChart      = selectedpickuppartner?.rateChart || null
               <textarea value={form.notes} onChange={e => set('notes', e.target.value)} placeholder="Any observations or remarks…" style={{ minHeight: 62, resize: 'vertical' }} />
             </div>
 
-            {/* Reschedule option for unavailable donor */}
+            {/* Reschedule option */}
             <div style={{ background: 'var(--warning-bg)', borderRadius: 10, padding: 12, border: '1px solid rgba(245,158,11,0.25)' }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#92400E', marginBottom: 8 }}>
                 Donor unavailable? Reschedule pickup
@@ -1033,9 +1034,8 @@ const rateChart      = selectedpickuppartner?.rateChart || null
           </div>
         </div>
 
-        {/* ── RIGHT ── */}
+        {/* ── RIGHT: history ── */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-           
           <DonorPickupHistory donor={selectedDonor} pickups={pickups} />
         </div>
       </div>
