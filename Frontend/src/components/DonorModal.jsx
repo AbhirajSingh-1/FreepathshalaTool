@@ -1,10 +1,10 @@
-// Frontend/src/components/DonorModal.jsx
-import { useState, useEffect, useRef } from 'react'
-import { X, User, MapPin, AlertCircle, CheckCircle, Loader } from 'lucide-react'
+import { useRef, useState, useEffect } from 'react'
+import { X, User, MapPin, Loader } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import SocietyInput from './SocietyInput'
 import SectorSearchSelect from './SectorSearchSelect'
-import { checkDonorByMobile } from '../services/api'
+import useDonorMobileCheck from '../hooks/useDonorMobileCheck'
+import DonorDuplicateAlert from './DonorDuplicateAlert'
 
 const EMPTY = {
   name: '', mobile: '', city: 'Gurgaon', sector: '', society: '', address: '',
@@ -12,16 +12,12 @@ const EMPTY = {
 
 export default function DonorModal({ onClose, onAdd }) {
   const { CITIES, CITY_SECTORS, upsertLocation } = useApp()
-  const [form,    setForm]    = useState(EMPTY)
-  const [saving,  setSaving]  = useState(false)
-  const [errors,  setErrors]  = useState({})
+  const [form,   setForm]   = useState(EMPTY)
+  const [saving, setSaving] = useState(false)
+  const [errors, setErrors] = useState({})
 
-  // Mobile dedup state
-  const [mobileCheck, setMobileCheck] = useState({
-    status: 'idle', // 'idle' | 'checking' | 'found' | 'clear'
-    existing: null,
-  })
-  const debounceRef = useRef(null)
+  // ── Debounced duplicate check ─────────────────────────────────────────────
+  const mobileCheck = useDonorMobileCheck(form.mobile)
 
   const sectors = CITY_SECTORS[form.city] || []
 
@@ -35,45 +31,20 @@ export default function DonorModal({ onClose, onAdd }) {
     setErrors(e => ({ ...e, [key]: '' }))
   }
 
-  // ── Debounced mobile lookup ──────────────────────────────────────────────
-  useEffect(() => {
-    const mobile = form.mobile.replace(/\D/g, '').slice(-10)
-    if (mobile.length < 10) {
-      setMobileCheck({ status: 'idle', existing: null })
-      return
-    }
-
-    setMobileCheck(prev => ({ ...prev, status: 'checking' }))
-    clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(async () => {
-      try {
-        const results = await checkDonorByMobile(mobile)
-        const list = Array.isArray(results) ? results : []
-        if (list.length > 0) {
-          setMobileCheck({ status: 'found', existing: list[0] })
-        } else {
-          setMobileCheck({ status: 'clear', existing: null })
-        }
-      } catch {
-        setMobileCheck({ status: 'clear', existing: null })
-      }
-    }, 500)
-
-    return () => clearTimeout(debounceRef.current)
-  }, [form.mobile])
-
-  // ── Use the existing donor directly ──────────────────────────────────────
+  // ── Use existing donor ────────────────────────────────────────────────────
   const handleUseExisting = () => {
-    onAdd(mobileCheck.existing) // parent receives the existing donor as the "added" record
+    onAdd(mobileCheck.existing)
     onClose()
   }
 
   const validate = () => {
     const e = {}
-    if (!form.name.trim())   e.name   = 'Name is required'
+    if (!form.name.trim())
+      e.name = 'Name is required'
     if (!form.mobile.trim() || form.mobile.replace(/\D/g, '').length < 10)
       e.mobile = 'Valid 10-digit mobile required'
-    if (!form.city)          e.city   = 'City is required'
+    if (!form.city)
+      e.city = 'City is required'
     return e
   }
 
@@ -83,17 +54,15 @@ export default function DonorModal({ onClose, onAdd }) {
     setSaving(true)
     try {
       await onAdd({ ...form, house: form.address })
-      setSaving(false)
-    } catch {
+    } finally {
       setSaving(false)
     }
   }
 
-  const { status: mStatus, existing } = mobileCheck
-
   return (
     <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal" style={{ maxWidth: 560, width: '95vw' }}>
+
         {/* Header */}
         <div className="modal-header">
           <User size={18} color="var(--primary)" />
@@ -107,47 +76,12 @@ export default function DonorModal({ onClose, onAdd }) {
         <div className="modal-body">
 
           {/* ── Duplicate alert ── */}
-          {mStatus === 'found' && existing && (
-            <div style={{
-              marginBottom: 14, padding: '12px 14px', borderRadius: 10,
-              background: 'var(--warning-bg)', border: '1px solid rgba(245,158,11,0.3)',
-              display: 'flex', flexDirection: 'column', gap: 8,
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <AlertCircle size={15} color="var(--warning)" style={{ flexShrink: 0 }} />
-                <span style={{ fontSize: 13, fontWeight: 700, color: '#92400E' }}>
-                  A donor with this mobile already exists
-                </span>
-              </div>
-              <div style={{ fontSize: 12.5, color: '#92400E', paddingLeft: 23 }}>
-                <strong>{existing.name}</strong>
-                {existing.society && ` · ${existing.society}`}
-                {existing.sector && `, ${existing.sector}`}
-                {existing.city && `, ${existing.city}`}
-                <span style={{ marginLeft: 8, fontFamily: 'monospace', fontSize: 11,
-                  background: 'rgba(245,158,11,0.2)', padding: '1px 6px', borderRadius: 4 }}>
-                  {existing.id}
-                </span>
-              </div>
-              <div style={{ display: 'flex', gap: 8, paddingLeft: 23 }}>
-                <button
-                  type="button"
-                  className="btn btn-sm btn-primary"
-                  onClick={handleUseExisting}
-                  style={{ fontSize: 12 }}
-                >
-                  <CheckCircle size={12} /> Use This Donor
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-sm btn-ghost"
-                  onClick={() => setMobileCheck({ status: 'idle', existing: null })}
-                  style={{ fontSize: 12 }}
-                >
-                  Dismiss
-                </button>
-              </div>
-            </div>
+          {mobileCheck.status === 'found' && mobileCheck.existing && (
+            <DonorDuplicateAlert
+              donor={mobileCheck.existing}
+              onUseExisting={handleUseExisting}
+              onDismiss={mobileCheck.reset}
+            />
           )}
 
           <div className="form-grid">
@@ -160,10 +94,14 @@ export default function DonorModal({ onClose, onAdd }) {
                 placeholder="e.g. Anjali Sharma"
                 autoFocus
               />
-              {errors.name && <div style={{ fontSize: 11.5, color: 'var(--danger)', marginTop: 3 }}>{errors.name}</div>}
+              {errors.name && (
+                <div style={{ fontSize: 11.5, color: 'var(--danger)', marginTop: 3 }}>
+                  {errors.name}
+                </div>
+              )}
             </div>
 
-            {/* Mobile */}
+            {/* Mobile with live status indicator */}
             <div className="form-group">
               <label>Mobile Number <span className="required">*</span></label>
               <div style={{ position: 'relative' }}>
@@ -173,23 +111,34 @@ export default function DonorModal({ onClose, onAdd }) {
                   placeholder="10-digit mobile"
                   inputMode="numeric"
                   maxLength={10}
-                  style={{ paddingRight: mStatus === 'checking' ? 36 : undefined }}
+                  style={{ paddingRight: 36 }}
                 />
-                {mStatus === 'checking' && (
+                {/* Status indicator */}
+                {mobileCheck.status === 'checking' && (
                   <Loader size={14} style={{
                     position: 'absolute', right: 10, top: '50%',
                     transform: 'translateY(-50%)', color: 'var(--text-muted)',
                     animation: 'spin 0.8s linear infinite',
                   }} />
                 )}
-                {mStatus === 'clear' && (
-                  <CheckCircle size={14} style={{
+                {mobileCheck.status === 'clear' && (
+                  <span style={{
                     position: 'absolute', right: 10, top: '50%',
-                    transform: 'translateY(-50%)', color: 'var(--secondary)',
-                  }} />
+                    transform: 'translateY(-50%)', fontSize: 14, color: 'var(--secondary)',
+                  }}>✓</span>
+                )}
+                {mobileCheck.status === 'found' && (
+                  <span style={{
+                    position: 'absolute', right: 10, top: '50%',
+                    transform: 'translateY(-50%)', fontSize: 14, color: 'var(--warning)',
+                  }}>⚠</span>
                 )}
               </div>
-              {errors.mobile && <div style={{ fontSize: 11.5, color: 'var(--danger)', marginTop: 3 }}>{errors.mobile}</div>}
+              {errors.mobile && (
+                <div style={{ fontSize: 11.5, color: 'var(--danger)', marginTop: 3 }}>
+                  {errors.mobile}
+                </div>
+              )}
             </div>
 
             {/* City */}
@@ -204,7 +153,11 @@ export default function DonorModal({ onClose, onAdd }) {
               <datalist id="donor-modal-cities">
                 {CITIES.map(c => <option key={c} value={c} />)}
               </datalist>
-              {errors.city && <div style={{ fontSize: 11.5, color: 'var(--danger)', marginTop: 3 }}>{errors.city}</div>}
+              {errors.city && (
+                <div style={{ fontSize: 11.5, color: 'var(--danger)', marginTop: 3 }}>
+                  {errors.city}
+                </div>
+              )}
             </div>
 
             {/* Sector */}
@@ -213,10 +166,10 @@ export default function DonorModal({ onClose, onAdd }) {
               <SectorSearchSelect
                 options={sectors}
                 value={form.sector}
-                onChange={(val) => setField('sector', val)}
+                onChange={val => setField('sector', val)}
                 disabled={!form.city}
                 placeholder={form.city ? 'Search or select sector' : 'Select city first'}
-                onAddOption={async (sectorName) => {
+                onAddOption={async sectorName => {
                   await upsertLocation({ city: form.city, sector: sectorName })
                   return sectorName
                 }}
@@ -238,7 +191,12 @@ export default function DonorModal({ onClose, onAdd }) {
 
             {/* Address */}
             <div className="form-group">
-              <label>House / Flat No. <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
+              <label>
+                House / Flat No.{' '}
+                <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 400 }}>
+                  (optional)
+                </span>
+              </label>
               <input
                 value={form.address}
                 onChange={e => setField('address', e.target.value)}
@@ -247,7 +205,7 @@ export default function DonorModal({ onClose, onAdd }) {
             </div>
           </div>
 
-          {/* Preview chip */}
+          {/* Location preview */}
           {(form.sector || form.society) && (
             <div style={{
               marginTop: 14, padding: '10px 14px',
@@ -263,15 +221,26 @@ export default function DonorModal({ onClose, onAdd }) {
 
         {/* Footer */}
         <div className="modal-footer">
-          <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>
+          <button className="btn btn-ghost" onClick={onClose} disabled={saving}>
+            Cancel
+          </button>
           <button
             className="btn btn-primary"
             onClick={handleSubmit}
-            disabled={saving || !form.name.trim() || !form.mobile.trim() || mStatus === 'checking'}
+            disabled={
+              saving ||
+              !form.name.trim() ||
+              !form.mobile.trim() ||
+              mobileCheck.status === 'checking'
+            }
           >
             {saving ? (
               <>
-                <span className="spin" style={{ display: 'inline-block', width: 14, height: 14, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: 'white', borderRadius: '50%' }} />
+                <span className="spin" style={{
+                  display: 'inline-block', width: 14, height: 14,
+                  border: '2px solid rgba(255,255,255,0.4)',
+                  borderTopColor: 'white', borderRadius: '50%',
+                }} />
                 Adding…
               </>
             ) : '+ Add Donor'}

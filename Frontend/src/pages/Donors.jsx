@@ -3,15 +3,17 @@ import { useState, useMemo } from 'react'
 import {
   Search, Plus, Edit2, Trash2, X, Phone, MapPin,
   AlertTriangle, SlidersHorizontal, Clock, CheckCircle,
-  AlertCircle, UserX,
+  AlertCircle, UserX, Loader,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { fmtDate, fmtCurrency, donorStatusColor } from '../utils/helpers'
 import { differenceInDays, parseISO } from 'date-fns'
 import SocietyInput from '../components/SocietyInput'
 import SectorSearchSelect from '../components/SectorSearchSelect'
+import useDonorMobileCheck from '../hooks/useDonorMobileCheck'  // ← NEW
+import DonorDuplicateAlert from '../components/DonorDuplicateAlert'  // ← NEW
 
-// ── Segments — operational health only (supporters live on their own page) ───
+// ── Segments ──────────────────────────────────────────────────────────────────
 const SEGMENTS = [
   { id: 'all',        label: 'All',        color: 'var(--text-secondary)', bg: 'var(--border-light)', borderColor: 'var(--border)', icon: null },
   { id: 'Active',     label: 'Active',     color: 'var(--secondary)',      bg: 'var(--secondary-light)', borderColor: 'var(--secondary)', icon: CheckCircle, description: '1–30 days since last pickup', days: [1, 30] },
@@ -20,48 +22,25 @@ const SEGMENTS = [
   { id: 'Churned',    label: 'Churned',    color: 'var(--danger)',         bg: 'var(--danger-bg)',       borderColor: 'var(--danger)',    icon: UserX,        description: '>61 days since last pickup' },
 ]
 
-function getSegment(donor) {
-  return donor.status || 'Active'
-}
-
+function getSegment(donor) { return donor.status || 'Active' }
 function daysSince(dateStr) {
   if (!dateStr) return null
   return differenceInDays(new Date(), parseISO(dateStr))
 }
-
-function safeAmount(value) {
-  const n = Number(value)
-  return Number.isFinite(n) ? n : 0
-}
+function safeAmount(value) { const n = Number(value); return Number.isFinite(n) ? n : 0 }
 
 function donorRSTAmount(donor, fallbackFromPickups = 0) {
-  // Handle legacy/mixed field names from existing Firebase records.
-  const fromDoc = [
-    donor?.totalRST,
-    donor?.totalRst,
-    donor?.totalRaddi,
-    donor?.rstTotal,
-  ].map(v => Number(v)).find(v => Number.isFinite(v))
-
+  const fromDoc = [donor?.totalRST, donor?.totalRst, donor?.totalRaddi, donor?.rstTotal]
+    .map(v => Number(v)).find(v => Number.isFinite(v))
   if (Number.isFinite(fromDoc) && fromDoc > 0) return fromDoc
   return safeAmount(fallbackFromPickups)
 }
 
-// ── Icon badge — 👍 for donors, 👍❤️ for both ────────────────────────────────
-// Supporters-only (❤️) never appear on this page
 function CategoryBadge({ donorType }) {
-  if (donorType === 'both') {
-    return (
-      <span title="RST/SKS Donor + Supporter" style={{ fontSize: 15, cursor: 'help', flexShrink: 0, letterSpacing: 1 }}>
-        👍❤️
-      </span>
-    )
-  }
-  return (
-    <span title="RST/SKS Donor" style={{ fontSize: 14, cursor: 'help', flexShrink: 0 }}>
-      👍
-    </span>
+  if (donorType === 'both') return (
+    <span title="RST/SKS Donor + Supporter" style={{ fontSize: 15, cursor: 'help', flexShrink: 0, letterSpacing: 1 }}>👍❤️</span>
   )
+  return <span title="RST/SKS Donor" style={{ fontSize: 14, cursor: 'help', flexShrink: 0 }}>👍</span>
 }
 
 function SegmentChip({ segId }) {
@@ -73,7 +52,6 @@ function SegmentChip({ segId }) {
     </span>
   )
 }
-
 function DaysSinceBadge({ lastPickup }) {
   const days = daysSince(lastPickup)
   if (days === null) return <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>No pickup yet</span>
@@ -84,7 +62,6 @@ function DaysSinceBadge({ lastPickup }) {
     </span>
   )
 }
-
 function DonorIdBadge({ id }) {
   return (
     <span style={{ display:'inline-flex', alignItems:'center', gap:4, fontSize:12, fontFamily:'monospace', fontWeight:800, color:'white', background:'var(--primary)', padding:'3px 10px', borderRadius:6, letterSpacing:'0.04em', boxShadow:'0 1px 3px rgba(232,82,26,0.3)', flexShrink:0 }}>
@@ -103,10 +80,10 @@ const EMPTY_FORM = {
 export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
   const { donors, pickups, addDonor, updateDonor, deleteDonor, CITIES, CITY_SECTORS, locations, upsertLocation } = useApp()
 
-  const [modal, setModal]       = useState(false)
-  const [editing, setEditing]   = useState(null)
-  const [form, setForm]         = useState(EMPTY_FORM)
-  const [saving, setSaving]     = useState(false)
+  const [modal, setModal]     = useState(false)
+  const [editing, setEditing] = useState(null)
+  const [form, setForm]       = useState(EMPTY_FORM)
+  const [saving, setSaving]   = useState(false)
 
   const [search, setSearch]               = useState('')
   const [filterCity, setFilterCity]       = useState('')
@@ -118,23 +95,20 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
   const sectorOptions = filterCity ? (CITY_SECTORS[filterCity] || []) : []
   const formSectors   = CITY_SECTORS[form.city] || []
 
+  // ── Dedup check — only active when adding (not editing) ───────────────────
+  const mobileCheck = useDonorMobileCheck(modal && !editing ? form.mobile : '')
+
   const allSocieties = useMemo(() => [...new Set([
     ...(locations.societies || []).map(s => s.name),
     ...donors.map(d => d.society).filter(Boolean),
   ])].sort(), [donors, locations.societies])
 
-  // ── Only count non-supporter donors in segment KPIs ──────────────────────
   const actualDonors = useMemo(() =>
-    donors.filter(d => d.donorType !== 'supporter'),
-    [donors]
-  )
+    donors.filter(d => d.donorType !== 'supporter'), [donors])
 
   const segCounts = useMemo(() => {
     const counts = { all: actualDonors.length }
-    actualDonors.forEach(d => {
-      const seg = getSegment(d)
-      counts[seg] = (counts[seg] || 0) + 1
-    })
+    actualDonors.forEach(d => { const seg = getSegment(d); counts[seg] = (counts[seg] || 0) + 1 })
     return counts
   }, [actualDonors])
 
@@ -142,22 +116,18 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
     const totals = {}
     pickups.forEach(p => {
       if (p.status !== 'Completed') return
-      const donorId = p.donorId
-      if (!donorId) return
+      const donorId = p.donorId; if (!donorId) return
       totals[donorId] = (totals[donorId] || 0) + safeAmount(p.totalValue)
     })
     return totals
   }, [pickups])
 
-  // ── Filtered list — exclude supporter-only users ──────────────────────────
   const filtered = useMemo(() => {
     const q = search.toLowerCase()
     return donors.filter(d => {
-      // Exclude supporter-only — they live on the Supporters page
       if (d.donorType === 'supporter') return false
-
       const seg = getSegment(d)
-      let matchSeg = activeSeg === 'all' ? true : seg === activeSeg
+      const matchSeg    = activeSeg === 'all' ? true : seg === activeSeg
       const matchQ      = !q || d.name.toLowerCase().includes(q) || d.mobile.includes(q) || d.society?.toLowerCase().includes(q) || d.id?.toLowerCase().includes(q)
       const matchCity   = !filterCity   || d.city === filterCity
       const matchSector = !filterSector || d.sector === filterSector
@@ -176,7 +146,7 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
     )
     setModal(true)
   }
-  const closeModal = () => { setModal(false); setEditing(null) }
+  const closeModal = () => { setModal(false); setEditing(null); mobileCheck.reset() }
 
   const setField = (key, val) => {
     setForm(f => {
@@ -187,12 +157,16 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
     })
   }
 
+  // ── Use existing donor (instead of creating duplicate) ────────────────────
+  const handleUseExisting = () => {
+    closeModal()
+    // Optionally: scroll to existing donor or show toast
+  }
+
   const save = async () => {
     if (!form.name.trim() || !form.mobile.trim()) return
     setSaving(true)
     try {
-      // When adding a new donor from this page, type is always 'donor'
-      // When editing a 'both' user, preserve their type
       const data = { ...form }
       if (!editing) data.donorType = 'donor'
       editing ? await updateDonor(editing.id, data) : await addDonor(data)
@@ -217,27 +191,16 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
       {/* ── Segment KPI cards ── */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))', gap:12, marginBottom:20 }}>
         {SEGMENTS.filter(s => s.id !== 'all').map(seg => {
-          const Icon    = seg.icon
-          const count   = segCounts[seg.id] || 0
-          const isActive = activeSeg === seg.id
+          const Icon = seg.icon; const count = segCounts[seg.id] || 0; const isActive = activeSeg === seg.id
           return (
-            <button
-              key={seg.id}
-              onClick={() => setActiveSeg(isActive ? 'all' : seg.id)}
-              style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', padding:'14px 16px', borderRadius:'var(--radius)', border:`2px solid ${isActive ? seg.borderColor : 'var(--border-light)'}`, background: isActive ? seg.bg : 'var(--surface)', cursor:'pointer', transition:'all 0.15s', textAlign:'left', boxShadow: isActive ? `0 0 0 3px ${seg.borderColor}22` : 'var(--shadow)' }}
-            >
+            <button key={seg.id} onClick={() => setActiveSeg(isActive ? 'all' : seg.id)}
+              style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', padding:'14px 16px', borderRadius:'var(--radius)', border:`2px solid ${isActive ? seg.borderColor : 'var(--border-light)'}`, background: isActive ? seg.bg : 'var(--surface)', cursor:'pointer', transition:'all 0.15s', textAlign:'left', boxShadow: isActive ? `0 0 0 3px ${seg.borderColor}22` : 'var(--shadow)' }}>
               <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:8 }}>
                 {Icon && <Icon size={14} color={isActive ? seg.color : 'var(--text-muted)'} />}
-                <span style={{ fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em', color: isActive ? seg.color : 'var(--text-muted)' }}>
-                  {seg.label}
-                </span>
+                <span style={{ fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em', color: isActive ? seg.color : 'var(--text-muted)' }}>{seg.label}</span>
               </div>
-              <div style={{ fontFamily:'var(--font-display)', fontSize:26, fontWeight:700, color: isActive ? seg.color : 'var(--text-primary)', lineHeight:1, marginBottom:4 }}>
-                {count}
-              </div>
-              {seg.description && (
-                <div style={{ fontSize:10.5, color:'var(--text-muted)', lineHeight:1.4 }}>{seg.description}</div>
-              )}
+              <div style={{ fontFamily:'var(--font-display)', fontSize:26, fontWeight:700, color: isActive ? seg.color : 'var(--text-primary)', lineHeight:1, marginBottom:4 }}>{count}</div>
+              {seg.description && <div style={{ fontSize:10.5, color:'var(--text-muted)', lineHeight:1.4 }}>{seg.description}</div>}
             </button>
           )
         })}
@@ -250,9 +213,7 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
           <span style={{ fontSize: 13, color: 'var(--text-secondary)', flex: 1 }}>
             <strong>Supporters</strong> (goods, money, clothes) — managed separately
           </span>
-          <button className="btn btn-outline btn-sm" onClick={() => onNav('supporters')}>
-            View Supporters →
-          </button>
+          <button className="btn btn-outline btn-sm" onClick={() => onNav('supporters')}>View Supporters →</button>
         </div>
       )}
 
@@ -307,16 +268,13 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
 
       {/* ── Active segment banner ── */}
       {activeSeg !== 'all' && (() => {
-        const seg  = SEGMENTS.find(s => s.id === activeSeg)
-        const Icon = seg?.icon
+        const seg = SEGMENTS.find(s => s.id === activeSeg); const Icon = seg?.icon
         return seg ? (
           <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:14, padding:'10px 16px', borderRadius:10, background:seg.bg, border:`1px solid ${seg.borderColor}33` }}>
             {Icon && <Icon size={15} color={seg.color} />}
             <span style={{ fontSize:13, fontWeight:700, color:seg.color }}>{seg.label}</span>
             {seg.description && <span style={{ fontSize:12.5, color:seg.color, opacity:0.8 }}>— {seg.description}</span>}
-            <button onClick={() => setActiveSeg('all')} style={{ marginLeft:'auto', background:'none', border:'none', cursor:'pointer', color:seg.color, display:'flex', padding:2 }}>
-              <X size={14} />
-            </button>
+            <button onClick={() => setActiveSeg('all')} style={{ marginLeft:'auto', background:'none', border:'none', cursor:'pointer', color:seg.color, display:'flex', padding:2 }}><X size={14} /></button>
           </div>
         ) : null
       })()}
@@ -335,12 +293,10 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
       ) : (
         <div style={{ display:'grid', gap:10 }}>
           {filtered.map(d => {
-            const seg      = getSegment(d)
-            const advisory = getAdvisory(seg)
-            const segDef   = SEGMENTS.find(s => s.id === seg)
-            const overdue  = d.nextPickup && new Date(d.nextPickup) < new Date() && d.status === 'Active'
-            const days     = daysSince(d.lastPickup)
-
+            const seg = getSegment(d); const advisory = getAdvisory(seg)
+            const segDef = SEGMENTS.find(s => s.id === seg)
+            const overdue = d.nextPickup && new Date(d.nextPickup) < new Date() && d.status === 'Active'
+            const days = daysSince(d.lastPickup)
             return (
               <div key={d.id} className="card" style={{ borderLeft:`3px solid ${segDef?.borderColor || 'var(--border-light)'}` }}>
                 <div style={{ display:'flex', alignItems:'flex-start', gap:12, padding:'12px 14px' }}>
@@ -371,14 +327,9 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
 
                 <div style={{ display:'flex', gap:0, borderTop:'1px solid var(--border-light)', background:'var(--bg)' }}>
                   {[
-                    { label:'RST Donated',  value:<span style={{ fontWeight:700, fontSize:12, color:'var(--secondary)' }}>{fmtCurrency(donorRSTAmount(d, pickupRSTByDonor[d.id]))}</span> },
-                    { label:'Last Pickup',  value:<span style={{ fontWeight:600, fontSize:11.5 }}>{d.lastPickup ? fmtDate(d.lastPickup) : '—'}</span> },
-                    {
-                      label: overdue ? '⚠ Overdue' : 'Next Pickup',
-                      value: <span style={{ fontWeight:600, fontSize:11.5, color: overdue ? 'var(--danger)' : 'inherit' }}>
-                        {d.status === 'Lost' ? '—' : fmtDate(d.nextPickup)}
-                      </span>,
-                    },
+                    { label:'RST Donated', value:<span style={{ fontWeight:700, fontSize:12, color:'var(--secondary)' }}>{fmtCurrency(donorRSTAmount(d, pickupRSTByDonor[d.id]))}</span> },
+                    { label:'Last Pickup', value:<span style={{ fontWeight:600, fontSize:11.5 }}>{d.lastPickup ? fmtDate(d.lastPickup) : '—'}</span> },
+                    { label: overdue ? '⚠ Overdue' : 'Next Pickup', value:<span style={{ fontWeight:600, fontSize:11.5, color: overdue ? 'var(--danger)' : 'inherit' }}>{d.status === 'Lost' ? '—' : fmtDate(d.nextPickup)}</span> },
                   ].map((item, i) => (
                     <div key={i} style={{ flex:1, padding:'8px 4px', textAlign:'center', borderRight: i < 2 ? '1px solid var(--border-light)' : 'none', minWidth:0 }}>
                       <div style={{ marginBottom:2 }}>{item.value}</div>
@@ -393,7 +344,6 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
                     {days !== null ? `${days} days since last pickup — ` : ''}{advisory.text}
                   </div>
                 )}
-
                 {d.status === 'Lost' && d.lostReason && (
                   <div style={{ padding:'6px 14px', background:'var(--danger-bg)', fontSize:11.5, color:'var(--danger)' }}>
                     <AlertTriangle size={11} style={{ verticalAlign:'middle', marginRight:5 }} />
@@ -419,16 +369,48 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
               )}
               <button className="btn btn-ghost btn-icon btn-sm" onClick={closeModal}><X size={16} /></button>
             </div>
+
             <div className="modal-body" style={{ maxHeight:'72vh', overflowY:'auto' }}>
+
+              {/* ── Duplicate alert (add mode only) ── */}
+              {!editing && mobileCheck.status === 'found' && mobileCheck.existing && (
+                <DonorDuplicateAlert
+                  donor={mobileCheck.existing}
+                  onUseExisting={handleUseExisting}
+                  onDismiss={mobileCheck.reset}
+                />
+              )}
+
               <div className="form-grid">
                 <div className="form-group">
                   <label>Full Name <span className="required">*</span></label>
                   <input value={form.name} onChange={e => setField('name', e.target.value)} placeholder="Donor full name" autoFocus />
                 </div>
+
+                {/* Mobile with status indicator */}
                 <div className="form-group">
                   <label>Mobile Number <span className="required">*</span></label>
-                  <input value={form.mobile} onChange={e => setField('mobile', e.target.value)} placeholder="10-digit mobile" maxLength={10} inputMode="numeric" />
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      value={form.mobile}
+                      onChange={e => setField('mobile', e.target.value.replace(/\D/g, '').slice(0,10))}
+                      placeholder="10-digit mobile"
+                      maxLength={10}
+                      inputMode="numeric"
+                      style={{ paddingRight: 36 }}
+                    />
+                    {!editing && mobileCheck.status === 'checking' && (
+                      <Loader size={14} style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', color:'var(--text-muted)', animation:'spin 0.8s linear infinite' }} />
+                    )}
+                    {!editing && mobileCheck.status === 'clear' && (
+                      <span style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', fontSize:14, color:'var(--secondary)' }}>✓</span>
+                    )}
+                    {!editing && mobileCheck.status === 'found' && (
+                      <span style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', fontSize:14, color:'var(--warning)' }}>⚠</span>
+                    )}
+                  </div>
                 </div>
+
                 <div className="form-group">
                   <label>House / Flat No.</label>
                   <input value={form.house} onChange={e => setField('house', e.target.value)} placeholder="e.g. A-101" />
@@ -436,29 +418,23 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
                 <div className="form-group">
                   <label>City <span className="required">*</span></label>
                   <input list="donor-cities" value={form.city} onChange={e => setField('city', e.target.value)} placeholder="Type or choose city" />
-                  <datalist id="donor-cities">
-                    {CITIES.map(c => <option key={c} value={c} />)}
-                  </datalist>
+                  <datalist id="donor-cities">{CITIES.map(c => <option key={c} value={c} />)}</datalist>
                 </div>
                 <div className="form-group">
                   <label>Sector / Area</label>
                   <SectorSearchSelect
                     options={formSectors}
                     value={form.sector}
-                    onChange={(val) => setField('sector', val)}
+                    onChange={val => setField('sector', val)}
                     disabled={!form.city}
                     placeholder={form.city ? 'Search or select sector' : 'Select city first'}
-                    onAddOption={async (sectorName) => {
-                      await upsertLocation({ city: form.city, sector: sectorName })
-                      return sectorName
-                    }}
+                    onAddOption={async sectorName => { await upsertLocation({ city: form.city, sector: sectorName }); return sectorName }}
                     addLabel="Add sector"
                   />
                 </div>
                 <div className="form-group full">
                   <label>Society / Colony</label>
-                  <SocietyInput city={form.city} sector={form.sector} value={form.society}
-                    onChange={val => setField('society', val)} id="donors-modal" />
+                  <SocietyInput city={form.city} sector={form.sector} value={form.society} onChange={val => setField('society', val)} id="donors-modal" />
                 </div>
                 <div className="form-group full">
                   <label>Notes</label>
@@ -466,7 +442,6 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
                 </div>
               </div>
 
-              {/* Info strip for 'both' type donors (editing only) */}
               {editing && editing.donorType === 'both' && (
                 <div style={{ marginTop: 14, padding: '10px 14px', background: 'linear-gradient(135deg,#FDE7DA,var(--secondary-light))', borderRadius: 8, fontSize: 12.5, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ fontSize: 16 }}>👍❤️</span>
@@ -474,12 +449,18 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
                 </div>
               )}
             </div>
+
             <div className="modal-footer">
               <button className="btn btn-ghost" onClick={closeModal}>Cancel</button>
               <button
                 className="btn btn-primary"
                 onClick={save}
-                disabled={saving || !form.name.trim() || !form.mobile.trim()}
+                disabled={
+                  saving ||
+                  !form.name.trim() ||
+                  !form.mobile.trim() ||
+                  (!editing && mobileCheck.status === 'checking')
+                }
               >
                 {saving ? 'Saving…' : editing ? 'Save Changes' : 'Add Donor'}
               </button>
