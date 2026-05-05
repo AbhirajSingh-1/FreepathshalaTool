@@ -359,6 +359,9 @@ export const updateDonor = (id, data) =>
   apiFetch(`/donors/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
 export const deleteDonor = id =>
   apiFetch(`/donors/${id}`, { method: 'DELETE' })
+// Check if a donor already exists by mobile number (used for dedup UI)
+export const checkDonorByMobile = (mobile, options) =>
+  apiFetch(`/donors${toQuery({ mobile, limit: 1 })}`, options);
 
 // Pickups
 export const fetchPickups = (params, options) => apiFetch(`/pickups${toQuery(params)}`, options)

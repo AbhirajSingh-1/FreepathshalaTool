@@ -114,17 +114,22 @@ function buildPickupPayload(data, donor, partner, id) {
   });
 }
 
-function applyCompletedPickupSideEffects(tx, pickup, donorRef, partnerRef, partner) {
+function applyCompletedPickupSideEffects(tx, pickup, donorRef, partnerRef, partner, donor) {
   if (pickup.status !== "Completed") return;
   applyPickupAggregateDelta(tx, pickup, 1);
 
   if (donorRef) {
+    // If this donor was supporter-only, promote to both now that they have a pickup
+    const typeUpgrade =
+      donor && donor.donorType === "supporter" ? { donorType: "both" } : {};
+
     tx.set(donorRef, cleanUndefined({
       lastPickup: pickup.date || new Date().toISOString().slice(0, 10),
       nextPickup: pickup.nextDate || null,
       totalRST:   increment(toNumber(pickup.totalValue)),
       totalSKS:   increment((pickup.sksItems || []).length ? 1 : 0),
-      status:     deriveDonorStatus(pickup.date || new Date().toISOString().slice(0, 10))
+      status:     deriveDonorStatus(pickup.date || new Date().toISOString().slice(0, 10)),
+      ...typeUpgrade
     }), { merge: true });
   }
 
@@ -230,10 +235,9 @@ async function createPickup(data, actor) {
     const id      = data.id || data.orderId || await nextId("pickups", tx);
     const ref     = pickupsCollection().doc(id);
     const payload = { ...buildPickupPayload(data, donor, partner, id), ...auditCreate(actor) };
-
-    tx.set(ref, payload);
-    await upsertLocationsFromPayload(payload, actor, tx);
-    applyCompletedPickupSideEffects(tx, payload, donorRef, partnerRef, partner);
+tx.set(ref, payload);
+await upsertLocationsFromPayload(payload, actor, tx);
+applyCompletedPickupSideEffects(tx, payload, donorRef, partnerRef, partner, donor);
 
     return { ...payload, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
   });
@@ -260,15 +264,21 @@ async function updatePickup(id, data, actor) {
     await upsertLocationsFromPayload(newPickup, actor, tx);
     applyCompletedPickupDelta(tx, oldPickup, newPickup, oldPartnerRef, partnerRef);
 
-    if (donorRef && oldPickup.status !== "Completed" && newPickup.status === "Completed") {
-      tx.set(donorRef, cleanUndefined({
-        lastPickup: newPickup.date || new Date().toISOString().slice(0, 10),
-        nextPickup: newPickup.nextDate || null,
-        totalRST:   increment(toNumber(newPickup.totalValue)),
-        totalSKS:   increment((newPickup.sksItems || []).length ? 1 : 0),
-        status:     deriveDonorStatus(newPickup.date || new Date().toISOString().slice(0, 10))
-      }), { merge: true });
-    }
+   
+if (donorRef && oldPickup.status !== "Completed" && newPickup.status === "Completed") {
+   
+  const typeUpgrade =
+    donor && donor.donorType === "supporter" ? { donorType: "both" } : {};
+
+  tx.set(donorRef, cleanUndefined({
+    lastPickup: newPickup.date || new Date().toISOString().slice(0, 10),
+    nextPickup: newPickup.nextDate || null,
+    totalRST:   increment(toNumber(newPickup.totalValue)),
+    totalSKS:   increment((newPickup.sksItems || []).length ? 1 : 0),
+    status:     deriveDonorStatus(newPickup.date || new Date().toISOString().slice(0, 10)),
+    ...typeUpgrade
+  }), { merge: true });
+}
 
     return { ...oldPickup, ...newPickup, updatedAt: new Date().toISOString() };
   });
