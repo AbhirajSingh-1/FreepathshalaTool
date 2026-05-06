@@ -1,6 +1,6 @@
 // Frontend/src/pages/Supporters.jsx
 // Status system: Activity-based engagement tracking
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import {
   Heart, Search, Plus, Edit2, Trash2, X,
   Phone, MapPin, Clock, CheckCircle, AlertCircle,
@@ -34,9 +34,13 @@ const STATUS_CONFIG = {
 }
 const STATUS_KEYS = ['Active in 1 Month', 'Active in 3 Months', 'Active in 6 Months', 'Inactive']
 
+function todayISO() {
+  return new Date().toISOString().slice(0, 10)
+}
+
 const EMPTY_FORM = {
   name: '', mobile: '', house: '', city: 'Gurgaon', sector: '', society: '',
-  contributionType: '', lastSupportDate: '', notes: '',
+  contributionType: '', lastSupportDate: todayISO(), notes: '',
   isAlsoDonor: false,
 }
 
@@ -91,8 +95,16 @@ export default function Supporters() {
   // Only active when modal is open and we're adding (not editing)
   const mobileCheck = useDonorMobileCheck(modal && !editing ? form.mobile : '')
 
-  // Existing match: prefer API result, fall back to nothing (editing handles its own logic)
-  const existingDonorMatch = mobileCheck.existing || null
+  // confirmedExisting persists independently of mobileCheck.existing (which resets on dismiss).
+  // This is the authoritative source for save/merge logic.
+  const [confirmedExisting, setConfirmedExisting] = useState(null)
+  const [alertVisible, setAlertVisible] = useState(false)
+  useEffect(() => {
+    if (mobileCheck.status === 'found' && mobileCheck.existing) {
+      setConfirmedExisting(mobileCheck.existing)
+      setAlertVisible(true)
+    }
+  }, [mobileCheck.status, mobileCheck.existing])
 
   // ── Supporters list ───────────────────────────────────────────────────────
   const supporters = useMemo(() =>
@@ -146,7 +158,7 @@ export default function Supporters() {
     } : EMPTY_FORM)
     setModal(true)
   }
-  const closeModal = () => { setModal(false); setEditing(null); mobileCheck.reset() }
+  const closeModal = () => { setModal(false); setEditing(null); setConfirmedExisting(null); setAlertVisible(false); mobileCheck.reset() }
 
   const setField = (key, val) => {
     setForm(f => {
@@ -156,6 +168,8 @@ export default function Supporters() {
       return next
     })
     setErrors(e => ({ ...e, [key]: '' }))
+    // Clear existing match when user types a new mobile
+    if (key === 'mobile') { setConfirmedExisting(null); setAlertVisible(false) }
   }
 
   const validate = () => {
@@ -165,9 +179,9 @@ export default function Supporters() {
     return e
   }
 
-  // ── "Use existing" — populate form from matched donor ────────────────────
+  // ── "Use existing" — populate form, keep confirmedExisting for merge logic ─
   const handleUseExisting = () => {
-    const d = mobileCheck.existing
+    const d = confirmedExisting || mobileCheck.existing
     if (!d) return
     setForm(f => ({
       ...f,
@@ -176,9 +190,11 @@ export default function Supporters() {
       sector:     d.sector  || f.sector,
       society:    d.society || f.society,
       house:      d.house   || f.house,
-      // If the matched person is already a donor, mark isAlsoDonor true
+      // If the matched person is already a donor, pre-check the combined role
       isAlsoDonor: d.donorType === 'donor' || d.donorType === 'both',
     }))
+    // Dismiss the alert UI but keep confirmedExisting so save() can merge roles
+    setAlertVisible(false)
     mobileCheck.reset()
   }
 
@@ -189,16 +205,16 @@ export default function Supporters() {
     try {
       const payload = {
         ...form,
-        donorType:           (form.isAlsoDonor || existingDonorMatch) ? 'both' : 'supporter',
+        donorType:           (form.isAlsoDonor || confirmedExisting) ? 'both' : 'supporter',
         supportContribution: form.contributionType,
       }
       delete payload.isAlsoDonor
 
       if (editing) {
         await updateDonor(editing.id, payload)
-      } else if (existingDonorMatch) {
-        // Upgrade existing donor to "both" instead of creating duplicate
-        await updateDonor(existingDonorMatch.id, payload)
+      } else if (confirmedExisting) {
+        // Merge: upgrade existing donor/supporter to 'both' instead of creating duplicate
+        await updateDonor(confirmedExisting.id, { ...confirmedExisting, ...payload, donorType: 'both' })
       } else {
         await addDonor(payload)
       }
@@ -452,19 +468,20 @@ export default function Supporters() {
             <div className="modal-body" style={{ maxHeight:'72vh', overflowY:'auto' }}>
 
               {/* ── Duplicate alert (add mode, API-based) ── */}
-              {!editing && mobileCheck.status === 'found' && mobileCheck.existing && (
+              {!editing && alertVisible && confirmedExisting && (
                 <DonorDuplicateAlert
-                  donor={mobileCheck.existing}
-                  message="A supporter/donor with this mobile already exists"
+                  donor={confirmedExisting}
+                  context="adding-supporter"
                   onUseExisting={handleUseExisting}
-                  onDismiss={mobileCheck.reset}
+                  onDismiss={() => setAlertVisible(false)}
                 />
               )}
 
-              {/* ── "Will upgrade" notice when existing match is confirmed ── */}
-              {!editing && existingDonorMatch && mobileCheck.status !== 'found' && (
-                <div style={{ marginBottom:12, padding:'10px 14px', borderRadius:8, background:'var(--secondary-light)', border:'1px solid rgba(27,94,53,0.2)', fontSize:12.5, color:'var(--secondary)' }}>
-                  Saving will upgrade <strong>{existingDonorMatch.name}</strong> ({existingDonorMatch.id}) to Donor + Supporter.
+              {/* ── Merge confirmation notice (after alert dismissed) ── */}
+              {!editing && confirmedExisting && !alertVisible && (
+                <div style={{ marginBottom:12, padding:'10px 14px', borderRadius:8, background: confirmedExisting.donorType === 'donor' ? 'var(--secondary-light)' : 'var(--warning-bg)', border:`1px solid ${confirmedExisting.donorType === 'donor' ? 'rgba(27,94,53,0.2)' : 'rgba(245,158,11,0.25)'}`, fontSize:12.5, color: confirmedExisting.donorType === 'donor' ? 'var(--secondary)' : '#92400E', display:'flex', alignItems:'center', gap:8 }}>
+                  <span style={{ fontSize: 16 }}>👍❤️</span>
+                  Saving will merge <strong>{confirmedExisting.name}</strong> ({confirmedExisting.id}) into a combined Donor + Supporter profile.
                 </div>
               )}
 
@@ -543,15 +560,15 @@ export default function Supporters() {
               </div>
 
               {/* Role selection */}
-              <div style={{ marginTop:16, padding:'14px 16px', borderRadius:10, transition:'all 0.15s', border:`2px solid ${(form.isAlsoDonor||existingDonorMatch)?'var(--secondary)':'var(--border)'}`, background:(form.isAlsoDonor||existingDonorMatch)?'var(--secondary-light)':'var(--surface)' }}>
+              <div style={{ marginTop:16, padding:'14px 16px', borderRadius:10, transition:'all 0.15s', border:`2px solid ${(form.isAlsoDonor||confirmedExisting)?'var(--secondary)':'var(--border)'}`, background:(form.isAlsoDonor||confirmedExisting)?'var(--secondary-light)':'var(--surface)' }}>
                 <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                  <label style={{ display:'flex', alignItems:'center', gap:10, cursor: existingDonorMatch?'not-allowed':'pointer', opacity: existingDonorMatch?0.7:1 }}>
-                    <input type="radio" name="supporter-role" checked={!form.isAlsoDonor} onChange={() => !existingDonorMatch && setField('isAlsoDonor', false)} disabled={!!existingDonorMatch} style={{ width:16, height:16, accentColor:'var(--secondary)', margin:0 }} />
+                  <label style={{ display:'flex', alignItems:'center', gap:10, cursor: confirmedExisting?'not-allowed':'pointer', opacity: confirmedExisting?0.7:1 }}>
+                    <input type="radio" name="supporter-role" checked={!form.isAlsoDonor} onChange={() => !confirmedExisting && setField('isAlsoDonor', false)} disabled={!!confirmedExisting} style={{ width:16, height:16, accentColor:'var(--secondary)', margin:0 }} />
                     <span style={{ fontWeight:700, fontSize:13.5, color:'var(--text-primary)' }}>❤️ Supporter only</span>
                   </label>
                   <label style={{ display:'flex', alignItems:'center', gap:10, cursor:'pointer' }}>
-                    <input type="radio" name="supporter-role" checked={Boolean(form.isAlsoDonor||existingDonorMatch)} onChange={() => setField('isAlsoDonor', true)} style={{ width:16, height:16, accentColor:'var(--secondary)', margin:0 }} />
-                    <div style={{ fontWeight:700, fontSize:13.5, color:(form.isAlsoDonor||existingDonorMatch)?'var(--secondary)':'var(--text-primary)' }}>
+                    <input type="radio" name="supporter-role" checked={Boolean(form.isAlsoDonor||confirmedExisting)} onChange={() => setField('isAlsoDonor', true)} style={{ width:16, height:16, accentColor:'var(--secondary)', margin:0 }} />
+                    <div style={{ fontWeight:700, fontSize:13.5, color:(form.isAlsoDonor||confirmedExisting)?'var(--secondary)':'var(--text-primary)' }}>
                       👍❤️ Donor + Supporter
                     </div>
                   </label>
@@ -561,9 +578,9 @@ export default function Supporters() {
                 </div>
               </div>
 
-              {existingDonorMatch && (
+              {confirmedExisting && (
                 <div style={{ marginTop:8, fontSize:12, color:'var(--secondary)', background:'var(--secondary-light)', borderRadius:8, padding:'8px 10px' }}>
-                  Match found: <strong>{existingDonorMatch.name}</strong> ({existingDonorMatch.id}). Saving will merge as combined donor + supporter profile.
+                  Match found: <strong>{confirmedExisting.name}</strong> ({confirmedExisting.id}). Saving will merge as combined donor + supporter profile.
                 </div>
               )}
             </div>
@@ -580,7 +597,7 @@ export default function Supporters() {
                   mobileCheck.status === 'checking'
                 }
               >
-                {saving ? 'Saving…' : editing ? 'Save Changes' : '+ Add Supporter'}
+                {saving ? 'Saving…' : editing ? 'Save Changes' : confirmedExisting ? '👍❤️ Merge & Add Supporter' : '+ Add Supporter'}
               </button>
             </div>
           </div>

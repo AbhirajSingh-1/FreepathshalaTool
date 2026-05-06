@@ -541,7 +541,7 @@ export default function Pickups({
 }) {
   const {
     donors, PickupPartners: partners, pickups,
-    addDonor, createPickup, recordPickup, updatePickup,
+    addDonor, createPickup, recordPickup, updatePickup, updateDonor,
     RST_ITEMS, SKS_ITEMS, PICKUP_MODES,
   } = useApp()
 
@@ -772,6 +772,19 @@ export default function Pickups({
       } else {
         const created = await createPickup(pickupData)
         savedId = created?.orderId || created?.id
+      }
+
+      // ── Role sync: if a supporter just donated, upgrade them to Donor + Supporter ──
+      if (pickupData.status === 'Completed') {
+        const donorUsed = donors.find(d => d.id === form.donorId)
+        if (donorUsed && donorUsed.donorType === 'supporter') {
+          try {
+            await updateDonor(donorUsed.id, { ...donorUsed, donorType: 'both' })
+          } catch (roleErr) {
+            // Non-fatal: pickup was saved; log and continue
+            console.warn('Role sync failed (pickup saved OK):', roleErr)
+          }
+        }
       }
 
       setForm({ ...EMPTY_FORM })

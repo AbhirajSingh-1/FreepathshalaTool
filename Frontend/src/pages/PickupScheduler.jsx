@@ -124,8 +124,17 @@ export default function PickupScheduler({ onNav }) {
 
   const handleModeChange = (mode) => { setPickupMode(mode); setTimeSlot('') }
 
-  const handleAddDonor = async (newDonorData) => {
-    const newDonor = await addDonor(newDonorData)
+  const handleAddDonor = async (donorData) => {
+    // If donorData has an id, DonorModal detected an existing donor/supporter.
+    // Auto-select them without calling addDonor (which would create a duplicate).
+    if (donorData?.id) {
+      setSelectedDonorId(donorData.id)
+      setDonorModal(false)
+      setToast(`✓ ${donorData.name} selected`)
+      return
+    }
+    // New donor path: create then select
+    const newDonor = await addDonor(donorData)
     setSelectedDonorId(newDonor.id)
     setDonorModal(false)
     setToast(`✓ ${newDonor.name} added and selected`)

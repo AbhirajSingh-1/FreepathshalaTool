@@ -2,16 +2,17 @@
 import { useState, useMemo } from 'react'
 import {
   Search, Plus, Edit2, Trash2, X, Phone, MapPin,
-  AlertTriangle, SlidersHorizontal, Clock, CheckCircle,
-  AlertCircle, UserX, Loader,
+  AlertTriangle, Clock, CheckCircle,
+  AlertCircle, UserX, Loader, Download,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { fmtDate, fmtCurrency, donorStatusColor } from '../utils/helpers'
 import { differenceInDays, parseISO } from 'date-fns'
 import SocietyInput from '../components/SocietyInput'
 import SectorSearchSelect from '../components/SectorSearchSelect'
-import useDonorMobileCheck from '../hooks/useDonorMobileCheck'  // ← NEW
-import DonorDuplicateAlert from '../components/DonorDuplicateAlert'  // ← NEW
+import { useEffect } from 'react'
+import useDonorMobileCheck from '../hooks/useDonorMobileCheck'
+import DonorDuplicateAlert from '../components/DonorDuplicateAlert'
 
 // ── Segments ──────────────────────────────────────────────────────────────────
 const SEGMENTS = [
@@ -52,23 +53,6 @@ function SegmentChip({ segId }) {
     </span>
   )
 }
-function DaysSinceBadge({ lastPickup }) {
-  const days = daysSince(lastPickup)
-  if (days === null) return <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>No pickup yet</span>
-  const color = days <= 30 ? 'var(--secondary)' : days <= 45 ? 'var(--info)' : days <= 60 ? 'var(--warning)' : 'var(--danger)'
-  return (
-    <span style={{ fontSize: 11, color, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 3 }}>
-      <Clock size={10} />{days}d ago
-    </span>
-  )
-}
-function DonorIdBadge({ id }) {
-  return (
-    <span style={{ display:'inline-flex', alignItems:'center', gap:4, fontSize:12, fontFamily:'monospace', fontWeight:800, color:'white', background:'var(--primary)', padding:'3px 10px', borderRadius:6, letterSpacing:'0.04em', boxShadow:'0 1px 3px rgba(232,82,26,0.3)', flexShrink:0 }}>
-      {id}
-    </span>
-  )
-}
 
 const EMPTY_FORM = {
   name: '', mobile: '', house: '', society: '',
@@ -78,7 +62,7 @@ const EMPTY_FORM = {
 }
 
 export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
-  const { donors, pickups, addDonor, updateDonor, deleteDonor, CITIES, CITY_SECTORS, locations, upsertLocation } = useApp()
+  const { donors, pickups, addDonor, updateDonor, deleteDonor, CITIES, CITY_SECTORS, locations, upsertLocation, user } = useApp()
 
   const [modal, setModal]     = useState(false)
   const [editing, setEditing] = useState(null)
@@ -86,17 +70,24 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
   const [saving, setSaving]   = useState(false)
 
   const [search, setSearch]               = useState('')
-  const [filterCity, setFilterCity]       = useState('')
+  const [filterCity, setFilterCity]       = useState('Gurgaon')
   const [filterSector, setFilterSector]   = useState('')
   const [filterSociety, setFilterSociety] = useState('')
-  const [showFilters, setShowFilters]     = useState(false)
   const [activeSeg, setActiveSeg]         = useState('all')
 
-  const sectorOptions = filterCity ? (CITY_SECTORS[filterCity] || []) : []
+  const sectorOptions = CITY_SECTORS[filterCity] || []
   const formSectors   = CITY_SECTORS[form.city] || []
 
   // ── Dedup check — only active when adding (not editing) ───────────────────
   const mobileCheck = useDonorMobileCheck(modal && !editing ? form.mobile : '')
+
+  // Track confirmed existing match persistently (survives alert dismiss)
+  const [confirmedExisting, setConfirmedExisting] = useState(null)
+  useEffect(() => {
+    if (mobileCheck.status === 'found' && mobileCheck.existing) {
+      setConfirmedExisting(mobileCheck.existing)
+    }
+  }, [mobileCheck.status, mobileCheck.existing])
 
   const allSocieties = useMemo(() => [...new Set([
     ...(locations.societies || []).map(s => s.name),
@@ -136,7 +127,7 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
     })
   }, [donors, activeSeg, search, filterCity, filterSector, filterSociety])
 
-  const hasFilters = filterCity || filterSector || filterSociety
+  const hasFilters = filterCity !== 'Gurgaon' || filterSector || filterSociety
 
   const openModal = (donor = null) => {
     setEditing(donor)
@@ -144,9 +135,10 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
       ? { ...EMPTY_FORM, ...donor, donorType: donor.donorType || 'donor' }
       : EMPTY_FORM
     )
+    setConfirmedExisting(null)
     setModal(true)
   }
-  const closeModal = () => { setModal(false); setEditing(null); mobileCheck.reset() }
+  const closeModal = () => { setModal(false); setEditing(null); setConfirmedExisting(null); mobileCheck.reset() }
 
   const setField = (key, val) => {
     setForm(f => {
@@ -155,13 +147,10 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
       if (key === 'sector') { next.society = '' }
       return next
     })
+    if (key === 'mobile') setConfirmedExisting(null)
   }
 
-  // ── Use existing donor (instead of creating duplicate) ────────────────────
-  const handleUseExisting = () => {
-    closeModal()
-    // Optionally: scroll to existing donor or show toast
-  }
+  const handleUseExisting = () => { mobileCheck.reset() }
 
   const save = async () => {
     if (!form.name.trim() || !form.mobile.trim()) return
@@ -169,7 +158,22 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
     try {
       const data = { ...form }
       if (!editing) data.donorType = 'donor'
-      editing ? await updateDonor(editing.id, data) : await addDonor(data)
+
+      if (editing) {
+        await updateDonor(editing.id, data)
+      } else if (confirmedExisting) {
+        const mergedDonorType =
+          confirmedExisting.donorType === 'supporter' ? 'both'
+          : confirmedExisting.donorType === 'both'     ? 'both'
+          : 'donor'
+        await updateDonor(confirmedExisting.id, {
+          ...confirmedExisting,
+          ...data,
+          donorType: mergedDonorType,
+        })
+      } else {
+        await addDonor(data)
+      }
       closeModal()
     } finally { setSaving(false) }
   }
@@ -179,31 +183,83 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
     deleteDonor(id)
   }
 
-  const getAdvisory = (seg) => ({
-    'Pickup Due': { text: 'Schedule a pickup soon',   bg: 'var(--info-bg)',    color: 'var(--info)' },
-    'At Risk':    { text: 'Overdue — reach out now',  bg: 'var(--warning-bg)', color: '#92400E' },
-    'Churned':    { text: 'Urgent follow-up needed',  bg: 'var(--danger-bg)',  color: 'var(--danger)' },
-  }[seg] || null)
+  // TODO: replace `true` with your actual role check, e.g. user?.role === 'admin'
+  const canExport = true
+
+  const exportToExcel = () => {
+    // '05-May-2026' format — plain text so Excel never shows #######
+    const fmtExcelDate = dateStr => {
+      if (!dateStr) return ''
+      const dt = new Date(dateStr)
+      if (isNaN(dt)) return ''
+      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+      return String(dt.getDate()).padStart(2,'0') + '-' + months[dt.getMonth()] + '-' + dt.getFullYear()
+    }
+
+    const headers = ['ID', 'Name', 'Mobile', 'Type', 'House/Flat', 'Society', 'Sector', 'City', 'Status', 'RST Donated', 'Last Pickup', 'Notes']
+    const rows = filtered.map(d => {
+      const rst = donorRSTAmount(d, pickupRSTByDonor[d.id])
+      return [
+        d.id ?? '',
+        d.name ?? '',
+        d.mobile ?? '',
+        d.donorType ?? '',
+        d.house ?? '',
+        d.society ?? '',
+        d.sector ?? '',
+        d.city ?? '',
+        getSegment(d),
+        rst,
+        fmtExcelDate(d.lastPickup),
+        d.notes ?? '',
+      ]
+    })
+
+    const escape = v => {
+      const s = String(v ?? '')
+      return s.includes(',') || s.includes('"') || s.includes('\n')
+        ? `"${s.replace(/"/g, '""')}"`
+        : s
+    }
+
+    const csv = [headers, ...rows].map(r => r.map(escape).join(',')).join('\r\n')
+    const bom = '\uFEFF' // UTF-8 BOM so Excel renders non-ASCII correctly
+    const blob = new Blob([bom + csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `donors_${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const activeSegCfg = activeSeg !== 'all' ? SEGMENTS.find(s => s.id === activeSeg) : null
 
   return (
     <div className="page-body">
 
-      {/* ── Segment KPI cards ── */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))', gap:12, marginBottom:20 }}>
-        {SEGMENTS.filter(s => s.id !== 'all').map(seg => {
-          const Icon = seg.icon; const count = segCounts[seg.id] || 0; const isActive = activeSeg === seg.id
-          return (
-            <button key={seg.id} onClick={() => setActiveSeg(isActive ? 'all' : seg.id)}
-              style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', padding:'14px 16px', borderRadius:'var(--radius)', border:`2px solid ${isActive ? seg.borderColor : 'var(--border-light)'}`, background: isActive ? seg.bg : 'var(--surface)', cursor:'pointer', transition:'all 0.15s', textAlign:'left', boxShadow: isActive ? `0 0 0 3px ${seg.borderColor}22` : 'var(--shadow)' }}>
-              <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:8 }}>
-                {Icon && <Icon size={14} color={isActive ? seg.color : 'var(--text-muted)'} />}
-                <span style={{ fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em', color: isActive ? seg.color : 'var(--text-muted)' }}>{seg.label}</span>
-              </div>
-              <div style={{ fontFamily:'var(--font-display)', fontSize:26, fontWeight:700, color: isActive ? seg.color : 'var(--text-primary)', lineHeight:1, marginBottom:4 }}>{count}</div>
-              {seg.description && <div style={{ fontSize:10.5, color:'var(--text-muted)', lineHeight:1.4 }}>{seg.description}</div>}
-            </button>
-          )
-        })}
+      {/* ── Segment KPI strip ── */}
+      <div style={{ marginBottom:16, padding:'10px 14px', background:'var(--surface)', borderRadius:10, border:'1px solid var(--border-light)', boxShadow:'var(--shadow)' }}>
+        <div style={{ display:'flex', gap:0, borderRadius:8, overflow:'hidden', border:'1px solid var(--border-light)' }}>
+          {/* All cell */}
+          <button onClick={() => setActiveSeg('all')} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', padding:'10px 8px', border:'none', cursor:'pointer', background: activeSeg==='all' ? 'var(--primary-light)' : 'var(--surface)', transition:'all 0.15s', outline: activeSeg==='all' ? '2px solid var(--primary)' : 'none', outlineOffset:-2 }}>
+            <Search size={14} color={activeSeg==='all'?'var(--primary)':'var(--text-muted)'} style={{ marginBottom:4 }} />
+            <div style={{ fontFamily:'var(--font-display)', fontSize:18, fontWeight:800, color:activeSeg==='all'?'var(--primary)':'var(--text-primary)', lineHeight:1 }}>{segCounts.all}</div>
+            <div style={{ fontSize:10.5, fontWeight:700, color:activeSeg==='all'?'var(--primary)':'var(--text-muted)', marginTop:2 }}>All</div>
+          </button>
+          {SEGMENTS.filter(s => s.id !== 'all').map(seg => {
+            const Icon = seg.icon; const count = segCounts[seg.id] || 0; const isActive = activeSeg === seg.id
+            return (
+              <button key={seg.id} onClick={() => setActiveSeg(isActive ? 'all' : seg.id)}
+                style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', padding:'10px 8px', border:'none', cursor:'pointer', background: isActive ? seg.bg : 'var(--surface)', borderLeft:'1px solid var(--border-light)', transition:'all 0.15s', outline: isActive ? `2px solid ${seg.color}` : 'none', outlineOffset:-2 }}>
+                {Icon && <Icon size={14} color={isActive?seg.color:'var(--text-muted)'} style={{ marginBottom:4 }} />}
+                <div style={{ fontFamily:'var(--font-display)', fontSize:18, fontWeight:800, color:isActive?seg.color:'var(--text-primary)', lineHeight:1 }}>{count}</div>
+                <div style={{ fontSize:10.5, fontWeight:700, color:isActive?seg.color:'var(--text-muted)', marginTop:2, textAlign:'center', lineHeight:1.3 }}>{seg.label}</div>
+                {seg.description && <div style={{ fontSize:9.5, color:'var(--text-muted)', marginTop:1, textAlign:'center' }}>{seg.description}</div>}
+              </button>
+            )
+          })}
+        </div>
       </div>
 
       {/* ── Supporters link banner ── */}
@@ -225,65 +281,99 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
         <span>👍❤️ Donor + Supporter</span>
       </div>
 
-      {/* ── Search + filter bar ── */}
-      <div style={{ marginBottom: 12 }}>
-        <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'nowrap', marginBottom:8 }}>
-          <div style={{ position:'relative', flex:1, minWidth:0 }}>
-            <Search size={14} style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', color:'var(--text-muted)', pointerEvents:'none' }} />
-            <input placeholder="Search name, mobile, society, ID…" value={search} onChange={e => setSearch(e.target.value)} style={{ paddingLeft:32, fontSize:13, width:'100%' }} />
-          </div>
-          <button className={`btn btn-sm ${showFilters ? 'btn-outline' : 'btn-ghost'}`} onClick={() => setShowFilters(f => !f)} style={{ flexShrink:0, display:'flex', alignItems:'center', gap:4, padding:'6px 10px', fontSize:12 }}>
-            <SlidersHorizontal size={13} />
-            {hasFilters
-              ? <span style={{ background:'var(--primary)', color:'#fff', borderRadius:'50%', width:16, height:16, fontSize:10, display:'flex', alignItems:'center', justifyContent:'center', marginLeft:2 }}>{[filterCity,filterSector,filterSociety].filter(Boolean).length}</span>
-              : 'Filter'}
-          </button>
-          <button className="btn btn-primary btn-sm" onClick={() => openModal()} style={{ flexShrink:0, padding:'6px 10px', fontSize:12 }}>
-            <Plus size={13} /> Add
-          </button>
+      {/* ── Search + filters + actions — single row ── */}
+      <div style={{ display:'flex', gap:6, alignItems:'center', flexWrap:'wrap', marginBottom:12 }}>
+
+        {/* Search */}
+        <div style={{ position:'relative', flex:'2 1 180px', minWidth:0 }}>
+          <Search size={13} style={{ position:'absolute', left:9, top:'50%', transform:'translateY(-50%)', color:'var(--text-muted)', pointerEvents:'none' }} />
+          <input
+            placeholder="Search name, mobile, society, ID…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ paddingLeft:28, fontSize:12.5, width:'100%', height:34 }}
+          />
         </div>
 
-        {showFilters && (
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(145px,1fr))', gap:8, background:'var(--bg)', borderRadius:10, padding:10, border:'1px solid var(--border-light)' }}>
-            <select value={filterCity} onChange={e => { setFilterCity(e.target.value); setFilterSector('') }} style={{ fontSize:12 }}>
-              <option value="">All Cities</option>
-              {CITIES.map(c => <option key={c}>{c}</option>)}
-            </select>
-            <select value={filterSector} onChange={e => setFilterSector(e.target.value)} disabled={!filterCity} style={{ fontSize:12 }}>
-              <option value="">{filterCity ? 'All Sectors' : 'City First'}</option>
-              {sectorOptions.map(s => <option key={s}>{s}</option>)}
-            </select>
-            <select value={filterSociety} onChange={e => setFilterSociety(e.target.value)} style={{ fontSize:12 }}>
-              <option value="">All Societies</option>
-              {allSocieties.map(s => <option key={s}>{s}</option>)}
-            </select>
-            {hasFilters && (
-              <button className="btn btn-ghost btn-sm" style={{ fontSize:11, height:34 }} onClick={() => { setFilterCity(''); setFilterSector(''); setFilterSociety('') }}>
-                <X size={11} /> Clear All
-              </button>
-            )}
-          </div>
+        {/* City */}
+        <select
+          value={filterCity}
+          onChange={e => { setFilterCity(e.target.value); setFilterSector('') }}
+          style={{ flex:'1 1 110px', fontSize:12, height:34, minWidth:0 }}
+        >
+          {CITIES.map(c => <option key={c}>{c}</option>)}
+        </select>
+
+        {/* Sector */}
+        <select
+          value={filterSector}
+          onChange={e => setFilterSector(e.target.value)}
+          style={{ flex:'1 1 110px', fontSize:12, height:34, minWidth:0 }}
+        >
+          <option value="">All Sectors</option>
+          {sectorOptions.map(s => <option key={s}>{s}</option>)}
+        </select>
+
+        {/* Society */}
+        <select
+          value={filterSociety}
+          onChange={e => setFilterSociety(e.target.value)}
+          style={{ flex:'1 1 120px', fontSize:12, height:34, minWidth:0 }}
+        >
+          <option value="">All Societies</option>
+          {allSocieties.map(s => <option key={s}>{s}</option>)}
+        </select>
+
+        {/* Clear filters */}
+        {hasFilters && (
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => { setFilterCity('Gurgaon'); setFilterSector(''); setFilterSociety('') }}
+            style={{ flexShrink:0, fontSize:11, height:34, display:'flex', alignItems:'center', gap:3, padding:'0 8px' }}
+            title="Reset filters"
+          >
+            <X size={11} /> Clear
+          </button>
+        )}
+
+        {/* Add */}
+        <button
+          className="btn btn-primary btn-sm"
+          onClick={() => openModal()}
+          style={{ flexShrink:0, height:34, fontSize:12, display:'flex', alignItems:'center', gap:4, padding:'0 12px' }}
+        >
+          <Plus size={13} /> Add
+        </button>
+
+        {/* Export (admin / manager only) */}
+        {canExport && (
+          <button
+            className="btn btn-outline btn-sm"
+            onClick={exportToExcel}
+            style={{ flexShrink:0, height:34, fontSize:12, display:'flex', alignItems:'center', gap:4, padding:'0 10px' }}
+            title="Export to Excel"
+          >
+            <Download size={13} /> Export
+          </button>
         )}
       </div>
 
-      {/* ── Active segment banner ── */}
-      {activeSeg !== 'all' && (() => {
-        const seg = SEGMENTS.find(s => s.id === activeSeg); const Icon = seg?.icon
-        return seg ? (
-          <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:14, padding:'10px 16px', borderRadius:10, background:seg.bg, border:`1px solid ${seg.borderColor}33` }}>
-            {Icon && <Icon size={15} color={seg.color} />}
-            <span style={{ fontSize:13, fontWeight:700, color:seg.color }}>{seg.label}</span>
-            {seg.description && <span style={{ fontSize:12.5, color:seg.color, opacity:0.8 }}>— {seg.description}</span>}
-            <button onClick={() => setActiveSeg('all')} style={{ marginLeft:'auto', background:'none', border:'none', cursor:'pointer', color:seg.color, display:'flex', padding:2 }}><X size={14} /></button>
-          </div>
-        ) : null
-      })()}
+      {/* ── Active segment filter pill ── */}
+      {activeSegCfg && (
+        <div style={{ marginBottom:14, display:'flex', alignItems:'center', gap:10, padding:'9px 14px', borderRadius:10, background:activeSegCfg.bg, border:`1px solid ${activeSegCfg.color}33` }}>
+          {activeSegCfg.icon && <activeSegCfg.icon size={14} color={activeSegCfg.color} />}
+          <span style={{ fontSize:13, fontWeight:700, color:activeSegCfg.color }}>{activeSegCfg.label}</span>
+          {activeSegCfg.description && <span style={{ fontSize:12.5, color:activeSegCfg.color, opacity:0.8 }}>— {activeSegCfg.description}</span>}
+          <span style={{ fontSize:12.5, color:activeSegCfg.color, opacity:0.8 }}>· {segCounts[activeSeg]||0} donor{(segCounts[activeSeg]||0)!==1?'s':''}</span>
+          <button onClick={() => setActiveSeg('all')} style={{ marginLeft:'auto', background:'none', border:'none', cursor:'pointer', color:activeSegCfg.color, display:'flex', padding:2 }}><X size={14} /></button>
+        </div>
+      )}
 
       <div style={{ fontSize:12, color:'var(--text-muted)', margin:'0 0 12px' }}>
         Showing <strong>{filtered.length}</strong> of <strong>{actualDonors.length}</strong> donors
       </div>
 
-      {/* ── Donor cards ── */}
+      {/* ── Empty state ── */}
       {filtered.length === 0 ? (
         <div className="empty-state">
           <div className="empty-icon"><Search size={24} /></div>
@@ -291,69 +381,182 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
           <p>Try adjusting your search or filters.</p>
         </div>
       ) : (
-        <div style={{ display:'grid', gap:10 }}>
-          {filtered.map(d => {
-            const seg = getSegment(d); const advisory = getAdvisory(seg)
-            const segDef = SEGMENTS.find(s => s.id === seg)
-            const overdue = d.nextPickup && new Date(d.nextPickup) < new Date() && d.status === 'Active'
-            const days = daysSince(d.lastPickup)
-            return (
-              <div key={d.id} className="card" style={{ borderLeft:`3px solid ${segDef?.borderColor || 'var(--border-light)'}` }}>
-                <div style={{ display:'flex', alignItems:'flex-start', gap:12, padding:'12px 14px' }}>
-                  <div style={{ width:40, height:40, borderRadius:10, flexShrink:0, background:segDef?.bg || 'var(--primary-light)', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'var(--font-display)', fontSize:17, fontWeight:700, color:segDef?.color || 'var(--primary)' }}>
-                    {d.name[0]}
+        <>
+          {/* ── Desktop table ── */}
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Name</th>
+                  <th>Type</th>
+                  <th>Mobile</th>
+                  <th>Status</th>
+                  <th>RST Donated</th>
+                  <th>Last Pickup</th>
+                  <th>Location</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map(d => {
+                  const seg     = getSegment(d)
+                  const segDef  = SEGMENTS.find(s => s.id === seg)
+                  const days    = daysSince(d.lastPickup)
+                  const overdue = d.nextPickup && new Date(d.nextPickup) < new Date() && d.status === 'Active'
+                  const rst     = donorRSTAmount(d, pickupRSTByDonor[d.id])
+                  return (
+                    <tr key={d.id} style={{ borderLeft:`3px solid ${segDef?.borderColor || 'var(--border-light)'}` }}>
+                      {/* ID */}
+                      <td>
+                        <span style={{ fontFamily:'monospace', fontSize:11, fontWeight:800, color:'white', background:'var(--primary)', padding:'2px 8px', borderRadius:5 }}>
+                          {d.id}
+                        </span>
+                      </td>
+
+                      {/* Name */}
+                      <td>
+                        <div style={{ fontWeight:700, fontSize:13 }}>{d.name}</div>
+                        {d.status === 'Lost' && d.lostReason && (
+                          <div style={{ fontSize:11, color:'var(--danger)', display:'flex', alignItems:'center', gap:3, marginTop:2 }}>
+                            <AlertTriangle size={9} /> Lost: {d.lostReason}
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Type */}
+                      <td><CategoryBadge donorType={d.donorType} /></td>
+
+                      {/* Mobile */}
+                      <td style={{ fontFamily:'monospace', fontSize:12.5 }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+                          <Phone size={10} color="var(--text-muted)" />{d.mobile || '—'}
+                        </div>
+                      </td>
+
+                      {/* Status */}
+                      <td>
+                        <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                          <SegmentChip segId={seg} />
+                          {days !== null ? (
+                            <span style={{ fontSize:11, color: days<=30?'var(--secondary)':days<=45?'var(--info)':days<=60?'var(--warning)':'var(--danger)', fontWeight:600, display:'flex', alignItems:'center', gap:3 }}>
+                              <Clock size={9} />{days}d ago
+                            </span>
+                          ) : (
+                            <span style={{ fontSize:11, color:'var(--text-muted)' }}>No pickup yet</span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* RST Donated */}
+                      <td>
+                        <span style={{ fontWeight:700, fontSize:12.5, color:'var(--secondary)' }}>
+                          {fmtCurrency(rst)}
+                        </span>
+                      </td>
+
+                      {/* Last Pickup */}
+                      <td style={{ whiteSpace:'nowrap' }}>
+                        {d.lastPickup
+                          ? <div style={{ fontSize:12.5, fontWeight:600 }}>{fmtDate(d.lastPickup)}</div>
+                          : <span style={{ color:'var(--text-muted)', fontSize:12 }}>—</span>}
+                      </td>
+
+                      {/* Location */}
+
+                      <td>
+                        <div style={{ fontSize:12.5 }}>
+                          {d.house && <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:1 }}>{d.house}</div>}
+                          {d.society && <div style={{ fontWeight:500 }}>{d.society}</div>}
+                          <div style={{ color:'var(--text-muted)', fontSize:11.5 }}>
+                            {[d.sector, d.city].filter(Boolean).join(', ')}
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Actions */}
+                      <td onClick={e => e.stopPropagation()}>
+                        <div className="td-actions">
+                          <button className="btn btn-ghost btn-icon btn-sm" title="Edit" onClick={() => openModal(d)}><Edit2 size={13} /></button>
+                          <button className="btn btn-danger btn-icon btn-sm" title="Delete" onClick={() => remove(d.id)}><Trash2 size={13} /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* ── Mobile cards ── */}
+          <div className="mobile-cards">
+            {filtered.map(d => {
+              const seg    = getSegment(d)
+              const segDef = SEGMENTS.find(s => s.id === seg)
+              const days   = daysSince(d.lastPickup)
+              const overdue = d.nextPickup && new Date(d.nextPickup) < new Date() && d.status === 'Active'
+              const rst    = donorRSTAmount(d, pickupRSTByDonor[d.id])
+              return (
+                <div key={d.id} className="card" style={{ marginBottom:10, padding:14, borderLeft:`3px solid ${segDef?.borderColor || 'var(--border-light)'}` }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8 }}>
+                    <div>
+                      <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:4, flexWrap:'wrap' }}>
+                        <span style={{ fontFamily:'monospace', fontSize:11, fontWeight:800, color:'white', background:'var(--primary)', padding:'1px 7px', borderRadius:4 }}>{d.id}</span>
+                        <CategoryBadge donorType={d.donorType} />
+                        <div style={{ fontWeight:700, fontSize:14 }}>{d.name}</div>
+                      </div>
+                      {d.mobile && (
+                        <div style={{ fontSize:12, color:'var(--text-muted)', display:'flex', alignItems:'center', gap:4 }}>
+                          <Phone size={10} /> {d.mobile}
+                        </div>
+                      )}
+                    </div>
+                    <SegmentChip segId={seg} />
                   </div>
-                  <div style={{ flex:'1 1 0', minWidth:0 }}>
-                    <div style={{ display:'flex', alignItems:'center', gap:7, flexWrap:'wrap', marginBottom:4 }}>
-                      <DonorIdBadge id={d.id} />
-                      <div style={{ fontWeight:700, fontSize:15, color:'var(--text-primary)' }}>{d.name}</div>
-                      <CategoryBadge donorType={d.donorType} />
-                      <SegmentChip segId={seg} />
-                      <DaysSinceBadge lastPickup={d.lastPickup} />
+
+                  {/* Stats row */}
+                  <div style={{ display:'flex', gap:12, marginBottom:6, flexWrap:'wrap' }}>
+                    <div style={{ fontSize:12 }}>
+                      <span style={{ color:'var(--text-muted)' }}>RST: </span>
+                      <span style={{ fontWeight:700, color:'var(--secondary)' }}>{fmtCurrency(rst)}</span>
                     </div>
-                    <div style={{ fontSize:11.5, color:'var(--text-muted)', display:'flex', alignItems:'center', gap:4, marginTop:2 }}>
-                      <Phone size={10} style={{ flexShrink:0 }} /> {d.mobile}
+                    <div style={{ fontSize:12 }}>
+                      <span style={{ color:'var(--text-muted)' }}>Last: </span>
+                      <span style={{ fontWeight:600 }}>{d.lastPickup ? fmtDate(d.lastPickup) : '—'}</span>
                     </div>
-                    <div style={{ fontSize:11.5, color:'var(--text-muted)', display:'flex', alignItems:'center', gap:4, marginTop:1 }} className="truncate">
-                      <MapPin size={10} style={{ flexShrink:0 }} />
-                      <span className="truncate">{d.society}{d.sector && `, ${d.sector}`}, {d.city}</span>
-                    </div>
+                    {days !== null && (
+                      <span style={{ fontSize:11, color: days<=30?'var(--secondary)':days<=45?'var(--info)':days<=60?'var(--warning)':'var(--danger)', fontWeight:600, display:'flex', alignItems:'center', gap:3 }}>
+                        <Clock size={9} />{days}d ago
+                      </span>
+                    )}
                   </div>
-                  <div style={{ display:'flex', gap:4, flexShrink:0 }}>
-                    <button className="btn btn-ghost btn-icon btn-sm" title="Edit" onClick={() => openModal(d)}><Edit2 size={13} /></button>
-                    <button className="btn btn-danger btn-icon btn-sm" title="Delete" onClick={() => remove(d.id)}><Trash2 size={13} /></button>
+
+                  {(d.society || d.sector || d.city || d.house) && (
+                    <div style={{ fontSize:12, color:'var(--text-secondary)', marginBottom:6, display:'flex', alignItems:'center', gap:4 }}>
+                      <MapPin size={10} /> {[d.house, d.society, d.sector, d.city].filter(Boolean).join(', ')}
+                    </div>
+                  )}
+
+                  {d.status === 'Lost' && d.lostReason && (
+                    <div style={{ fontSize:11.5, color:'var(--danger)', background:'var(--danger-bg)', padding:'3px 8px', borderRadius:5, marginBottom:6, display:'flex', alignItems:'center', gap:4 }}>
+                      <AlertTriangle size={9} /> Lost: {d.lostReason}
+                    </div>
+                  )}
+
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:8 }}>
+                    <div style={{ fontSize:12, color: overdue?'var(--danger)':'var(--text-muted)', fontWeight: overdue?600:400 }}>
+                      {d.status === 'Lost' ? '' : overdue ? `⚠ Next: ${fmtDate(d.nextPickup)}` : `Next: ${fmtDate(d.nextPickup) || '—'}`}
+                    </div>
+                    <div style={{ display:'flex', gap:6 }}>
+                      <button className="btn btn-ghost btn-icon btn-sm" onClick={() => openModal(d)}><Edit2 size={12} /></button>
+                      <button className="btn btn-danger btn-icon btn-sm" onClick={() => remove(d.id)}><Trash2 size={12} /></button>
+                    </div>
                   </div>
                 </div>
-
-                <div style={{ display:'flex', gap:0, borderTop:'1px solid var(--border-light)', background:'var(--bg)' }}>
-                  {[
-                    { label:'RST Donated', value:<span style={{ fontWeight:700, fontSize:12, color:'var(--secondary)' }}>{fmtCurrency(donorRSTAmount(d, pickupRSTByDonor[d.id]))}</span> },
-                    { label:'Last Pickup', value:<span style={{ fontWeight:600, fontSize:11.5 }}>{d.lastPickup ? fmtDate(d.lastPickup) : '—'}</span> },
-                    { label: overdue ? '⚠ Overdue' : 'Next Pickup', value:<span style={{ fontWeight:600, fontSize:11.5, color: overdue ? 'var(--danger)' : 'inherit' }}>{d.status === 'Lost' ? '—' : fmtDate(d.nextPickup)}</span> },
-                  ].map((item, i) => (
-                    <div key={i} style={{ flex:1, padding:'8px 4px', textAlign:'center', borderRight: i < 2 ? '1px solid var(--border-light)' : 'none', minWidth:0 }}>
-                      <div style={{ marginBottom:2 }}>{item.value}</div>
-                      <div style={{ fontSize:9.5, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.03em' }} className="truncate">{item.label}</div>
-                    </div>
-                  ))}
-                </div>
-
-                {advisory && d.status === 'Active' && (
-                  <div style={{ padding:'6px 14px', fontSize:11.5, background:advisory.bg, color:advisory.color, display:'flex', alignItems:'center', gap:6 }}>
-                    <Clock size={11} />
-                    {days !== null ? `${days} days since last pickup — ` : ''}{advisory.text}
-                  </div>
-                )}
-                {d.status === 'Lost' && d.lostReason && (
-                  <div style={{ padding:'6px 14px', background:'var(--danger-bg)', fontSize:11.5, color:'var(--danger)' }}>
-                    <AlertTriangle size={11} style={{ verticalAlign:'middle', marginRight:5 }} />
-                    Lost: <strong>{d.lostReason}</strong>
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
+              )
+            })}
+          </div>
+        </>
       )}
 
       {/* ── Add / Edit Modal ── */}
@@ -376,9 +579,21 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
               {!editing && mobileCheck.status === 'found' && mobileCheck.existing && (
                 <DonorDuplicateAlert
                   donor={mobileCheck.existing}
+                  context="adding-donor"
                   onUseExisting={handleUseExisting}
                   onDismiss={mobileCheck.reset}
                 />
+              )}
+
+              {/* ── Merge confirmation ── */}
+              {!editing && confirmedExisting && mobileCheck.status !== 'found' && (
+                <div style={{ marginBottom: 12, padding: '10px 14px', borderRadius: 8, background: confirmedExisting.donorType === 'supporter' ? 'var(--secondary-light)' : 'var(--warning-bg)', border: `1px solid ${confirmedExisting.donorType === 'supporter' ? 'rgba(27,94,53,0.2)' : 'rgba(245,158,11,0.3)'}`, fontSize: 12.5, color: confirmedExisting.donorType === 'supporter' ? 'var(--secondary)' : '#92400E', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 16 }}>
+                    {confirmedExisting.donorType === 'supporter' ? '👍❤️' : confirmedExisting.donorType === 'both' ? '👍❤️' : '👍'}
+                  </span>
+                  Saving will merge <strong>{confirmedExisting.name}</strong> ({confirmedExisting.id}) into a combined{' '}
+                  {confirmedExisting.donorType === 'supporter' ? 'Donor + Supporter' : 'Donor'} profile.
+                </div>
               )}
 
               <div className="form-grid">
@@ -387,7 +602,6 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
                   <input value={form.name} onChange={e => setField('name', e.target.value)} placeholder="Donor full name" autoFocus />
                 </div>
 
-                {/* Mobile with status indicator */}
                 <div className="form-group">
                   <label>Mobile Number <span className="required">*</span></label>
                   <div style={{ position: 'relative' }}>
@@ -462,7 +676,7 @@ export default function Donors({ triggerAddDonor, onAddDonorDone, onNav }) {
                   (!editing && mobileCheck.status === 'checking')
                 }
               >
-                {saving ? 'Saving…' : editing ? 'Save Changes' : 'Add Donor'}
+                {saving ? 'Saving…' : editing ? 'Save Changes' : confirmedExisting ? '👍❤️ Merge & Add Donor' : 'Add Donor'}
               </button>
             </div>
           </div>

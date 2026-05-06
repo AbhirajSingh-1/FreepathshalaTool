@@ -314,55 +314,27 @@ export function AppProvider({ children }) {
     }
   }, [refreshCoreData]);
 
+  // ── Data-sync effect ─────────────────────────────────────────────────────
+  // IMPORTANT: this effect intentionally depends ONLY on *.data references.
+  // Do NOT add isFetching / isLoading here.  Those flags change when a
+  // background refetch starts (e.g. after invalidateQueries), but at that
+  // moment *.data still holds the previous server snapshot.  If isFetching
+  // were in the deps array the effect would fire and overwrite the optimistic
+  // local-state update that mutations apply via setDonors / setPickups / etc.,
+  // making the Donors and Supporters pages appear to revert until the network
+  // response eventually arrives.  Keeping data-sync and loading-state tracking
+  // in separate effects eliminates that race condition entirely.
   useEffect(() => {
-    const donorsData = donorsQuery?.data;
-    const pickupsData = pickupsQuery?.data;
-    const partnersData = partnersQuery?.data;
-    const inflowsData = inflowsQuery?.data;
-    const outflowsData = outflowsQuery?.data;
-    const stockData = stockQuery?.data;
-    const master = masterQuery?.data;
-    const locationTree = locationsQuery?.data;
-    const dashboardData = dashboardQuery?.data;
-    const schedulerSummary = schedulerQuery?.data;
-
-    if (donorsData) setDonors(donorsData);
-    if (pickupsData) setPickups(pickupsData);
-    if (partnersData) setPickupPartners(partnersData);
-    if (inflowsData) setSksInflows(inflowsData);
-    if (outflowsData) setSksOutflows(outflowsData);
-    if (stockData) setSksStock(stockData);
-    if (master) setMasterData({ ...EMPTY_MASTER, ...master });
-    if (locationTree) setLocations({ ...EMPTY_LOCATIONS, ...locationTree });
-    if (dashboardData) setDashboardPayload({ ...EMPTY_DASHBOARD_PAYLOAD, ...dashboardData });
-    if (schedulerSummary) setSchedulerTabData(schedulerSummary);
-
-    const hasLoading = [
-      donorsQuery,
-      pickupsQuery,
-      partnersQuery,
-      inflowsQuery,
-      outflowsQuery,
-      stockQuery,
-      masterQuery,
-      locationsQuery,
-      dashboardQuery,
-      schedulerQuery,
-    ].some(query => query?.isLoading || query?.isFetching);
-    const firstError = [
-      donorsQuery,
-      pickupsQuery,
-      partnersQuery,
-      inflowsQuery,
-      outflowsQuery,
-      stockQuery,
-      masterQuery,
-      locationsQuery,
-      dashboardQuery,
-      schedulerQuery,
-    ].find(query => query?.error)?.error;
-    setLoading(hasLoading);
-    if (firstError) setError(firstError.message || "Unable to load data");
+    if (donorsQuery?.data)    setDonors(donorsQuery.data);
+    if (pickupsQuery?.data)   setPickups(pickupsQuery.data);
+    if (partnersQuery?.data)  setPickupPartners(partnersQuery.data);
+    if (inflowsQuery?.data)   setSksInflows(inflowsQuery.data);
+    if (outflowsQuery?.data)  setSksOutflows(outflowsQuery.data);
+    if (stockQuery?.data)     setSksStock(stockQuery.data);
+    if (masterQuery?.data)    setMasterData({ ...EMPTY_MASTER, ...masterQuery.data });
+    if (locationsQuery?.data) setLocations({ ...EMPTY_LOCATIONS, ...locationsQuery.data });
+    if (dashboardQuery?.data) setDashboardPayload({ ...EMPTY_DASHBOARD_PAYLOAD, ...dashboardQuery.data });
+    if (schedulerQuery?.data) setSchedulerTabData(schedulerQuery.data);
   }, [
     donorsQuery?.data,
     pickupsQuery?.data,
@@ -374,36 +346,32 @@ export function AppProvider({ children }) {
     locationsQuery?.data,
     dashboardQuery?.data,
     schedulerQuery?.data,
-    donorsQuery?.isLoading,
-    pickupsQuery?.isLoading,
-    partnersQuery?.isLoading,
-    inflowsQuery?.isLoading,
-    outflowsQuery?.isLoading,
-    stockQuery?.isLoading,
-    masterQuery?.isLoading,
-    locationsQuery?.isLoading,
-    dashboardQuery?.isLoading,
-    schedulerQuery?.isLoading,
-    donorsQuery?.isFetching,
-    pickupsQuery?.isFetching,
-    partnersQuery?.isFetching,
-    inflowsQuery?.isFetching,
-    outflowsQuery?.isFetching,
-    stockQuery?.isFetching,
-    masterQuery?.isFetching,
-    locationsQuery?.isFetching,
-    dashboardQuery?.isFetching,
-    schedulerQuery?.isFetching,
-    donorsQuery?.error,
-    pickupsQuery?.error,
-    partnersQuery?.error,
-    inflowsQuery?.error,
-    outflowsQuery?.error,
-    stockQuery?.error,
-    masterQuery?.error,
-    locationsQuery?.error,
-    dashboardQuery?.error,
-    schedulerQuery?.error,
+  ]);
+
+  // ── Loading / error tracking effect ──────────────────────────────────────
+  // Separated from the data-sync effect so that isFetching / isLoading
+  // transitions never trigger a data overwrite (see comment above).
+  useEffect(() => {
+    const allQueries = [
+      donorsQuery, pickupsQuery, partnersQuery,
+      inflowsQuery, outflowsQuery, stockQuery,
+      masterQuery, locationsQuery, dashboardQuery, schedulerQuery,
+    ];
+    const hasLoading = allQueries.some(q => q?.isLoading || q?.isFetching);
+    const firstError = allQueries.find(q => q?.error)?.error;
+    setLoading(hasLoading);
+    if (firstError) setError(firstError.message || "Unable to load data");
+  }, [
+    donorsQuery?.isLoading,    donorsQuery?.isFetching,    donorsQuery?.error,
+    pickupsQuery?.isLoading,   pickupsQuery?.isFetching,   pickupsQuery?.error,
+    partnersQuery?.isLoading,  partnersQuery?.isFetching,  partnersQuery?.error,
+    inflowsQuery?.isLoading,   inflowsQuery?.isFetching,   inflowsQuery?.error,
+    outflowsQuery?.isLoading,  outflowsQuery?.isFetching,  outflowsQuery?.error,
+    stockQuery?.isLoading,     stockQuery?.isFetching,     stockQuery?.error,
+    masterQuery?.isLoading,    masterQuery?.isFetching,    masterQuery?.error,
+    locationsQuery?.isLoading, locationsQuery?.isFetching, locationsQuery?.error,
+    dashboardQuery?.isLoading, dashboardQuery?.isFetching, dashboardQuery?.error,
+    schedulerQuery?.isLoading, schedulerQuery?.isFetching, schedulerQuery?.error,
   ]);
 
   useEffect(() => () => {
@@ -491,34 +459,54 @@ export function AppProvider({ children }) {
     [queryClient]
   );
 
+  // ── Donor query-cache sync ────────────────────────────────────────────────
+  // Immediately writes a local change into every cached donors query so that
+  // when invalidateQueries triggers a background refetch (and isFetching
+  // flips to true), the data-sync useEffect reads the already-correct value
+  // rather than the pre-mutation snapshot.  Without this step the split
+  // useEffect fix alone still leaves a brief window where donorsQuery.data
+  // lags behind the local setDonors() call; belt-and-suspenders approach.
+  const syncDonorQueryCache = useCallback((updater) => {
+    queryClient.setQueriesData({ queryKey: ["donors"] }, (old) => {
+      if (!old || !Array.isArray(old)) return old;
+      return updater(old);
+    });
+  }, [queryClient]);
+
   const addDonor = useCallback(data => runMutation(async () => {
     const created = await api.createDonor(data);
-    setDonors(prev => limitList(upsertById(prev, created), CORE_LIMITS.donors));
+    const localUpdater = prev => limitList(upsertById(prev, created), CORE_LIMITS.donors);
+    setDonors(localUpdater);
+    syncDonorQueryCache(localUpdater);
     queryClient.invalidateQueries({ queryKey: ["donors"] });
     queryClient.invalidateQueries({ queryKey: ["dashboardStats"] });
     queryClient.invalidateQueries({ queryKey: ["schedulerSummary"] });
     refreshLocationsQuietly();
     return created;
-  }), [runMutation, refreshLocationsQuietly, queryClient]);
+  }), [runMutation, refreshLocationsQuietly, syncDonorQueryCache, queryClient]);
 
   const updateDonor = useCallback((id, data) => runMutation(async () => {
     const updated = await api.updateDonor(id, data);
-    setDonors(prev => updateById(prev, id, updated));
+    const localUpdater = prev => updateById(prev, id, updated);
+    setDonors(localUpdater);
+    syncDonorQueryCache(localUpdater);
     queryClient.invalidateQueries({ queryKey: ["donors"] });
     queryClient.invalidateQueries({ queryKey: ["dashboardStats"] });
     queryClient.invalidateQueries({ queryKey: ["schedulerSummary"] });
     refreshLocationsQuietly();
     return updated;
-  }), [runMutation, refreshLocationsQuietly, queryClient]);
+  }), [runMutation, refreshLocationsQuietly, syncDonorQueryCache, queryClient]);
 
   const deleteDonor = useCallback(id => runMutation(async () => {
     const removed = await api.deleteDonor(id);
-    setDonors(prev => removeById(prev, id));
+    const localUpdater = prev => removeById(prev, id);
+    setDonors(localUpdater);
+    syncDonorQueryCache(localUpdater);
     queryClient.invalidateQueries({ queryKey: ["donors"] });
     queryClient.invalidateQueries({ queryKey: ["dashboardStats"] });
     queryClient.invalidateQueries({ queryKey: ["schedulerSummary"] });
     return removed;
-  }), [runMutation, queryClient]);
+  }), [runMutation, syncDonorQueryCache, queryClient]);
 
   const createPickup = useCallback(data => runMutation(async () => {
     const created = await api.createPickup(data);
