@@ -1,11 +1,14 @@
 // Frontend/src/pages/PickupOverview.jsx
 // Admin/Manager: Overview of all pickups — Individual & Drive stats + scheduler tabs
-// FIXED: "This Week" = Monday to Sunday of current week (includes future dates in week)
+// FIXED: Searchable SectorSearchSelect, dependent city→sector→society hierarchy,
+//        city defaults to Gurgaon, scheduler tab defaults to "This Week",
+//        responsive filter bar with proper z-index and alignment.
 import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Truck, Users, AlertTriangle, TrendingUp,
-    X, Calendar, BarChart3, ChevronDown, ChevronUp,
+  X, Calendar, BarChart3, ChevronDown, ChevronUp,
+  MapPin, Filter,
 } from 'lucide-react'
 import { useApp }   from '../context/AppContext'
 import { useRole }  from '../context/RoleContext'
@@ -15,37 +18,48 @@ import SectorSearchSelect from '../components/SectorSearchSelect'
 
 // ── Period helpers ─────────────────────────────────────────────────────────────
 const padM = (n) => String(n).padStart(2, '0')
-const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-
-function getFinancialYear(date = new Date()) {
-  return date.getMonth() + 1 >= 4 ? date.getFullYear() : date.getFullYear() - 1
-}
-
-function getLast5Months() {
-  const now = new Date()
-  return Array.from({ length: 5 }, (_, i) => {
-    const d = new Date(now.getFullYear(), now.getMonth() - (4 - i), 1)
-    return `${d.getFullYear()}-${padM(d.getMonth() + 1)}`
-  })
-}
-
-function getMonthRange(ym) {
-  const [y, m] = ym.split('-').map(Number)
-  const last = new Date(y, m, 0).getDate()
-  return { from: `${ym}-01`, to: `${ym}-${padM(last)}` }
-}
-
-function getFYRange(fyStart) {
-  return { from: `${fyStart}-04-01`, to: `${fyStart + 1}-03-31` }
-}
 
 const fmt = (d) => d.toISOString().slice(0, 10)
+
+function getThisMonthRange() {
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = now.getMonth()
+  const from = new Date(y, m, 1)
+  const to = new Date(y, m + 1, 0)
+  // Keep it aligned with “today” for a tighter range
+  to.setHours(0, 0, 0, 0)
+  return { from: fmt(from), to: fmt(now) }
+}
+
+function getLastMonthRange() {
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = now.getMonth()
+  const lm = m === 0 ? 11 : m - 1
+  const ly = m === 0 ? y - 1 : y
+  const from = new Date(ly, lm, 1)
+  const to = new Date(ly, lm + 1, 0)
+  return { from: fmt(from), to: fmt(to) }
+}
+
+function getLastQuarterRange() {
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = now.getMonth()
+  const curQ = Math.floor(m / 3) // 0..3
+  const lastQ = curQ === 0 ? 3 : curQ - 1
+  const lastQuarterYear = curQ === 0 ? y - 1 : y
+  const fromMonth = lastQ * 3
+  const from = new Date(lastQuarterYear, fromMonth, 1)
+  const to = new Date(lastQuarterYear, fromMonth + 3, 0)
+  return { from: fmt(from), to: fmt(to) }
+}
 
 // ── FIXED: This Week = Monday–Sunday of current week ──────────────────────────
 function getThisWeekRange() {
   const now = new Date()
-  const day = now.getDay() // 0 = Sun, 1 = Mon, ...6 = Sat
-  // Days since Monday (treat Sunday as day 7)
+  const day = now.getDay() // 0=Sun … 6=Sat
   const daysSinceMon = day === 0 ? 6 : day - 1
   const monday = new Date(now)
   monday.setDate(now.getDate() - daysSinceMon)
@@ -59,10 +73,13 @@ function getPresetRange(p) {
   if (p === 'today')     return { from: fmt(n), to: fmt(n) }
   if (p === 'yesterday') { const d = new Date(n); d.setDate(n.getDate() - 1); return { from: fmt(d), to: fmt(d) } }
   if (p === 'tomorrow')  { const d = new Date(n); d.setDate(n.getDate() + 1); return { from: fmt(d), to: fmt(d) } }
-  if (p === 'week')      return getThisWeekRange()   // FIXED: Mon–Sun including future
+  if (p === 'week')      return getThisWeekRange()
   if (p === 'next7')     { const d = new Date(n); d.setDate(n.getDate() + 7); return { from: fmt(n), to: fmt(d) } }
   return { from: '', to: '' }
 }
+
+// Derive initial "This Week" range for the scheduler default
+const INITIAL_WEEK = getThisWeekRange()
 
 // ── Stats row ─────────────────────────────────────────────────────────────────
 function PickupStatRow({ label, value, sub, color = 'var(--text-primary)' }) {
@@ -77,63 +94,66 @@ function PickupStatRow({ label, value, sub, color = 'var(--text-primary)' }) {
   )
 }
 
-// ── Period Selector ────────────────────────────────────────────────────────────
-function PeriodBar({ dateFrom, dateTo, onRange, last5 }) {
-  const [fyOpen, setFyOpen] = useState(false)
-  const currentFY  = getFinancialYear()
-  const fyOptions  = [currentFY, currentFY - 1, currentFY - 2]
-
-  return (
-    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', padding: '10px 0 6px' }}>
-      {last5.map(ym => {
-        const [y, m] = ym.split('-')
-        const r = getMonthRange(ym)
-        const active = dateFrom === r.from && dateTo === r.to
-        return (
-          <button key={ym} className={`btn btn-sm ${active ? 'btn-primary' : 'btn-ghost'}`}
-            style={{ fontSize: 11.5 }} onClick={() => onRange(r.from, r.to)}>
-            {MONTHS_SHORT[+m - 1]} {y}
-          </button>
-        )
-      })}
-
-      
-
-      <button className={`btn btn-sm ${!dateFrom && !dateTo ? 'btn-primary' : 'btn-ghost'}`}
-        style={{ fontSize: 11.5 }} onClick={() => onRange('', '')}>All Time</button>
-
-      {(dateFrom || dateTo) && (
-        <button className="btn btn-ghost btn-sm" onClick={() => onRange('', '')} style={{ color: 'var(--danger)', fontSize: 11.5 }}>
-          <X size={11} /> Clear
-        </button>
-      )}
-    </div>
-  )
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 export default function PickupOverview() {
   const navigate = useNavigate()
-  const { pickups, schedulerTabData, CITIES, CITY_SECTORS } = useApp()
+  const { pickups, schedulerTabData, CITIES, CITY_SECTORS, locations, upsertLocation } = useApp()
   const { role } = useRole()
 
-  const last5 = getLast5Months()
-  const defaultFrom = last5[0] + '-01'
-  const defaultTo   = new Date().toISOString().slice(0, 10)
+  const last5 = []   // kept for compat; month presets removed
+  const defaultFrom = ''
+  const defaultTo   = ''
 
+  // ── Section / tab state ────────────────────────────────────────────────────
   const [section,    setSection]   = useState('overview')
   const [activeTab,  setActiveTab] = useState('scheduled')
-  const [dateFrom,   setDateFrom]  = useState(defaultFrom)
-  const [dateTo,     setDateTo]    = useState(defaultTo)
+
+  // ── Overview filters — city defaults to Gurgaon ───────────────────────────
+  // Default overview period = This Month
+  const DEFAULT_MONTH_RANGE = useMemo(() => getThisMonthRange(), [])
+  const [dateFrom,   setDateFrom]  = useState(DEFAULT_MONTH_RANGE.from)
+  const [dateTo,     setDateTo]    = useState(DEFAULT_MONTH_RANGE.to)
+  
+  const [city,       setCity]      = useState('Gurgaon')   // ← default Gurgaon
   const [sector,     setSector]    = useState('')
-  const [city,       setCity]      = useState('Gurgaon')
   const [society,    setSociety]   = useState('')
 
-  // Scheduler sub-filters
-  const [schPreset, setSchPreset] = useState('all')
-  const [schFrom,   setSchFrom]   = useState('')
-  const [schTo,     setSchTo]     = useState('')
+  // ── Scheduler filters — default to "This Week" ────────────────────────────
+  const [schPreset, setSchPreset] = useState('week')        // ← default week
+  const [schFrom,   setSchFrom]   = useState(INITIAL_WEEK.from)
+  const [schTo,     setSchTo]     = useState(INITIAL_WEEK.to)
 
+  // ── Derived location options ───────────────────────────────────────────────
+  // Sectors for selected city
+  const allSectors = useMemo(() => CITY_SECTORS[city] || [], [CITY_SECTORS, city])
+
+  // Societies for selected city + sector
+  const allSocieties = useMemo(() => {
+    if (!city || !sector) return []
+    const fromLocations = locations.sectorSocieties?.[`${city}::${sector}`] || []
+    const fromPickups   = [...new Set(
+      pickups
+        .filter(p => p.city === city && p.sector === sector && p.society)
+        .map(p => p.society)
+    )].sort()
+    // Merge both sources, deduplicate
+    return [...new Set([...fromLocations, ...fromPickups])].sort()
+  }, [city, sector, locations.sectorSocieties, pickups])
+
+  // ── City change — cascade clear sector & society ──────────────────────────
+  const handleCityChange = (val) => {
+    setCity(val)
+    setSector('')
+    setSociety('')
+  }
+
+  // ── Sector change — cascade clear society ─────────────────────────────────
+  const handleSectorChange = (val) => {
+    setSector(val)
+    setSociety('')
+  }
+
+  // ── Scheduler preset handler ───────────────────────────────────────────────
   const applySchPreset = (p) => {
     setSchPreset(p)
     if (p === 'all') { setSchFrom(''); setSchTo('') }
@@ -147,31 +167,24 @@ export default function PickupOverview() {
   const handleRescheduleFromOverdue = (row) => {
     navigate('/pickup-scheduler', {
       state: {
-        pickupId: row.id,
-        donorId: row.donorId,
-        date: row.scheduledDate || '',
-        timeSlot: row.timeSlot || '',
+        pickupId:   row.id,
+        donorId:    row.donorId,
+        date:       row.scheduledDate || '',
+        timeSlot:   row.timeSlot || '',
         pickupMode: row.pickupMode || 'Individual',
-        notes: row.notes || '',
+        notes:      row.notes || '',
       },
     })
   }
 
-  const allSectors = useMemo(() => CITY_SECTORS[city] || [], [CITY_SECTORS, city])
-
-  const allSocieties = useMemo(() => {
-    if (!city) return []
-    const scoped = pickups.filter(p => p.city === city && (!sector || p.sector === sector))
-    return [...new Set(scoped.map(p => p.society).filter(Boolean))].sort()
-  }, [pickups, city, sector])
-
+  // ── Filtered pickups for overview ─────────────────────────────────────────
   const filteredPickups = useMemo(() =>
     pickups.filter(p => {
       const d = p.date || ''
-      const inDate = (!dateFrom || d >= dateFrom) && (!dateTo || d <= dateTo)
-      const inCity = !city || p.city === city
-      const inSec  = !sector || p.sector === sector
-      const inSoc  = !society || p.society === society
+      const inDate   = (!dateFrom || d >= dateFrom) && (!dateTo || d <= dateTo)
+      const inCity   = !city   || p.city   === city
+      const inSec    = !sector || p.sector === sector
+      const inSoc    = !society || p.society === society
       return inDate && inCity && inSec && inSoc
     }),
     [pickups, dateFrom, dateTo, city, sector, society]
@@ -183,8 +196,6 @@ export default function PickupOverview() {
   const completedDrive     = drivePickups.filter(p => p.status === 'Completed')
   const indRevenue         = completedInd.reduce((s, p) => s + (p.totalValue || 0), 0)
   const driveRevenue       = completedDrive.reduce((s, p) => s + (p.totalValue || 0), 0)
-  const pendingInd         = individualPickups.filter(p => p.status === 'Pending').length
-  const pendingDrive       = drivePickups.filter(p => p.status === 'Pending').length
 
   const monthlyStats = useMemo(() => {
     const m = {}
@@ -199,7 +210,7 @@ export default function PickupOverview() {
     return Object.values(m).sort((a, b) => b.month.localeCompare(a.month)).slice(0, 8)
   }, [filteredPickups])
 
-  // Scheduler tab data filtered — THIS WEEK fix applied via getPresetRange
+  // ── Scheduler tab data filtered ───────────────────────────────────────────
   const filteredTabData = useMemo(() => {
     const inRange  = (ds) => { if (!ds) return true; if (schFrom && ds < schFrom) return false; if (schTo && ds > schTo) return false; return true }
     const f        = (rows, dk = 'scheduledDate') => rows.filter(r => inRange(r[dk]))
@@ -211,12 +222,23 @@ export default function PickupOverview() {
     }
   }, [schedulerTabData, schFrom, schTo])
 
+  // ── Period label ──────────────────────────────────────────────────────────
   const periodLabel = useMemo(() => {
     if (!dateFrom && !dateTo) return 'All Time'
     if (dateFrom && dateTo)   return `${fmtDate(dateFrom)} – ${fmtDate(dateTo)}`
     if (dateFrom)             return `From ${fmtDate(dateFrom)}`
     return `Until ${fmtDate(dateTo)}`
   }, [dateFrom, dateTo])
+
+  const hasOverviewFilters = !!(sector || society || (city && city !== 'Gurgaon'))
+
+  const resetOverviewFilters = () => {
+    setDateFrom(defaultFrom)
+    setDateTo(defaultTo)
+    setCity('Gurgaon')
+    setSector('')
+    setSociety('')
+  }
 
   const canViewPickupOverview = role === 'admin' || role === 'manager'
   if (!canViewPickupOverview) {
@@ -233,7 +255,7 @@ export default function PickupOverview() {
 
   return (
     <div className="page-body">
-      {/* Section tabs */}
+      {/* ── Section tabs ── */}
       <div className="tabs" style={{ marginBottom: 20 }}>
         <button className={`tab ${section === 'overview' ? 'active' : ''}`} onClick={() => setSection('overview')}>
           <BarChart3 size={13} style={{ marginRight: 5 }} />Pickup Analytics
@@ -243,88 +265,200 @@ export default function PickupOverview() {
         </button>
       </div>
 
-      {/* ── OVERVIEW SECTION ── */}
+      {/* ══ OVERVIEW SECTION ══════════════════════════════════════════════════ */}
       {section === 'overview' && (
         <>
-          {/* Compact single-row filter bar */}
-          <div style={{ marginBottom: 20, background: 'var(--surface)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow)', padding: '8px 14px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'nowrap', overflowX: 'auto' }}>
-              {/* Period preset buttons */}
-              {last5.map(ym => {
-                const [y, m] = ym.split('-')
-                const r = getMonthRange(ym)
-                const active = dateFrom === r.from && dateTo === r.to
-                return (
-                  <button key={ym} className={`btn btn-sm ${active ? 'btn-primary' : 'btn-ghost'}`}
-                    style={{ fontSize: 11, padding: '3px 8px', whiteSpace: 'nowrap', flexShrink: 0 }}
-                    onClick={() => { setDateFrom(r.from); setDateTo(r.to) }}>
-                    {MONTHS_SHORT[+m - 1]} {y}
-                  </button>
-                )
-              })}
-              <button className={`btn btn-sm ${!dateFrom && !dateTo ? 'btn-primary' : 'btn-ghost'}`}
-                style={{ fontSize: 11, padding: '3px 8px', whiteSpace: 'nowrap', flexShrink: 0 }}
-                onClick={() => { setDateFrom(''); setDateTo('') }}>All</button>
 
-              {/* Divider + push right */}
-              <div style={{ width: 1, height: 18, background: 'var(--border)', flexShrink: 0, marginLeft: 'auto' }} />
 
-              {/* From / To date inputs */}
-              <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-                style={{ width: 125, fontSize: 11.5, height: 28, padding: '2px 6px', flexShrink: 0 }} />
+          {/* ── Compact single-row filter bar ── */}
+          <style>{`
+            .po-filter-bar { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+            .po-filter-bar input[type="date"],
+            .po-filter-bar select { height:32px; padding:0 8px; font-size:12.5px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface); color:var(--text-primary); flex-shrink:0; }
+            .po-filter-bar input[type="date"] { width:128px; }
+            .po-filter-bar .po-city  { width:120px; }
+            .po-filter-bar .po-soc   { width:130px; }
+            .po-sector-wrap { position:relative; z-index:30; flex-shrink:0; width:160px; }
+            .po-divider { width:1px; height:20px; background:var(--border); flex-shrink:0; margin:0 2px; }
+            @media(max-width:900px){
+              .po-filter-bar input[type="date"]{ width:110px; }
+              .po-filter-bar .po-city { width:100px; }
+              .po-sector-wrap { width:130px; }
+              .po-filter-bar .po-soc { width:110px; }
+            }
+            @media(max-width:600px){
+              .po-filter-bar { gap:5px; }
+              .po-filter-bar input[type="date"]{ width:100%; flex:1 1 120px; }
+              .po-filter-bar .po-city,.po-filter-bar .po-soc { width:100%; flex:1 1 100px; }
+              .po-sector-wrap { width:100%; flex:1 1 130px; }
+              .po-divider { display:none; }
+            }
+          `}</style>
+
+          <div style={{
+            marginBottom: 18,
+            background: 'var(--surface)',
+            border: '1px solid var(--border-light)',
+            borderRadius: 'var(--radius)',
+            boxShadow: 'var(--shadow)',
+            padding: '8px 14px',
+          }}>
+            <div className="po-filter-bar">
+
+              {/* Overview date presets */}
+              <button
+                className={`btn btn-sm ${dateFrom === getThisMonthRange().from && dateTo === getThisMonthRange().to ? 'btn-primary' : 'btn-ghost'}`}
+                style={{ height: 32, fontSize: 12, padding: '0 12px', whiteSpace: 'nowrap', flexShrink: 0 }}
+                onClick={() => { const r = getThisMonthRange(); setDateFrom(r.from); setDateTo(r.to) }}
+              >
+                This month
+              </button>
+
+              <button
+                className={`btn btn-sm ${dateFrom === getLastMonthRange().from && dateTo === getLastMonthRange().to ? 'btn-primary' : 'btn-ghost'}`}
+                style={{ height: 32, fontSize: 12, padding: '0 12px', whiteSpace: 'nowrap', flexShrink: 0 }}
+                onClick={() => { const r = getLastMonthRange(); setDateFrom(r.from); setDateTo(r.to) }}
+              >
+                Last Month
+              </button>
+
+              <button
+                className={`btn btn-sm ${dateFrom === getLastQuarterRange().from && dateTo === getLastQuarterRange().to ? 'btn-primary' : 'btn-ghost'}`}
+                style={{ height: 32, fontSize: 12, padding: '0 12px', whiteSpace: 'nowrap', flexShrink: 0 }}
+                onClick={() => { const r = getLastQuarterRange(); setDateFrom(r.from); setDateTo(r.to) }}
+              >
+                Last Quarter
+              </button>
+
+              {/* Date divider */}
+              <div className="po-divider" />
+
+              {/* All Time pill */}
+              <button
+                className={`btn btn-sm ${!dateFrom && !dateTo ? 'btn-primary' : 'btn-ghost'}`}
+                style={{ height: 32, fontSize: 12, padding: '0 12px', whiteSpace: 'nowrap', flexShrink: 0 }}
+                onClick={() => { setDateFrom(''); setDateTo('') }}
+              >
+                All Time
+              </button>
+
+              {/* Date divider */}
+              <div className="po-divider" />
+
+              {/* From date */}
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={e => { setDateFrom(e.target.value) }}
+                title="From date"
+              />
+
+              {/* Separator */}
               <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>–</span>
-              <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-                style={{ width: 125, fontSize: 11.5, height: 28, padding: '2px 6px', flexShrink: 0 }} />
 
-              {/* City -> Sector -> Society searchable hierarchy */}
-              <select value={city} onChange={e => { setCity(e.target.value); setSector(''); setSociety('') }}
-                style={{ fontSize: 11, width: 'auto', minWidth: 0, maxWidth: 120, height: 26, padding: '2px 4px', flexShrink: 0 }}>
+              {/* To date */}
+              <input
+                type="date"
+                value={dateTo}
+                onChange={e => { setDateTo(e.target.value) }}
+                title="To date"
+              />
+
+              {/* Location divider */}
+              <div className="po-divider" />
+
+              {/* City */}
+              <select
+                className="po-city"
+                value={city}
+                onChange={e => handleCityChange(e.target.value)}
+                title="City"
+              >
+                <option value="">All Cities</option>
                 {CITIES.map(c => <option key={c}>{c}</option>)}
               </select>
-              <div style={{ width: 140, flexShrink: 0 }}>
+
+              {/* Sector — searchable, z-indexed above siblings */}
+              <div className="po-sector-wrap">
                 <SectorSearchSelect
                   options={allSectors}
                   value={sector}
-                  onChange={(val) => { setSector(val); setSociety('') }}
+                  onChange={handleSectorChange}
                   disabled={!city}
-                  placeholder="Sector"
+                  placeholder={city ? 'Sector…' : '— city first'}
+                  onAddOption={async (n) => { if (upsertLocation) await upsertLocation({ city, sector: n }); return n }}
+                  addLabel="Add sector"
                 />
               </div>
-              <input
-                list="pickup-overview-societies"
-                value={society}
-                onChange={e => setSociety(e.target.value)}
-                placeholder="Society"
-                style={{ fontSize: 11, width: 'auto', minWidth: 0, maxWidth: 140, height: 26, padding: '2px 6px', flexShrink: 0 }}
-              />
-              <datalist id="pickup-overview-societies">
-                {allSocieties.map(s => <option key={s} value={s} />)}
-              </datalist>
 
-              {(dateFrom || dateTo || sector || society || city !== 'Gurgaon') && (
-                <button className="btn btn-ghost btn-sm" onClick={() => { setDateFrom(defaultFrom); setDateTo(defaultTo); setCity('Gurgaon'); setSector(''); setSociety('') }}
-                  style={{ color: 'var(--danger)', fontSize: 10.5, padding: '3px 6px', flexShrink: 0 }}>
-                  <X size={10} />
-                </button>
+              {/* Society */}
+              {allSocieties.length > 0 ? (
+                <select
+                  className="po-soc"
+                  value={society}
+                  onChange={e => setSociety(e.target.value)}
+                  disabled={!sector}
+                  title="Society"
+                >
+                  <option value="">All Societies</option>
+                  {allSocieties.map(s => <option key={s}>{s}</option>)}
+                </select>
+              ) : (
+                <>
+                  <input
+                    list="po-soc-list"
+                    className="po-soc"
+                    value={society}
+                    onChange={e => setSociety(e.target.value)}
+                    placeholder={sector ? 'Society…' : '— sector first'}
+                    disabled={!sector}
+                    title="Society"
+                    style={{ height: 32, padding: '0 8px', fontSize: 12.5, border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', background: 'var(--surface)', color: 'var(--text-primary)', flexShrink: 0, width: 130 }}
+                  />
+                  <datalist id="po-soc-list">{allSocieties.map(s => <option key={s} value={s} />)}</datalist>
+                </>
               )}
-            </div>
-            {/* Period label */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
-              <Calendar size={12} color="var(--primary)" />
-              <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--primary)' }}>{periodLabel}</span>
-              {city && <span style={{ fontSize: 11, padding: '1px 8px', borderRadius: 20, background: 'var(--info-bg)', color: 'var(--info)', fontWeight: 600 }}>🏙 {city}</span>}
-              {sector && <span style={{ fontSize: 11, padding: '1px 8px', borderRadius: 20, background: 'var(--secondary-light)', color: 'var(--secondary)', fontWeight: 600 }}>📍 {sector}</span>}
-              {society && <span style={{ fontSize: 11, padding: '1px 8px', borderRadius: 20, background: 'var(--warning-bg)', color: '#92400E', fontWeight: 600 }}>🏘 {society}</span>}
+
+              {/* Reset — only when something non-default is active */}
+              {hasOverviewFilters && (
+                <>
+                  <div className="po-divider" />
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={resetOverviewFilters}
+                    title="Reset all filters"
+                    style={{ height: 32, padding: '0 10px', color: 'var(--danger)', fontSize: 12, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4 }}
+                  >
+                    <X size={12} /> Reset
+                  </button>
+                </>
+              )}
+
+              {/* Period label — pushed right */}
+              <span style={{ marginLeft: 'auto', fontSize: 11.5, fontWeight: 700, color: 'var(--primary)', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 5 }}>
+                <Calendar size={11} color="var(--primary)" />
+                {periodLabel}
+                {sector && (
+                  <span style={{ fontSize: 10.5, padding: '1px 8px', borderRadius: 20, background: 'var(--secondary-light)', color: 'var(--secondary)', fontWeight: 600 }}>
+                    {sector}
+                  </span>
+                )}
+                {society && (
+                  <span style={{ fontSize: 10.5, padding: '1px 8px', borderRadius: 20, background: 'var(--warning-bg)', color: '#92400E', fontWeight: 600 }}>
+                    {society}
+                  </span>
+                )}
+              </span>
+
             </div>
           </div>
 
-          {/* KPIs */}
+          {/* ── KPIs ── */}
           <div className="stat-grid" style={{ marginBottom: 24 }}>
             <div className="stat-card orange">
               <div className="stat-icon"><Truck size={18} /></div>
               <div className="stat-value">{completedInd.length}</div>
               <div className="stat-label">Individual Pickups</div>
-               
             </div>
             <div className="stat-card blue">
               <div className="stat-icon"><Users size={18} /></div>
@@ -343,6 +477,7 @@ export default function PickupOverview() {
             </div>
           </div>
 
+          {/* ── Stats cards ── */}
           <div className="two-col" style={{ marginBottom: 24 }}>
             <div className="card">
               <div className="card-header">
@@ -351,7 +486,6 @@ export default function PickupOverview() {
               </div>
               <div className="card-body">
                 <PickupStatRow label="Completed"           value={completedInd.length}       color="var(--secondary)" />
-                 
                 <PickupStatRow label="Total Revenue"       value={fmtCurrency(indRevenue)}    color="var(--primary)" />
                 <PickupStatRow label="Avg Revenue/Pickup"  value={completedInd.length ? fmtCurrency(Math.round(indRevenue / completedInd.length)) : '—'} />
                 <PickupStatRow label="Postponed"           value={individualPickups.filter(p => p.status === 'Postponed').length} />
@@ -375,7 +509,7 @@ export default function PickupOverview() {
             </div>
           </div>
 
-          {/* Monthly breakdown */}
+          {/* ── Monthly breakdown ── */}
           <div className="card">
             <div className="card-header">
               <BarChart3 size={16} color="var(--secondary)" />
@@ -406,51 +540,70 @@ export default function PickupOverview() {
         </>
       )}
 
-      {/* ── SCHEDULER TABS SECTION ── */}
+      {/* ══ SCHEDULER TABS SECTION ══════════════════════════════════════════ */}
       {section === 'scheduler' && (
         <div className="card">
           <div className="card-header" style={{ flexWrap: 'wrap', gap: 10 }}>
-            <div className="card-title">Scheduled & At-Risk Pickups</div>
-             
+            <div className="card-title">Scheduled &amp; At-Risk Pickups</div>
           </div>
 
-          {/* Filters OUTSIDE tabs (always visible for accessibility) */}
-          <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--border-light)', background: 'var(--bg)', display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Date</label>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {[
-                    ['today',     'Today'],
-                    ['yesterday', 'Yesterday'],
-                    ['tomorrow',  'Tomorrow'],
-                    ['week',      'This Week (Mon–Sun)'],  // FIXED label
-                    ['all',       'All'],
-                    ['custom',    'Custom'],
-                  ].map(([v, l]) => (
-                    <button key={v} className={`btn btn-sm ${schPreset === v ? 'btn-primary' : 'btn-ghost'}`}
-                      onClick={() => applySchPreset(v)} style={{ fontSize: 12 }}>{l}</button>
-                  ))}
-                  {schPreset === 'custom' && (
-                    <>
-                      <input type="date" value={schFrom} onChange={e => setSchFrom(e.target.value)} style={{ width: 140, fontSize: 12 }} />
-                      <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>—</span>
-                      <input type="date" value={schTo}   onChange={e => setSchTo(e.target.value)}   style={{ width: 140, fontSize: 12 }} />
-                    </>
-                  )}
-                </div>
-                {/* Show current week range when "This Week" is selected */}
-                {schPreset === 'week' && schFrom && (
-                  <div style={{ fontSize: 11, color: 'var(--info)', fontWeight: 600 }}>
-                    📅 {fmtDate(schFrom)} – {fmtDate(schTo)}
-                  </div>
-                )}
-              </div>
+          {/* ── Date filter row ── */}
+          <div style={{
+            padding: '12px 20px',
+            borderBottom: '1px solid var(--border-light)',
+            background: 'var(--bg)',
+          }}>
+            {/* Preset buttons */}
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
+              <Filter size={11} color="var(--primary)" style={{ flexShrink: 0 }} />
+              <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', flexShrink: 0 }}>Date:</span>
+              {[
+                ['today',     'Today'],
+                ['yesterday', 'Yesterday'],
+                ['tomorrow',  'Tomorrow'],
+                ['week',      'This Week'],
+                ['next7',     'Next 7 Days'],
+                ['all',       'All'],
+                ['custom',    'Custom'],
+              ].map(([v, l]) => (
+                <button
+                  key={v}
+                  className={`btn btn-sm ${schPreset === v ? 'btn-primary' : 'btn-ghost'}`}
+                  onClick={() => applySchPreset(v)}
+                  style={{ fontSize: 12, padding: '4px 10px', whiteSpace: 'nowrap' }}
+                >
+                  {l}
+                </button>
+              ))}
               {schPreset !== 'all' && (
-                <button className="btn btn-ghost btn-sm" onClick={() => { applySchPreset('all') }}>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => applySchPreset('all')}
+                  style={{ color: 'var(--danger)', fontSize: 11.5, padding: '4px 8px' }}
+                >
                   <X size={11} /> Clear
                 </button>
               )}
             </div>
+
+            {/* Custom range pickers */}
+            {schPreset === 'custom' && (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 4 }}>
+                <input type="date" value={schFrom} onChange={e => setSchFrom(e.target.value)} style={{ width: 150, fontSize: 12 }} />
+                <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>—</span>
+                <input type="date" value={schTo}   onChange={e => setSchTo(e.target.value)}   style={{ width: 150, fontSize: 12 }} />
+              </div>
+            )}
+
+            {/* Active range label */}
+            {schPreset !== 'all' && schFrom && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 6, fontSize: 11.5, color: 'var(--info)', fontWeight: 600 }}>
+                <Calendar size={12} />
+                {fmtDate(schFrom)}{schTo && schTo !== schFrom ? ` – ${fmtDate(schTo)}` : ''}
+                {schPreset === 'week' && ' (Mon – Sun)'}
+              </div>
+            )}
+          </div>
 
           <div className="card-body">
             <PickupTabs

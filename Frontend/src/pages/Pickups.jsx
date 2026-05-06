@@ -687,17 +687,31 @@ export default function Pickups({
 
   const handleAddDonor = useCallback(async (data) => {
     try {
-      let donor;
-      if (data.id) {
-        // Existing donor - no API call
-        donor = data;
-        setToast(`${donor.name} selected`);
-      } else {
-        // New donor
-        donor = await addDonor(data);
-        setToast(`${donor.name} added and selected`);
+      // DonorModal always provides the full donor object when it detects an existing donor
+      // (i.e. duplicate mobile found). In that case we must ONLY reuse and synchronize state.
+      if (data?.id) {
+        const existingDonor = data
+
+        // Explicitly sync pickup form state.
+        // - donorId drives selectedDonor memo and the pickup history panel
+        // - pickup form should immediately reflect the existing donor selection
+        setForm(f => ({
+          ...f,
+          donorId: existingDonor.id,
+        }))
+
+        // Close modal immediately; dropdown/display will rerender due to selectedDonor memo.
+        setDonorModal(false)
+
+        setToast(`${existingDonor.name} selected`)
+        return
       }
-      setForm(f => ({ ...f, donorId: donor.id }))
+
+      // New donor path: create donor and then set donorId.
+      // This MUST be skipped for duplicates to avoid backend duplicate validation errors.
+      const createdDonor = await addDonor(data)
+      setToast(`${createdDonor.name} added and selected`)
+      setForm(f => ({ ...f, donorId: createdDonor.id }))
       setDonorModal(false)
     } catch (error) {
       console.error('Add donor failed:', error)
