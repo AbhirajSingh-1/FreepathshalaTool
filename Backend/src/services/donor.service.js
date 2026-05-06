@@ -68,6 +68,29 @@ function applyDonorFilters(query, filters = {}) {
 }
 
 async function listDonors(filters = {}) {
+  // ── Optimize single-result mobile lookups (used by Frontend dedup check) ─────
+  const limit = Number(filters.limit || filters.pageSize || 1);
+  const isMobileLookup = filters.mobile && limit <= 1 && !filters.q && !filters.status && !filters.cursor;
+  
+  if (isMobileLookup) {
+    const normalized = normalizeMobile(filters.mobile);
+    const snapshot = await donorsCollection()
+      .where("normalizedMobile", "==", normalized)
+      .limit(1)
+      .get();
+    
+    if (snapshot.empty) {
+      return [];
+    }
+    
+    const donor = fromDoc(snapshot.docs[0]);
+    return [{
+      ...donor,
+      status: deriveDonorStatus(donor.lastPickup, donor.status)
+    }];
+  }
+
+  // ── Full paginated list (existing behavior) ─────────────────────────────────
   let query = donorsCollection();
   query = applyDonorFilters(query, filters);
   const page = await fetchCursorPage(query, {

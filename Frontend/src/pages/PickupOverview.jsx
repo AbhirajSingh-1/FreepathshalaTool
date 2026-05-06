@@ -5,7 +5,7 @@ import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Truck, Users, AlertTriangle, TrendingUp,
-  Filter, X, Calendar, BarChart3, ChevronDown, ChevronUp,
+    X, Calendar, BarChart3, ChevronDown, ChevronUp,
 } from 'lucide-react'
 import { useApp }   from '../context/AppContext'
 import { useRole }  from '../context/RoleContext'
@@ -324,13 +324,12 @@ export default function PickupOverview() {
               <div className="stat-icon"><Truck size={18} /></div>
               <div className="stat-value">{completedInd.length}</div>
               <div className="stat-label">Individual Pickups</div>
-              <div className="stat-change up">{pendingInd} pending</div>
+               
             </div>
             <div className="stat-card blue">
               <div className="stat-icon"><Users size={18} /></div>
               <div className="stat-value">{completedDrive.length}</div>
               <div className="stat-label">Drive Pickups</div>
-              <div className="stat-change up">{pendingDrive} pending</div>
             </div>
             <div className="stat-card green">
               <div className="stat-icon"><TrendingUp size={18} /></div>
@@ -352,7 +351,7 @@ export default function PickupOverview() {
               </div>
               <div className="card-body">
                 <PickupStatRow label="Completed"           value={completedInd.length}       color="var(--secondary)" />
-                <PickupStatRow label="Pending"             value={pendingInd}                 color="var(--info)" />
+                 
                 <PickupStatRow label="Total Revenue"       value={fmtCurrency(indRevenue)}    color="var(--primary)" />
                 <PickupStatRow label="Avg Revenue/Pickup"  value={completedInd.length ? fmtCurrency(Math.round(indRevenue / completedInd.length)) : '—'} />
                 <PickupStatRow label="Postponed"           value={individualPickups.filter(p => p.status === 'Postponed').length} />
@@ -368,7 +367,6 @@ export default function PickupOverview() {
               </div>
               <div className="card-body">
                 <PickupStatRow label="Completed"           value={completedDrive.length}      color="var(--secondary)" />
-                <PickupStatRow label="Pending"             value={pendingDrive}                color="var(--info)" />
                 <PickupStatRow label="Total Revenue"       value={fmtCurrency(driveRevenue)}  color="var(--primary)" />
                 <PickupStatRow label="Avg Revenue/Drive"   value={completedDrive.length ? fmtCurrency(Math.round(driveRevenue / completedDrive.length)) : '—'} />
                 <PickupStatRow label="SKS Drives"          value={completedDrive.filter(p => p.type?.includes('SKS')).length} />
@@ -413,10 +411,7 @@ export default function PickupOverview() {
         <div className="card">
           <div className="card-header" style={{ flexWrap: 'wrap', gap: 10 }}>
             <div className="card-title">Scheduled & At-Risk Pickups</div>
-            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Filter size={13} />
-              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Filters</span>
-            </div>
+             
           </div>
 
           {/* Filters OUTSIDE tabs (always visible for accessibility) */}

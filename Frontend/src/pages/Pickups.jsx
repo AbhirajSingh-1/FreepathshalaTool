@@ -686,10 +686,23 @@ export default function Pickups({
   }, [])
 
   const handleAddDonor = useCallback(async (data) => {
-    const newDonor = await addDonor(data)
-    setForm(f => ({ ...f, donorId: newDonor.id }))
-    setDonorModal(false)
-    setToast(`${newDonor.name} added and selected`)
+    try {
+      let donor;
+      if (data.id) {
+        // Existing donor - no API call
+        donor = data;
+        setToast(`${donor.name} selected`);
+      } else {
+        // New donor
+        donor = await addDonor(data);
+        setToast(`${donor.name} added and selected`);
+      }
+      setForm(f => ({ ...f, donorId: donor.id }))
+      setDonorModal(false)
+    } catch (error) {
+      console.error('Add donor failed:', error)
+      setToast(`Failed to add/select donor: ${error.message || 'Unknown error'}`)
+    }
   }, [addDonor])
 
   const validate = () => {

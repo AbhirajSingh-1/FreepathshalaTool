@@ -48,12 +48,35 @@ export default function DonorModal({ onClose, onAdd }) {
     return e
   }
 
-  const handleSubmit = async () => {
+const handleSubmit = async () => {
+    // Handle existing donor automatically
+    if (mobileCheck.status === 'found' && mobileCheck.existing) {
+      handleUseExisting()
+      return
+    }
+
+    // Create new donor (no duplicate found)
     const e = validate()
     if (Object.keys(e).length) { setErrors(e); return }
+    
+    // Clean payload: omit empty optionals to fix backend validation
+    const cleanData = {
+      name: form.name.trim(),
+      mobile: form.mobile.replace(/\D/g, '').slice(-10),
+      donorType: 'donor',
+      ...(form.city.trim() && { city: form.city.trim() }),
+      ...(form.sector?.trim() && { sector: form.sector.trim() }),
+      ...(form.society?.trim() && { society: form.society.trim() }),
+      ...(form.address.trim() && { house: form.address.trim() })
+    }
+    
     setSaving(true)
     try {
-      await onAdd({ ...form, house: form.address })
+      await onAdd(cleanData)
+      onClose() // Auto-close on success
+    } catch (error) {
+      console.error('Donor creation failed:', error)
+      setErrors({ general: `Failed to add donor: ${error.message || 'Unknown error'}` })
     } finally {
       setSaving(false)
     }
@@ -205,7 +228,7 @@ export default function DonorModal({ onClose, onAdd }) {
             </div>
           </div>
 
-          {/* Location preview */}
+          {/* Location preview & errors */}
           {(form.sector || form.society) && (
             <div style={{
               marginTop: 14, padding: '10px 14px',
@@ -217,6 +240,18 @@ export default function DonorModal({ onClose, onAdd }) {
               {[form.society, form.sector, form.city].filter(Boolean).join(', ')}
             </div>
           )}
+          
+          {errors.general && (
+            <div style={{
+              marginTop: 12, padding: '10px 14px',
+              background: 'var(--danger-bg)', borderRadius: 8, border: '1px solid var(--danger)',
+              fontSize: 12.5, color: 'var(--danger)',
+              display: 'flex', alignItems: 'center', gap: 8
+            }}>
+              <span style={{ fontSize: 11 }}>⚠</span>
+              {errors.general}
+            </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -224,27 +259,32 @@ export default function DonorModal({ onClose, onAdd }) {
           <button className="btn btn-ghost" onClick={onClose} disabled={saving}>
             Cancel
           </button>
-          <button
-            className="btn btn-primary"
-            onClick={handleSubmit}
-            disabled={
-              saving ||
-              !form.name.trim() ||
-              !form.mobile.trim() ||
-              mobileCheck.status === 'checking'
-            }
-          >
-            {saving ? (
-              <>
-                <span className="spin" style={{
-                  display: 'inline-block', width: 14, height: 14,
-                  border: '2px solid rgba(255,255,255,0.4)',
-                  borderTopColor: 'white', borderRadius: '50%',
-                }} />
-                Adding…
-              </>
-            ) : '+ Add Donor'}
-          </button>
+            <button
+              className="btn btn-primary"
+              onClick={handleSubmit}
+              disabled={
+                saving ||
+                !form.name.trim() ||
+                !form.mobile.trim() ||
+                mobileCheck.status === 'checking' ||
+                (mobileCheck.status === 'found' && mobileCheck.existing)
+              }
+            >
+              {saving ? (
+                <>
+                  <span className="spin" style={{
+                    display: 'inline-block', width: 14, height: 14,
+                    border: '2px solid rgba(255,255,255,0.4)',
+                    borderTopColor: 'white', borderRadius: '50%',
+                  }} />
+                  {mobileCheck.status === 'found' && mobileCheck.existing ? 'Using existing…' : 'Adding…'}
+                </>
+              ) : mobileCheck.status === 'found' && mobileCheck.existing ? (
+                'Using Existing Donor'
+              ) : (
+                '+ Add New Donor'
+              )}
+            </button>
         </div>
       </div>
     </div>

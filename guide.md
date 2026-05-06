@@ -206,7 +206,7 @@ page/component -> AppContext or api.js -> backend -> AppContext/local state -> U
 | `firestore.indexes.json` | Firestore composite indexes. | Supports queries that filter/sort on multiple fields. | Firestore queries in backend services. | Some queries fail with "missing index" errors. |
 | `firestore.rules` | Firestore client security rules. | Allows limited user/profile reads and blocks direct client writes for app data. | Firebase Auth custom claims and direct Firestore clients. | Direct client access may become unsafe or unavailable. |
 | `storage.rules` | Storage client security rules. | Blocks direct Storage access; uploads/read URLs are controlled by backend. | Firebase Storage. | Files could become exposed or inaccessible depending on replacement rules. |
-| `TODO.md` | Developer notes. | Tracks pending improvements. | Human workflow. | No runtime break; planning notes are lost. |
+ 
 
 ## 5. Frontend File-by-File Breakdown
 

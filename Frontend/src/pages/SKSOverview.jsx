@@ -1223,10 +1223,10 @@ export default function SKSOverview() {
 
   const totalInStock    = Object.values(stock).reduce((s, v) => s + v, 0)
   const TABS = [
-    { id: 'stockin',   label: '↓ Add Stock',         count: null },
-    { id: 'history',   label: '📋 Stock History', count: sksInflows.length || null },
-    { id: 'warehouse', label: '📦 Warehouse Stock',     count: totalInStock > 0 ? totalInStock : null },
-    { id: 'stockout',  label: '↑ Sell Stock',         count: sksOutflows.length || null },
+    { id: 'stockin',   label: '↓ Add Stock'},
+    { id: 'history',   label: '📋 Stock History'},
+    { id: 'warehouse', label: '📦 Warehouse Stock',count: totalInStock > 0 ? totalInStock : null },
+    { id: 'stockout',  label: '↑ Sell Stock'},
   ]
 
   return (
