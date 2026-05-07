@@ -229,7 +229,21 @@ async function getPickup(id) {
   return pickup;
 }
 
+function assertPickupPartnerAssigned(data, resolvedPartner) {
+  const hasPartnerInData =
+    data.partnerId || data.PickupPartner || data.pickupPartnerName;
+  if (!hasPartnerInData && !resolvedPartner) {
+    throw new AppError(
+      "Pickup Partner assignment is required before recording pickup.",
+      422,
+      "PICKUP_PARTNER_REQUIRED"
+    );
+  }
+}
+
 async function createPickup(data, actor) {
+  // Partner assignment is NOT required at scheduling time.
+  // assertPickupPartnerAssigned is only called during the record/complete flow.
   const created = await db.runTransaction(async (tx) => {
     const { donorRef, donor, partnerRef, partner } = await resolveDonorAndPartner(tx, data);
     const id      = data.id || data.orderId || await nextId("pickups", tx);
@@ -254,6 +268,17 @@ async function updatePickup(id, data, actor) {
     const oldPickup  = fromDoc(currentDoc);
     const merged     = { ...oldPickup, ...data, id };
     const { donorRef, donor, partnerRef, partner } = await resolveDonorAndPartner(tx, merged);
+
+    // Require a pickup partner when completing or when none was ever assigned
+    const isCompleting = data.status === "Completed" || merged.status === "Completed";
+    const partnerStillMissing = !merged.partnerId && !merged.PickupPartner && !merged.pickupPartnerName;
+    if (isCompleting && partnerStillMissing && !partner) {
+      throw new AppError(
+        "Pickup Partner assignment is required before recording pickup.",
+        422,
+        "PICKUP_PARTNER_REQUIRED"
+      );
+    }
     const oldPartnerRef = oldPickup.partnerId ? partnersCollection().doc(oldPickup.partnerId) : null;
     const newPickup  = {
       ...buildPickupPayload(merged, donor || oldPickup.donorSnapshot, partner || oldPickup.pickupPartnerSnapshot, id),
@@ -288,6 +313,47 @@ if (donorRef && oldPickup.status !== "Completed" && newPickup.status === "Comple
 
 async function recordPickup(id, data, actor) {
   return updatePickup(id, { ...data, status: "Completed" }, actor);
+}
+
+// ── Reschedule an existing pickup ─────────────────────────────────────────────
+// Updates only scheduling fields: date, timeSlot, notes.
+// Resets status → "Pending" and clears postponeReason.
+// Completed pickups cannot be rescheduled — the recording is permanent.
+async function reschedulePickup(id, data, actor) {
+  const ref     = pickupsCollection().doc(id);
+  const current = await ref.get();
+  if (!current.exists) throw new AppError("Pickup not found", 404, "PICKUP_NOT_FOUND");
+
+  const existing = fromDoc(current);
+  if (existing.status === "Completed") {
+    throw new AppError(
+      "Cannot reschedule a completed pickup. Create a new pickup instead.",
+      422,
+      "PICKUP_ALREADY_COMPLETED"
+    );
+  }
+
+  const now     = new Date().toISOString();
+  const payload = {
+    date:            data.date,
+    timeSlot:        data.timeSlot  || existing.timeSlot || "",
+    notes:           data.notes     !== undefined ? data.notes : existing.notes,
+    status:          "Pending",        // always reset to Pending
+    postponeReason:  null,             // clear any postpone flag
+    rescheduledAt:   now,
+    rescheduledBy:   actor?.email || actor?.uid || "system",
+    updatedAt:       now,
+    updatedBy:       actor?.email || actor?.uid || "",
+  };
+
+  await ref.set(payload, { merge: true });
+
+  // Synchronise scheduler-summary and dashboard caches — these are TTL-based
+  // on the backend; invalidation is handled automatically by the query refetch
+  // on the frontend via queryClient.
+  invalidateLocationCache();
+
+  return { ...existing, ...payload };
 }
 
 async function deletePickup(id) {
@@ -359,6 +425,29 @@ async function listRaddiRecords(filters = {}) {
   }
 }
 
+// ── Scheduling conflict detection ─────────────────────────────────────────────
+// Returns the conflicting pickup document (if any) when a donor already has a
+// pending/scheduled pickup on the requested date.  An optional excludeId lets
+// the caller skip the pickup currently being rescheduled so it doesn't flag
+// itself as a conflict.
+async function checkSchedulingConflict(donorId, date, excludeId = null) {
+  if (!donorId || !date) return null;
+
+  let query = pickupsCollection()
+    .where("donorId", "==", donorId)
+    .where("date",    "==", date)
+    .where("status",  "in", ["Pending", "Scheduled"]);
+
+  const snapshot = await query.get();
+  if (snapshot.empty) return null;
+
+  for (const doc of snapshot.docs) {
+    if (excludeId && doc.id === excludeId) continue;
+    return fromDoc(doc);
+  }
+  return null;
+}
+
 module.exports = {
   pickupsCollection,
   pickupPendingAmount,
@@ -368,6 +457,8 @@ module.exports = {
   createPickup,
   updatePickup,
   recordPickup,
+  reschedulePickup,
   deletePickup,
-  listRaddiRecords
+  listRaddiRecords,
+  checkSchedulingConflict,
 };

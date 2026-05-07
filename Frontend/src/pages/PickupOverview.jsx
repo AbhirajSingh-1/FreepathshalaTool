@@ -97,7 +97,7 @@ function PickupStatRow({ label, value, sub, color = 'var(--text-primary)' }) {
 // ─────────────────────────────────────────────────────────────────────────────
 export default function PickupOverview() {
   const navigate = useNavigate()
-  const { pickups, schedulerTabData, CITIES, CITY_SECTORS, locations, upsertLocation } = useApp()
+  const { pickups, schedulerTabData, CITIES, CITY_SECTORS, locations, upsertLocation, reschedulePickup, deletePickup, createPickup } = useApp()
   const { role } = useRole()
 
   const last5 = []   // kept for compat; month presets removed
@@ -164,18 +164,57 @@ export default function PickupOverview() {
     }
   }
 
-  const handleRescheduleFromOverdue = (row) => {
+  // ── Action handlers for PickupTabs ──────────────────────────────────────────
+  // Reschedule: if real pickup ID → update existing; if synthetic TAB- → create new
+  const handleReschedule = async (entry, rescheduleData) => {
+    const { date, timeSlot, notes } = rescheduleData
+    if (!date) return
+
+    const isSynthetic = !entry.id || String(entry.id).startsWith('TAB-')
+
+    if (isSynthetic) {
+      // AtRisk / Churned: no existing pickup — create a new scheduled pickup
+      await createPickup({
+        donorId:    entry.donorId,
+        donorName:  entry.donorName,
+        mobile:     entry.mobile || '',
+        society:    entry.society || '',
+        sector:     entry.sector || '',
+        city:       entry.city || '',
+        date,
+        timeSlot:   timeSlot || '',
+        notes:      notes || `Rescheduled from ${activeTab} view`,
+        status:     'Pending',
+        pickupMode: entry.pickupMode || 'Individual',
+      })
+    } else {
+      // Overdue / Scheduled: update existing pickup record
+      await reschedulePickup(entry.id, { date, timeSlot: timeSlot || '', notes })
+    }
+  }
+
+  // Edit: navigate to PickupScheduler pre-filled with existing pickup data
+  const handleEdit = (entry) => {
     navigate('/pickup-scheduler', {
       state: {
-        pickupId:   row.id,
-        donorId:    row.donorId,
-        date:       row.scheduledDate || '',
-        timeSlot:   row.timeSlot || '',
-        pickupMode: row.pickupMode || 'Individual',
-        notes:      row.notes || '',
+        pickupId:   entry.id,
+        donorId:    entry.donorId,
+        date:       entry.scheduledDate || entry.date || '',
+        timeSlot:   entry.timeSlot || '',
+        pickupMode: entry.pickupMode || 'Individual',
+        notes:      entry.notes || '',
       },
     })
   }
+
+  // Delete: admin only (backend also enforces this)
+  const handleDelete = async (entry) => {
+    if (!entry.id || String(entry.id).startsWith('TAB-')) return
+    await deletePickup(entry.id)
+  }
+
+  // Legacy compat — kept in case anything else calls it
+  const handleRescheduleFromOverdue = (row) => handleEdit(row)
 
   // ── Filtered pickups for overview ─────────────────────────────────────────
   const filteredPickups = useMemo(() =>
@@ -611,7 +650,10 @@ export default function PickupOverview() {
               onTabChange={setActiveTab}
               data={filteredTabData}
               loading={false}
-              onRescheduleOverdue={handleRescheduleFromOverdue}
+              role={role}
+              onReschedule={handleReschedule}
+              onEdit={handleEdit}
+              onDelete={handleDelete}
             />
           </div>
         </div>

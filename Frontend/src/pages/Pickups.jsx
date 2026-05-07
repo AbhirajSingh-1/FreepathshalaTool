@@ -428,11 +428,42 @@ function SKSItemChips({ items, selected, otherText, onChange, onOtherText }) {
   )
 }
 
-function Toast({ msg, onDone }) {
-  useEffect(() => { const t = setTimeout(onDone, 3000); return () => clearTimeout(t) }, [onDone])
+function Toast({ msg, type = 'success', onDone }) {
+  useEffect(() => {
+    const duration = type === 'error' ? 6000 : 3000
+    const t = setTimeout(onDone, duration)
+    return () => clearTimeout(t)
+  }, [onDone, type])
+
+  const isError = type === 'error'
   return (
-    <div style={{ position: 'fixed', bottom: 28, right: 24, zIndex: 200, background: 'var(--secondary)', color: 'white', padding: '12px 20px', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 10, boxShadow: 'var(--shadow-lg)', animation: 'slideUp 0.25s ease', fontSize: 13.5, fontWeight: 600, pointerEvents: 'none' }}>
-      <CheckCircle size={16} /> {msg}
+    <div style={{
+      position: 'fixed', bottom: 28, right: 24, zIndex: 9999,
+      background: isError ? 'var(--danger)' : 'var(--secondary)',
+      color: 'white',
+      padding: '14px 20px', borderRadius: 12,
+      display: 'flex', alignItems: 'flex-start', gap: 10,
+      boxShadow: 'var(--shadow-lg)', animation: 'slideUp 0.25s ease',
+      maxWidth: 360, minWidth: 260,
+      borderLeft: isError ? '4px solid #7f1d1d' : '4px solid #14532d',
+    }}>
+      {isError
+        ? <AlertCircle size={18} style={{ flexShrink: 0, marginTop: 1 }} />
+        : <CheckCircle size={18} style={{ flexShrink: 0, marginTop: 1 }} />}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 700, fontSize: 13.5, lineHeight: 1.35 }}>{msg}</div>
+        {isError && (
+          <div style={{ fontSize: 11.5, opacity: 0.85, marginTop: 3 }}>
+            Please fix the issue above and try again.
+          </div>
+        )}
+      </div>
+      <button
+        onClick={onDone}
+        style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'white', opacity: 0.7, padding: '2px 0 0', display: 'flex', flexShrink: 0 }}
+      >
+        <X size={14} />
+      </button>
     </div>
   )
 }
@@ -542,13 +573,14 @@ export default function Pickups({
   const {
     donors, PickupPartners: partners, pickups,
     addDonor, createPickup, recordPickup, updatePickup, updateDonor,
+    reschedulePickup,
     RST_ITEMS, SKS_ITEMS, PICKUP_MODES,
   } = useApp()
 
   const [form,       setForm]       = useState({ ...EMPTY_FORM })
   const [saving,     setSaving]     = useState(false)
   const [errors,     setErrors]     = useState({})
-  const [toast,      setToast]      = useState(null)
+  const [toast,      setToast]      = useState(null)   // { msg, type }
   const [donorModal, setDonorModal] = useState(false)
   const [rstOpen,    setRstOpen]    = useState(false)
   const [sksOpen,    setSksOpen]    = useState(false)
@@ -703,31 +735,38 @@ export default function Pickups({
         // Close modal immediately; dropdown/display will rerender due to selectedDonor memo.
         setDonorModal(false)
 
-        setToast(`${existingDonor.name} selected`)
+        setToast({ msg: `${existingDonor.name} selected`, type: 'success' })
         return
       }
 
       // New donor path: create donor and then set donorId.
       // This MUST be skipped for duplicates to avoid backend duplicate validation errors.
       const createdDonor = await addDonor(data)
-      setToast(`${createdDonor.name} added and selected`)
+      setToast({ msg: `${createdDonor.name} added and selected`, type: 'success' })
       setForm(f => ({ ...f, donorId: createdDonor.id }))
       setDonorModal(false)
     } catch (error) {
       console.error('Add donor failed:', error)
-      setToast(`Failed to add/select donor: ${error.message || 'Unknown error'}`)
+      setToast({ msg: `Failed to add/select donor: ${error.message || 'Unknown error'}`, type: 'error' })
     }
   }, [addDonor])
 
   const validate = () => {
     const e = {}
     if (!form.donorId) e.donorId = 'Please select a donor'
+    if (!form.PickupPartner) e.PickupPartner = 'Please Choose a Pickup Partner before recording the pickup.'
     return e
   }
 
   const handleSave = async () => {
     const e = validate()
-    if (Object.keys(e).length) { setErrors(e); return }
+    if (Object.keys(e).length) {
+      setErrors(e)
+      // Surface the most important error as a toast so user can't miss it
+      const firstMsg = e.PickupPartner || e.donorId || Object.values(e)[0]
+      setToast({ msg: firstMsg, type: 'error' })
+      return
+    }
     setSaving(true)
     try {
       const donor = activeDonors.find(d => d.id === form.donorId)
@@ -789,10 +828,12 @@ export default function Pickups({
 
       setForm({ ...EMPTY_FORM })
       setErrors({})
-      setToast(`Pickup recorded! Order: ${savedId}`)
+      setToast({ msg: `Pickup recorded! Order: ${savedId}`, type: 'success' })
     } catch (err) {
       console.error('Save error:', err)
-      setErrors({ general: 'Failed to save pickup. Please try again.' })
+      const errMsg = err?.response?.data?.message || err?.message || 'Failed to save pickup. Please try again.'
+      setToast({ msg: errMsg, type: 'error' })
+      setErrors({ general: errMsg })
     } finally { setSaving(false) }
   }
 
@@ -804,31 +845,44 @@ export default function Pickups({
     : ['9:00 AM – 10:00 AM', '10:00 AM – 11:00 AM', '11:00 AM – 12:00 PM', '12:00 PM – 1:00 PM', '2:00 PM – 3:00 PM', '3:00 PM – 4:00 PM', '4:00 PM – 5:00 PM', '5:00 PM – 6:00 PM']
 
   const handleReschedule = async () => {
-    if (!form.donorId || !rescheduleDate || !rescheduleTimeSlot) return
-    const donor = activeDonors.find(d => d.id === form.donorId)
-    if (!donor) return
-    const payload = {
-      donorId: donor.id,
-      donorName: displayText(donor.name),
-      mobile: donor.mobile || '',
-      society: donor.society || '',
-      sector: donor.sector || '',
-      city: donor.city || '',
-      date: rescheduleDate,
-      timeSlot: rescheduleTimeSlot,
-      pickupMode: form.pickupMode,
-      notes: form.notes || 'Rescheduled from record pickup',
-      status: 'Pending',
+    if (!rescheduleDate || !rescheduleTimeSlot) return
+    try {
+      if (targetPickupId) {
+        // ── Update existing pickup record in-place (never create a duplicate) ──
+        // Uses the dedicated reschedule endpoint: PATCH /pickups/:id/reschedule
+        // Status is reset to Pending by the backend, date is updated.
+        // The pickup is automatically removed from TodayPickups (date filter)
+        // and appears in the correct Scheduled/Overdue tab immediately.
+        await reschedulePickup(targetPickupId, {
+          date:     rescheduleDate,
+          timeSlot: rescheduleTimeSlot,
+          notes:    form.notes || 'Rescheduled — donor unavailable',
+        })
+        setTargetPickupId(null)
+      } else {
+        // ── No linked pickup: create a fresh scheduled pickup for the donor ──
+        const donor = activeDonors.find(d => d.id === form.donorId)
+        if (!donor) return
+        await createPickup({
+          donorId:    donor.id,
+          donorName:  displayText(donor.name),
+          mobile:     donor.mobile || '',
+          society:    donor.society || '',
+          sector:     donor.sector || '',
+          city:       donor.city || '',
+          date:       rescheduleDate,
+          timeSlot:   rescheduleTimeSlot,
+          pickupMode: form.pickupMode,
+          notes:      form.notes || 'Rescheduled from record pickup',
+          status:     'Pending',
+        })
+      }
+      setToast({ msg: 'Pickup rescheduled successfully!', type: 'success' })
+      setRescheduleDate('')
+      setRescheduleTimeSlot('')
+    } catch (err) {
+      setToast({ msg: err?.message || 'Reschedule failed', type: 'error' })
     }
-    if (targetPickupId) {
-      await updatePickup(targetPickupId, payload)
-    } else {
-      await createPickup(payload)
-    }
-    setToast('Pickup rescheduled successfully!')
-    setTargetPickupId(null)
-    setRescheduleDate('')
-    setRescheduleTimeSlot('')
   }
 
   const bannerIsNav    = !!targetPickupId && !!initialPickupId
@@ -926,8 +980,14 @@ export default function Pickups({
                 onChange={val => {
                   const pickuppartner = (partners || []).find(k => k.name === val)
                   setForm(f => ({ ...f, PickupPartner: val, pickuppartneradiMobile: pickuppartner?.mobile || '' }))
+                  setErrors(e => ({ ...e, PickupPartner: '' }))
                 }}
               />
+              {errors.PickupPartner && (
+                <div style={{ fontSize: 12, color: 'var(--danger)', marginTop: 5, display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', background: 'var(--danger-bg)', borderRadius: 7, border: '1px solid var(--danger)', fontWeight: 600 }}>
+                  <AlertCircle size={13} style={{ flexShrink: 0 }} /> {errors.PickupPartner}
+                </div>
+              )}
               {selectedpickuppartner && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, padding: '7px 12px', background: 'var(--secondary-light)', borderRadius: 8, fontSize: 12, color: 'var(--secondary)' }}>
                   <Phone size={11} />
@@ -1081,7 +1141,7 @@ export default function Pickups({
       </div>
 
       {donorModal && <DonorModal onClose={() => setDonorModal(false)} onAdd={handleAddDonor} />}
-      {toast && <Toast msg={toast} onDone={() => setToast(null)} />}
+      {toast && <Toast msg={toast.msg} type={toast.type} onDone={() => setToast(null)} />}
     </div>
   )
 }

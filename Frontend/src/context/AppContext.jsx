@@ -531,6 +531,11 @@ export function AppProvider({ children }) {
     queryClient.invalidateQueries({ queryKey: ["dashboardStats"] });
     queryClient.invalidateQueries({ queryKey: ["schedulerSummary"] });
     queryClient.invalidateQueries({ queryKey: ["partnerSummary"] });
+    // Immediate refetch so TodayPickups, PickupOverview scheduler tab, and
+    // Dashboard stats all update without the user needing to navigate away.
+    queryClient.refetchQueries({ queryKey: ["pickups"] });
+    queryClient.refetchQueries({ queryKey: ["schedulerSummary"] });
+    queryClient.refetchQueries({ queryKey: ["dashboardStats"] });
     return recorded;
   }), [runMutation, applyCompletedPickupLocally, pickups, queryClient]);
 
@@ -543,6 +548,12 @@ export function AppProvider({ children }) {
     queryClient.invalidateQueries({ queryKey: ["dashboardStats"] });
     queryClient.invalidateQueries({ queryKey: ["schedulerSummary"] });
     queryClient.invalidateQueries({ queryKey: ["partnerSummary"] });
+    // Immediate refetch ensures that rescheduled pickups immediately reflect in
+    // TodayPickups (date filter), PickupOverview scheduler tabs, and Dashboard
+    // stats without requiring a manual page refresh.
+    queryClient.refetchQueries({ queryKey: ["pickups"] });
+    queryClient.refetchQueries({ queryKey: ["schedulerSummary"] });
+    queryClient.refetchQueries({ queryKey: ["dashboardStats"] });
     refreshLocationsQuietly();
     return updated;
   }), [runMutation, applyCompletedPickupLocally, refreshLocationsQuietly, pickups, queryClient]);
@@ -556,6 +567,20 @@ export function AppProvider({ children }) {
     queryClient.invalidateQueries({ queryKey: ["partnerSummary"] });
     return removed;
   }), [runMutation, queryClient]);
+
+  const reschedulePickup = useCallback((id, data) => runMutation(async () => {
+    const updated = await api.reschedulePickup(id, data);
+    setPickups(prev => updateById(prev, id, updated));
+    // Immediately synchronise all scheduler-aware views and analytics.
+    queryClient.invalidateQueries({ queryKey: ["pickups"] });
+    queryClient.invalidateQueries({ queryKey: ["dashboardStats"] });
+    queryClient.invalidateQueries({ queryKey: ["schedulerSummary"] });
+    queryClient.refetchQueries({ queryKey: ["pickups"] });
+    queryClient.refetchQueries({ queryKey: ["schedulerSummary"] });
+    queryClient.refetchQueries({ queryKey: ["dashboardStats"] });
+    refreshLocationsQuietly();
+    return updated;
+  }), [runMutation, refreshLocationsQuietly, queryClient]);
 
   const addPickupPartner = useCallback(data => runMutation(async () => {
     const created = await api.createPickupPartner(data);
@@ -755,6 +780,7 @@ export function AppProvider({ children }) {
     recordPickup,
     updatePickup,
     deletePickup,
+    reschedulePickup,
 
     addPickupPartner,
     updatePickupPartner,
@@ -806,6 +832,7 @@ export function AppProvider({ children }) {
     recordPickup,
     updatePickup,
     deletePickup,
+    reschedulePickup,
     addPickupPartner,
     updatePickupPartner,
     deletePickupPartner,

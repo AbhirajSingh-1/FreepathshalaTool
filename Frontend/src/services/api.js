@@ -371,8 +371,13 @@ export const updatePickup = (id, data) =>
   apiFetch(`/pickups/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
 export const recordPickup = (id, data) =>
   apiFetch(`/pickups/${id}/record`, { method: 'POST', body: JSON.stringify(data) })
+export const reschedulePickup = (id, data) =>
+  apiFetch(`/pickups/${id}/reschedule`, { method: 'POST', body: JSON.stringify(data) })
 export const deletePickup = id =>
   apiFetch(`/pickups/${id}`, { method: 'DELETE' })
+// Server-side duplicate scheduling guard — returns { conflict: bool, pickup: doc|null }
+export const checkSchedulingConflict = (donorId, date, excludeId = null) =>
+  apiFetch(`/pickups/check-conflict${toQuery({ donorId, date, ...(excludeId ? { excludeId } : {}) })}`)
 
 export const fetchRaddiRecords = (params, options) =>
   apiFetch(`/pickups/raddi-records${toQuery(params)}`, options)

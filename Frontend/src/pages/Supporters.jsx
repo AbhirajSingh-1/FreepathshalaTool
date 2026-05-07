@@ -34,13 +34,9 @@ const STATUS_CONFIG = {
 }
 const STATUS_KEYS = ['Active in 1 Month', 'Active in 3 Months', 'Active in 6 Months', 'Inactive']
 
-function todayISO() {
-  return new Date().toISOString().slice(0, 10)
-}
-
 const EMPTY_FORM = {
   name: '', mobile: '', house: '', city: 'Gurgaon', sector: '', society: '',
-  contributionType: '', lastSupportDate: todayISO(), notes: '',
+  contributionType: '', lastSupportDate: '', notes: '',
   isAlsoDonor: false,
 }
 

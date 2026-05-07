@@ -381,8 +381,24 @@ export default function TodayPickups({ onNav }) {
     '2:00 PM', '3:00 PM', '4:00 PM', '5:00 PM', '6:00 PM',
   ]
 
+  // All pickups for today (any status) — used only for the progress bar and stats
+  const allTodayPickups = useMemo(
+    () => pickups.filter(p => p.date === today),
+    [pickups, today]
+  )
+  const completed = useMemo(() => allTodayPickups.filter(p => p.status === 'Completed'), [allTodayPickups])
+  const others    = useMemo(
+    () => allTodayPickups.filter(p => p.status !== 'Pending' && p.status !== 'Scheduled' && p.status !== 'Completed'),
+    [allTodayPickups]
+  )
+
+  // Primary list: only pending/scheduled pickups for today — these are the ones
+  // that still need to be actioned. Completed and other-status pickups are tracked
+  // separately above so the progress bar remains accurate.
   const todayPickups = useMemo(() => {
-    const base = pickups.filter(p => p.date === today)
+    const base = pickups.filter(
+      p => p.date === today && (p.status === 'Pending' || p.status === 'Scheduled')
+    )
 
     if (sortMode === 'location') {
       // Sort: sector → society → donor name
@@ -406,9 +422,7 @@ export default function TodayPickups({ onNav }) {
     })
   }, [pickups, today, sortMode])
 
-  const pending   = useMemo(() => todayPickups.filter(p => p.status === 'Pending'),   [todayPickups])
-  const completed = useMemo(() => todayPickups.filter(p => p.status === 'Completed'), [todayPickups])
-  const others    = useMemo(() => todayPickups.filter(p => p.status !== 'Pending' && p.status !== 'Completed'), [todayPickups])
+  const pending = todayPickups  // pending IS todayPickups (already filtered above)
 
   const handleRecord = (pickup) => onNav('pickups', {
     donorId:  pickup.donorId,
@@ -420,8 +434,10 @@ export default function TodayPickups({ onNav }) {
   })
 
   const canSchedule = role === 'admin' || role === 'manager'
-  const progressPct = todayPickups.length > 0
-    ? Math.round((completed.length / todayPickups.length) * 100)
+  // Progress uses ALL today's pickups as denominator so completed ones are counted
+  // even though they've moved out of the pending list
+  const progressPct = allTodayPickups.length > 0
+    ? Math.round((completed.length / allTodayPickups.length) * 100)
     : 0
 
   // Render the appropriate list (flat or grouped) for a given set of pickups
@@ -463,23 +479,23 @@ export default function TodayPickups({ onNav }) {
             Today's Pickups
           </div>
           <div style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.78)', marginTop: 3 }}>{todayFormatted}</div>
-          {todayPickups.length > 0 && (
+          {allTodayPickups.length > 0 && (
             <div style={{ marginTop: 10 }}>
               <div style={{ height: 5, background: 'rgba(255,255,255,0.25)', borderRadius: 3, overflow: 'hidden', width: 200, maxWidth: '100%' }}>
                 <div style={{ height: '100%', borderRadius: 3, width: `${progressPct}%`, background: 'rgba(255,255,255,0.9)', transition: 'width 0.5s ease' }} />
               </div>
               <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', marginTop: 4 }}>
-                {completed.length} of {todayPickups.length} completed · {progressPct}%
+                {completed.length} of {allTodayPickups.length} completed · {progressPct}%
               </div>
             </div>
           )}
         </div>
         <div style={{ textAlign: 'right', flexShrink: 0 }}>
           <div style={{ fontFamily: 'var(--font-display)', fontSize: 32, fontWeight: 800, color: 'white', lineHeight: 1 }}>
-            {todayPickups.length}
+            {pending.length}
           </div>
           <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 3 }}>
-            Total Today
+            Pending Today
           </div>
         </div>
       </div>
@@ -519,7 +535,7 @@ export default function TodayPickups({ onNav }) {
       )}
 
       {/* ── Tabs ── */}
-      {todayPickups.length > 0 && (
+      {allTodayPickups.length > 0 && (
         <div style={{
           display: 'flex', gap: 4, padding: '4px 6px',
           background: 'var(--border-light)', borderRadius: 12,
@@ -552,7 +568,10 @@ export default function TodayPickups({ onNav }) {
       )}
 
       {/* ── Tab Content ── */}
-      {todayPickups.length === 0 ? (
+      {/* Use allTodayPickups (all statuses) for the outer guard so that days
+           where all pickups are completed still show the tab UI with the
+           Completed tab — not the "No Pickups Scheduled Today" empty state. */}
+      {allTodayPickups.length === 0 ? (
         <div className="empty-state">
           <div className="empty-icon" style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}>
             <ClipboardList size={26} />

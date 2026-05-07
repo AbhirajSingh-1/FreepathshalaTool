@@ -10,12 +10,16 @@ export default function Login() {
   const navigate = useNavigate()
   const location = useLocation()
 
-  const [email,        setEmail]        = useState('')
-  const [password,     setPassword]     = useState('')
-  const [saving,       setSaving]       = useState(false)
-  const [error,        setError]        = useState('')
-  const [showPassword, setShowPassword] = useState(false)
-  const [isMobile,     setIsMobile]     = useState(window.innerWidth < 640)
+  const [email,          setEmail]          = useState('')
+  const [password,       setPassword]       = useState('')
+  const [saving,         setSaving]         = useState(false)
+  const [error,          setError]          = useState('')
+  const [showPassword,   setShowPassword]   = useState(false)
+  const [isMobile,       setIsMobile]       = useState(window.innerWidth < 640)
+  // Guard: never show authError (from RoleContext bootstrap checks) until the
+  // user has actually pressed Sign In at least once.  This prevents transient
+  // backend startup failures from polluting a clean first-load login screen.
+  const [userHasAttempted, setUserHasAttempted] = useState(false)
 
   // Once authenticated, send to intended destination or role home
   useEffect(() => {
@@ -34,6 +38,7 @@ export default function Login() {
 
   const submit = async (e) => {
     e.preventDefault()
+    setUserHasAttempted(true)
     setSaving(true)
     setError('')
     try {
@@ -59,7 +64,7 @@ export default function Login() {
     transition: 'border-color 0.2s, box-shadow 0.2s',
   }
 
-  if (authLoading) return null
+  if (authLoading && !saving) return null
 
   return (
     <div style={{
@@ -127,7 +132,7 @@ export default function Login() {
             <input
               type="email"
               value={email}
-              onChange={e => setEmail(e.target.value)}
+              onChange={e => { setEmail(e.target.value); setError('') }}
               placeholder="your.email@example.com"
               required
               autoFocus
@@ -146,7 +151,7 @@ export default function Login() {
               <input
                 type={showPassword ? 'text' : 'password'}
                 value={password}
-                onChange={e => setPassword(e.target.value)}
+                onChange={e => { setPassword(e.target.value); setError('') }}
                 placeholder="••••••••"
                 required
                 style={{ ...inputStyle, paddingRight: 44 }}
@@ -167,10 +172,10 @@ export default function Login() {
             </div>
           </div>
 
-          {/* Error */}
-          {(error || authError) && (
-            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '11px 12px', background: '#fee2e2', border: '1px solid #fecaca', borderRadius: 8, fontSize: 12.5, color: '#dc2626' }}>
-              <span style={{ fontSize: 16, flexShrink: 0 }}>⚠</span>
+          {/* Error — only shown after the user has attempted to sign in */}
+          {(error || (userHasAttempted && authError)) && (
+            <div role="alert" style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '11px 14px', background: '#fee2e2', border: '1px solid #fecaca', borderRadius: 8, fontSize: 13, color: '#dc2626', lineHeight: 1.45 }}>
+              <span style={{ fontSize: 15, flexShrink: 0, marginTop: 1 }}>⚠</span>
               <span>{error || authError}</span>
             </div>
           )}

@@ -458,7 +458,7 @@ function StockInForm({ allSKSItems, onAdd, onAddCustomItem, showToast }) {
 
 // ── Stock In History ──────────────────────────────────────────────────────────
 function HistoryView({ inflows, outflows = [], allSKSItems = [], isAdmin, onDeleteInflow, onDeleteOutflow, onUpdateInflow, onUpdateOutflow, showToast }) {
-  const [datePreset, setDatePreset] = useState('')
+  const [datePreset, setDatePreset] = useState('month')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo,   setCustomTo]   = useState('')
   const [search,     setSearch]     = useState('')

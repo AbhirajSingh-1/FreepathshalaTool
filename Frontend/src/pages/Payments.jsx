@@ -667,7 +667,7 @@ function PartnerPaymentHub({ PickupPartners, recordPickupPartnerPayment, clearPa
   const { toasts, showToast, removeToast } = useToastStack()
 
   // ── Filter state ──────────────────────────────────────────────────────────
-  const [datePreset,    setDatePreset]    = useState('all')
+  const [datePreset,    setDatePreset]    = useState('month')
   const [customFrom,    setCustomFrom]    = useState('')
   const [customTo,      setCustomTo]      = useState('')
   const [statusFilter,  setStatusFilter]  = useState('all')
@@ -850,7 +850,7 @@ function PartnerPaymentHub({ PickupPartners, recordPickupPartnerPayment, clearPa
         <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
           {/* Date pills */}
           <div style={{ display:'flex', gap:4, background:'var(--bg)', borderRadius:8, padding:3 }}>
-            {DATE_PRESETS.filter(p=>p.id!=='all').map(p => (
+            {DATE_PRESETS.map(p => (
               <button key={p.id} onClick={() => setDatePreset(p.id)}
                 style={{ padding:'5px 12px', borderRadius:6, border:'none', cursor:'pointer', fontSize:12,
                   fontWeight: datePreset===p.id ? 700 : 400,
@@ -978,7 +978,7 @@ function PayBadge({ status }) {
 
 function RSTAnalytics() {
   const { CITIES, CITY_SECTORS, fetchFilteredRaddiRecords } = useApp()
-  const [datePreset,   setDatePreset]   = useState('all')
+  const [datePreset,   setDatePreset]   = useState('month')
   const [customFrom,   setCustomFrom]   = useState('')
   const [customTo,     setCustomTo]     = useState('')
   const [filterCity,   setFilterCity]   = useState('')
@@ -1194,7 +1194,7 @@ function RSTAnalytics() {
 // ── SKS Payment Analytics ──────────────────────────────────────────────────────
 function SKSPaymentAnalytics() {
   const { sksOutflows, recordSksOutflowPayment } = useApp()
-  const [datePreset, setDatePreset] = useState('all')
+  const [datePreset, setDatePreset] = useState('month')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo,   setCustomTo]   = useState('')
   const [filterStatus, setFilterStatus] = useState('')

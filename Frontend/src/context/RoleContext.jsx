@@ -13,6 +13,18 @@ export const ROLES = {
   executive: { label: 'Executive', color: '#3B82F6', bg: '#DBEAFE' },
 }
 
+// Returns true for connection-level failures that have no HTTP status
+// (backend cold-start, server not yet listening, DNS, CORS preflight drops).
+// These are distinct from real auth failures (401/403) which always carry err.status.
+function isTransientNetworkError(err) {
+  if (!err) return false
+  if (err.code === 'NETWORK_ERROR') return true   // tagged by fetchWithTimeout
+  if (err.name === 'AbortError')    return true   // timeout abort
+  if (typeof err.status === 'number') return false // real HTTP error — always show
+  // TypeError with no status means fetch() itself threw (no connection)
+  return err instanceof TypeError || !err.status
+}
+
 const RoleContext = createContext(null)
 
 function normalizeRole(role) {
@@ -57,8 +69,12 @@ export function RoleProvider({ children }) {
     }, delay)
   }, [clearRefreshTimer])
 
-  // Fetch user profile from backend - this is the single source of truth for role
-  const loadCurrentUser = useCallback(async () => {
+  // Fetch user profile from backend - this is the single source of truth for role.
+  // Pass { isBootstrap: true } when called during app initialisation so that
+  // transient network failures (backend cold-start, not-yet-listening) are swallowed
+  // silently instead of surfacing "Network request failed" on the login form.
+  const loadCurrentUser = useCallback(async (opts = {}) => {
+    const { isBootstrap = false } = opts
     const token = localStorage.getItem('fp_id_token')
     if (!token) {
       setUser(null)
@@ -82,7 +98,16 @@ export function RoleProvider({ children }) {
     } catch (err) {
       setUser(null)
       setRole('')
-      setAuthError(err.message || 'Session expired')
+      // During bootstrap, swallow transient network errors silently.
+      // The backend may still be warming up; there is nothing the user did wrong
+      // and showing "Network request failed" on a clean login form is misleading.
+      // Real auth failures (401, 403, invalid token) always carry err.status and
+      // are still surfaced so the user knows their session actually expired.
+      if (isBootstrap && isTransientNetworkError(err)) {
+        // Silent failure — login page renders clean with no error message
+      } else {
+        setAuthError(err.message || 'Session expired')
+      }
       return null
     } finally {
       setAuthLoading(false)
@@ -90,11 +115,10 @@ export function RoleProvider({ children }) {
   }, [scheduleTokenRefresh])
 
   useEffect(() => {
-    loadCurrentUser()
+    loadCurrentUser({ isBootstrap: true })
   }, [loadCurrentUser])
 
   const login = useCallback(async ({ email, password }) => {
-    setAuthLoading(true)
     setAuthError('')
     try {
       const session = await apiLogin(email, password)
@@ -106,8 +130,6 @@ export function RoleProvider({ children }) {
     } catch (err) {
       setAuthError(err.message || 'Login failed')
       throw err
-    } finally {
-      setAuthLoading(false)
     }
   }, [scheduleTokenRefresh])
 
@@ -127,7 +149,7 @@ export function RoleProvider({ children }) {
         setRole('')
         return
       }
-      loadCurrentUser()
+      loadCurrentUser({ isBootstrap: false })
     }
     window.addEventListener('storage', onStorage)
     return () => window.removeEventListener('storage', onStorage)

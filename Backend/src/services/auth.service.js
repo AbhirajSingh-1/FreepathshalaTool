@@ -30,7 +30,21 @@ async function firebaseAuthRequest(endpoint, body, secureToken = false) {
   const payload = await response.json();
   if (!response.ok) {
     const code = payload?.error?.message || "AUTH_REQUEST_FAILED";
-    throw new AppError("Authentication failed", 401, code);
+    // Map Firebase Identity Toolkit error codes to user-friendly messages.
+    // We intentionally map both EMAIL_NOT_FOUND and INVALID_PASSWORD to the
+    // same message to avoid leaking which field is wrong (security best practice).
+    const FIREBASE_AUTH_MESSAGES = {
+      INVALID_PASSWORD:              "Invalid email or password. Please try again",
+      EMAIL_NOT_FOUND:               "Invalid email or password. Please try again",
+      INVALID_LOGIN_CREDENTIALS:     "Invalid email or password. Please try again",
+      INVALID_EMAIL:                 "Please enter a valid email address.",
+      USER_DISABLED:                 "This account has been disabled. Please contact an administrator.",
+      TOO_MANY_ATTEMPTS_TRY_LATER:   "Too many failed sign-in attempts. Please try again later.",
+      MISSING_PASSWORD:              "Please enter your password.",
+      WEAK_PASSWORD:                 "Password must be at least 6 characters.",
+    };
+    const friendlyMessage = FIREBASE_AUTH_MESSAGES[code] || "Invalid email or password. Please try again";
+    throw new AppError(friendlyMessage, 401, code);
   }
 
   return payload;

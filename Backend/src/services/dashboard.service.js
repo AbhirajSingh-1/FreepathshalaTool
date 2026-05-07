@@ -34,8 +34,10 @@ function buildMonthlyRSTChart(completedPickups) {
     .slice(-7);
 }
 
-function buildMonthlySKSChart(completedPickups) {
+function buildMonthlySKSChart(completedPickups, sksInflows = []) {
   const map = {};
+
+  // Count SKS items from completed pickups (each sksItems entry = 1 item donated)
   completedPickups
     .filter((p) => (p.sksItems || []).length > 0)
     .forEach((pickup) => {
@@ -46,14 +48,31 @@ function buildMonthlySKSChart(completedPickups) {
       map[key].items   += (pickup.sksItems || []).length;
       map[key].pickups += 1;
     });
+
+  // Count SKS items from inflow records (use actual item quantities)
+  sksInflows.forEach((inflow) => {
+    const key = monthSortKey(inflow.date);
+    if (!key) return;
+    const label = monthKey(inflow.date);
+    if (!map[key]) map[key] = { month: label, items: 0, pickups: 0 };
+    const inflowQty = (inflow.items || []).reduce((s, it) => s + (Number(it?.qty) || 0), 0);
+    map[key].items += inflowQty;
+    // Inflows count as separate entries, not pickups — pickups counter unchanged
+  });
+
   return Object.entries(map)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([, v]) => v)
     .slice(-7);
 }
 
-function sumSKSItemsFromPickups(pickups = []) {
-  return pickups.reduce((sum, pickup) => sum + ((pickup.sksItems || []).length), 0);
+function sumSKSItemsFromPickups(pickups = [], sksInflows = []) {
+  const pickupTotal  = pickups.reduce((sum, pickup) => sum + ((pickup.sksItems || []).length), 0);
+  const inflowTotal  = sksInflows.reduce(
+    (sum, inflow) => sum + (inflow.items || []).reduce((s, it) => s + (Number(it?.qty) || 0), 0),
+    0
+  );
+  return pickupTotal + inflowTotal;
 }
 
 function buildMonthlyChartFromAggregates(rows = [], valueField, outputField) {
@@ -99,14 +118,26 @@ function buildRSTBreakdown(raddiRecords, completedPickups) {
     }));
 }
 
-function buildSKSBreakdown(completedPickups) {
+function buildSKSBreakdown(completedPickups, sksInflows = []) {
   const map = {};
+
+  // Aggregate from completed pickup sksItems (each entry = 1 item)
   completedPickups.forEach((p) => {
     (p.sksItems || []).forEach((item) => {
       const key = item.startsWith("Others") ? "Others" : item;
       map[key] = (map[key] || 0) + 1;
     });
   });
+
+  // Aggregate from SKS inflow records (use item quantities for accurate totals)
+  sksInflows.forEach((inflow) => {
+    (inflow.items || []).forEach((it) => {
+      if (!it || !it.name) return;
+      const key = String(it.name).startsWith("Others") ? "Others" : it.name;
+      map[key] = (map[key] || 0) + (Number(it.qty) || 0);
+    });
+  });
+
   const total = Object.values(map).reduce((s, v) => s + v, 0);
   return Object.entries(map)
     .filter(([, v]) => v > 0)
@@ -241,11 +272,11 @@ async function getStats(filters = {}) {
   );
 
   const rstBreakdown         = buildRSTBreakdown(raddiRecords, completedPickups);
-  const sksBreakdown         = buildSKSBreakdown(completedPickups);
+  const sksBreakdown         = buildSKSBreakdown(completedPickups, sksInflows);
   const rstFinancialSummary  = buildRSTFinancialSummary(raddiRecords);
   const sksDispatchSummary   = buildSKSDispatchSummary(sksOutflows);
   const monthlyRSTChart      = buildMonthlyRSTChart(completedPickups);
-  const monthlySKSChart      = buildMonthlySKSChart(completedPickups);
+  const monthlySKSChart      = buildMonthlySKSChart(completedPickups, sksInflows);
   const filteredAmountReceived = raddiRecords.reduce((sum, record) => {
     const total = Number(record.totalAmount) || 0;
     const paid = Number(record.amountPaid) || 0;
@@ -280,7 +311,7 @@ async function getStats(filters = {}) {
     sksInflowCount:           sksInflows.length,
     sksOutflowCount:          sksOutflows.length,
     sksStockItems:            stock.length,
-    totalSKSItems:            sumSKSItemsFromPickups(completedPickups),
+    totalSKSItems:            sumSKSItemsFromPickups(completedPickups, sksInflows),
     totalSKSPickups:          completedPickups.filter((p) => (p.sksItems || []).length > 0).length,
   };
 

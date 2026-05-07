@@ -9,7 +9,7 @@ function validate(schema) {
     });
 
     if (!result.success) {
-      next(new AppError("Validation failed", 422, "VALIDATION_ERROR", result.error.flatten()));
+      next(new AppError("Validation failed. Please Try Again!", 422, "VALIDATION_ERROR", result.error.flatten()));
       return;
     }
 

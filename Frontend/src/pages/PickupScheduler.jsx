@@ -1,6 +1,6 @@
 // Frontend/src/pages/PickupScheduler.jsx
 // ─── Pickup Scheduler — schedule form only (tabs moved to PickupOverview) ──────
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useLocation } from 'react-router-dom'
 import {
   CalendarDays, Plus, X, ChevronDown, Check,
@@ -9,6 +9,7 @@ import {
 import { useApp }      from '../context/AppContext'
 import DonorModal      from '../components/DonorModal'
 import { fmtDate }     from '../utils/helpers'
+import * as api        from '../services/api'
 
 const ALL_TIME_SLOTS = [
   '9:00 AM – 10:00 AM', '10:00 AM – 11:00 AM',
@@ -105,9 +106,45 @@ export default function PickupScheduler({ onNav }) {
   const [formError,  setFormError]  = useState('')
   const [showDonorModal, setDonorModal] = useState(false)
   const [toast,          setToast]      = useState(null)
-  const [targetPickupId, setTargetPickupId] = useState(null)
+  const [targetPickupId,   setTargetPickupId]   = useState(null)
+  const [conflictDismissed, setConflictDismissed] = useState(false)
+  // serverConflict: async result of the server-side duplicate check (more
+  // reliable than client-side when the local pickups list is stale/partial).
+  const [serverConflict, setServerConflict] = useState(null)
+  const [checkingConflict, setCheckingConflict] = useState(false)
 
   const activeDonors = useMemo(() => donors.filter(d => d.status !== 'Lost'), [donors])
+
+  // Detect duplicate scheduling: same donor + same date + Pending status (excluding reschedule target)
+  const conflictPickup = useMemo(() => {
+    if (!selectedDonorId || !date) return null
+    return pickups.find(
+      p => p.donorId === selectedDonorId &&
+           p.date    === date &&
+           (p.status === 'Pending' || p.status === 'Scheduled') &&
+           p.id !== targetPickupId
+    ) || null
+  }, [pickups, selectedDonorId, date, targetPickupId])
+
+  // ── Server-side conflict cross-check ─────────────────────────────────────
+  // Fires whenever donor or date changes.  Supplements the client-side memo
+  // for cases where the local pickups array is paginated / stale.
+  useEffect(() => {
+    if (!selectedDonorId || !date) {
+      setServerConflict(null)
+      return
+    }
+    let cancelled = false
+    setCheckingConflict(true)
+    api.checkSchedulingConflict(selectedDonorId, date, targetPickupId || undefined)
+      .then(res => {
+        if (!cancelled) setServerConflict(res?.conflict ? res.pickup : null)
+      })
+      .catch(() => { /* silent — client-side check still applies */ })
+      .finally(() => { if (!cancelled) setCheckingConflict(false) })
+    return () => { cancelled = true }
+  }, [selectedDonorId, date, targetPickupId])
+
   const timeSlots    = pickupMode === 'Drive' ? DRIVE_TIME_SLOTS : ALL_TIME_SLOTS
 
   useEffect(() => {
@@ -144,25 +181,44 @@ export default function PickupScheduler({ onNav }) {
     if (!selectedDonorId) { setFormError('Please select a donor'); return }
     if (!date)            { setFormError('Please pick a pickup date'); return }
     if (!timeSlot)        { setFormError('Please select a time slot'); return }
+
+    // Duplicate-scheduling guard: block submission when an unresolved conflict
+    // exists. If user explicitly dismissed the warning (Close), allow it.
+    const activeConflict = conflictPickup || serverConflict
+    if (activeConflict && !conflictDismissed) {
+      setFormError(
+        'A pickup is already scheduled for this donor on this date. ' +
+        'Pick a different date or click "Close" to proceed anyway.'
+      )
+      return
+    }
+
     setFormError('')
     setSaving(true)
-    const donor = activeDonors.find(d => d.id === selectedDonorId)
-    const payload = {
-      donorId: donor.id, donorName: donor.name,
-      mobile:  donor.mobile || '', society: donor.society || '',
-      sector:  donor.sector || '', city: donor.city || '',
-      date, timeSlot, pickupMode, notes,
-      status: 'Pending',
+    try {
+      const donor = activeDonors.find(d => d.id === selectedDonorId)
+      const payload = {
+        donorId: donor.id, donorName: donor.name,
+        mobile:  donor.mobile || '', society: donor.society || '',
+        sector:  donor.sector || '', city: donor.city || '',
+        date, timeSlot, pickupMode, notes,
+        status: 'Pending',
+      }
+      if (targetPickupId) {
+        await updatePickup(targetPickupId, payload)
+      } else {
+        await schedulePickup(payload)
+      }
+      setSelectedDonorId(''); setDate(''); setTimeSlot(''); setNotes('')
+      setTargetPickupId(null)
+      setConflictDismissed(false)
+      setServerConflict(null)
+      setToast(targetPickupId ? 'Pickup rescheduled successfully!' : 'Pickup scheduled successfully!')
+    } catch (err) {
+      setFormError(err?.message || 'Failed to save pickup. Please try again.')
+    } finally {
+      setSaving(false)
     }
-    if (targetPickupId) {
-      await updatePickup(targetPickupId, payload)
-    } else {
-      await schedulePickup(payload)
-    }
-    setSelectedDonorId(''); setDate(''); setTimeSlot(''); setNotes('')
-    setTargetPickupId(null)
-    setSaving(false)
-    setToast(targetPickupId ? 'Pickup rescheduled successfully!' : 'Pickup scheduled successfully!')
   }
 
   const donorDetails = useMemo(() => activeDonors.find(d => d.id === selectedDonorId), [activeDonors, selectedDonorId])
@@ -180,7 +236,7 @@ export default function PickupScheduler({ onNav }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div className="form-group" style={{ margin: 0 }}>
                 <label>Donor <span className="required">*</span></label>
-                <DonorDropdown donors={activeDonors} value={selectedDonorId} onChange={id => { setSelectedDonorId(id); setFormError('') }} onAddNew={() => setDonorModal(true)} />
+                <DonorDropdown donors={activeDonors} value={selectedDonorId} onChange={id => { setSelectedDonorId(id); setFormError(''); setConflictDismissed(false); setServerConflict(null) }} onAddNew={() => setDonorModal(true)} />
               </div>
 
               {donorDetails && (
@@ -194,7 +250,7 @@ export default function PickupScheduler({ onNav }) {
                 <label>Pickup Date <span className="required">*</span></label>
                 <div style={{ position: 'relative' }}>
                   <CalendarDays size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
-                  <input type="date" value={date} min={new Date().toISOString().slice(0, 10)} onChange={e => { setDate(e.target.value); setFormError('') }} style={{ paddingLeft: 36 }} />
+                  <input type="date" value={date} min={new Date().toISOString().slice(0, 10)} onChange={e => { setDate(e.target.value); setFormError(''); setConflictDismissed(false); setServerConflict(null) }} style={{ paddingLeft: 36 }} />
                 </div>
               </div>
 
@@ -226,10 +282,56 @@ export default function PickupScheduler({ onNav }) {
                 <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Instructions for the pickup team…" style={{ minHeight: 68 }} />
               </div>
 
+              {/* ── Scheduling conflict warning ── */}
+              {(conflictPickup || serverConflict) && !conflictDismissed && (
+                <div style={{
+                  padding: '14px 16px', background: '#fff7ed', border: '1.5px solid #fed7aa',
+                  borderRadius: 10, display: 'flex', flexDirection: 'column', gap: 10,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                    <AlertTriangle size={16} color="#ea580c" style={{ flexShrink: 0, marginTop: 1 }} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#9a3412', lineHeight: 1.3 }}>
+                        Duplicate Pickup Detected
+                      </div>
+                      <div style={{ fontSize: 12.5, color: '#c2410c', marginTop: 3, lineHeight: 1.5 }}>
+                        This donor already has a pickup scheduled on <strong>{fmtDate(date)}</strong>
+                        {(conflictPickup || serverConflict)?.timeSlot ? ` (${(conflictPickup || serverConflict).timeSlot})` : ''} — Order <strong>{(conflictPickup || serverConflict)?.orderId || (conflictPickup || serverConflict)?.id}</strong>.
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => { setDate(''); setConflictDismissed(false) }}
+                      style={{ flex: 1, padding: '7px 12px', borderRadius: 7, border: '1.5px solid #fed7aa', background: '#fff', color: '#9a3412', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}
+                    >
+                      Reschedule to New Date
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConflictDismissed(true)}
+                      style={{ padding: '7px 14px', borderRadius: 7, border: 'none', background: '#e5e7eb', color: '#6b7280', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}
+                    >
+                      Close
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {formError && <div style={{ fontSize: 12.5, color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: 6 }}>⚠ {formError}</div>}
 
-              <button className="btn btn-primary" onClick={handleSchedule} disabled={saving} style={{ width: '100%', justifyContent: 'center', padding: '10px' }}>
-                {saving ? <><span className="spin" style={{ display: 'inline-block', width: 14, height: 14, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: 'white', borderRadius: '50%' }} /> Saving…</> : <><Plus size={15} /> {targetPickupId ? 'Reschedule Pickup' : 'Schedule Pickup'}</>}
+              <button
+                className="btn btn-primary"
+                onClick={handleSchedule}
+                disabled={saving || checkingConflict}
+                style={{ width: '100%', justifyContent: 'center', padding: '10px', opacity: checkingConflict ? 0.75 : 1 }}
+              >
+                {saving
+                  ? <><span className="spin" style={{ display: 'inline-block', width: 14, height: 14, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: 'white', borderRadius: '50%' }} /> Saving…</>
+                  : checkingConflict
+                    ? <><span className="spin" style={{ display: 'inline-block', width: 14, height: 14, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: 'white', borderRadius: '50%' }} /> Checking…</>
+                    : <><Plus size={15} /> {targetPickupId ? 'Reschedule Pickup' : 'Schedule Pickup'}</>}
               </button>
             </div>
           </div>

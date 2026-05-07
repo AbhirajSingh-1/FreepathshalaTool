@@ -45,6 +45,9 @@ const pickupBase = z.object({
   lostReason: optionalString
 }).passthrough();
 
+// Scheduling a pickup does NOT require a partner — partners are assigned
+// later, either via Pickup Overview or at record time. The partner guard
+// lives exclusively on recordPickupSchema / the service-layer record path.
 const createPickupSchema = z.object({
   body: pickupBase
 });
@@ -62,11 +65,32 @@ const recordPickupSchema = z.object({
   }),
   body: pickupBase.partial().extend({
     status: z.string().default("Completed")
+  }).refine(
+    (b) => !!(b.partnerId || b.PickupPartner || b.pickupPartnerName),
+    {
+      message: "Pickup Partner assignment is required before recording pickup.",
+      path: ["partnerId"]
+    }
+  )
+});
+
+// ── Reschedule: only date, timeSlot, and notes may be changed ─────────────────
+// Status is always reset to "Pending" by the service layer.
+// Cannot reschedule a Completed pickup — guard lives in the service.
+const reschedulePickupSchema = z.object({
+  params: z.object({
+    id: z.string().min(1)
+  }),
+  body: z.object({
+    date:     z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "date must be YYYY-MM-DD"),
+    timeSlot: optionalString,
+    notes:    optionalString,
   })
 });
 
 module.exports = {
   createPickupSchema,
   updatePickupSchema,
-  recordPickupSchema
+  recordPickupSchema,
+  reschedulePickupSchema,
 };

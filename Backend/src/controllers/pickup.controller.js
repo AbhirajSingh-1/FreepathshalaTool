@@ -32,9 +32,23 @@ const record = asyncHandler(async (req, res) => {
   sendSuccess(res, data, "Pickup recorded");
 });
 
+const reschedule = asyncHandler(async (req, res) => {
+  const data = await pickupService.reschedulePickup(req.params.id, req.body, req.user);
+  sendSuccess(res, data, "Pickup rescheduled");
+});
+
 const remove = asyncHandler(async (req, res) => {
   const data = await pickupService.deletePickup(req.params.id);
   sendSuccess(res, data, "Pickup deleted");
+});
+
+const checkConflict = asyncHandler(async (req, res) => {
+  const { donorId, date, excludeId } = req.query;
+  if (!donorId || !date) {
+    return sendSuccess(res, { conflict: false }, "No conflict params provided");
+  }
+  const conflicting = await pickupService.checkSchedulingConflict(donorId, date, excludeId || null);
+  sendSuccess(res, { conflict: !!conflicting, pickup: conflicting || null }, "Conflict check complete");
 });
 
 module.exports = {
@@ -44,5 +58,7 @@ module.exports = {
   create,
   update,
   record,
-  remove
+  reschedule,
+  remove,
+  checkConflict,
 };
